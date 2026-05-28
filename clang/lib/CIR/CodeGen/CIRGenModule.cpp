@@ -26,12 +26,15 @@
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "clang/CIR/Interfaces/CIROpInterfaces.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "clang/Lex/Lexer.h"
 
 #include "CIRGenFunctionInfo.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Verifier.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/MemoryBuffer.h"
 
 #include <algorithm>
 
@@ -60,6 +63,48 @@ static CIRGenCXXABI *createCXXABI(CIRGenModule &cgm) {
   llvm_unreachable("invalid C++ ABI kind");
 }
 
+static mlir::Location getPresumedFileLineColLoc(mlir::Builder &builder,
+                                                const SourceManager &sm,
+                                                SourceLocation cLoc) {
+  PresumedLoc pLoc = sm.getPresumedLoc(cLoc);
+  StringRef filename = pLoc.getFilename();
+  return mlir::FileLineColLoc::get(builder.getStringAttr(filename),
+                                   pLoc.getLine(), pLoc.getColumn());
+}
+
+static mlir::Location getMacroAwareLoc(mlir::Builder &builder,
+                                       const SourceManager &sm,
+                                       const LangOptions &langOpts,
+                                       SourceLocation cLoc) {
+  mlir::Location loc = getPresumedFileLineColLoc(builder, sm, cLoc);
+  if (!cLoc.isMacroID())
+    return loc;
+
+  SourceLocation current = cLoc;
+  for (unsigned depth = 0; depth < 32 && current.isMacroID(); ++depth) {
+    SourceLocation spellingLoc = sm.getImmediateSpellingLoc(current);
+    if (spellingLoc.isInvalid())
+      spellingLoc = sm.getSpellingLoc(current);
+    mlir::Location calleeLoc =
+        spellingLoc.isValid()
+            ? getPresumedFileLineColLoc(builder, sm, spellingLoc)
+            : loc;
+
+    StringRef macroName = Lexer::getImmediateMacroName(current, sm, langOpts);
+    if (!macroName.empty())
+      calleeLoc =
+          mlir::NameLoc::get(builder.getStringAttr(macroName), calleeLoc);
+    loc = mlir::CallSiteLoc::get(calleeLoc, loc);
+
+    CharSourceRange expansion = sm.getImmediateExpansionRange(current);
+    SourceLocation next = expansion.getBegin();
+    if (next.isInvalid() || next == current)
+      break;
+    current = next;
+  }
+  return loc;
+}
+
 CIRGenModule::CIRGenModule(mlir::MLIRContext &mlirContext,
                            clang::ASTContext &astContext,
                            const clang::CodeGenOptions &cgo,
@@ -69,6 +114,7 @@ CIRGenModule::CIRGenModule(mlir::MLIRContext &mlirContext,
       theModule{mlir::ModuleOp::create(mlir::UnknownLoc::get(&mlirContext))},
       diags(diags), target(astContext.getTargetInfo()),
       abi(createCXXABI(*this)), genTypes(*this), vtables(*this) {
+  loadSelectedDeclRoots();
 
   // Initialize cached types
   voidTy = cir::VoidType::get(&getMLIRContext());
@@ -248,10 +294,7 @@ const TargetCIRGenInfo &CIRGenModule::getTargetCIRGenInfo() {
 mlir::Location CIRGenModule::getLoc(SourceLocation cLoc) {
   assert(cLoc.isValid() && "expected valid source location");
   const SourceManager &sm = astContext.getSourceManager();
-  PresumedLoc pLoc = sm.getPresumedLoc(cLoc);
-  StringRef filename = pLoc.getFilename();
-  return mlir::FileLineColLoc::get(builder.getStringAttr(filename),
-                                   pLoc.getLine(), pLoc.getColumn());
+  return getMacroAwareLoc(builder, sm, getLangOpts(), cLoc);
 }
 
 mlir::Location CIRGenModule::getLoc(SourceRange cRange) {
@@ -381,8 +424,7 @@ void CIRGenModule::emitGlobal(clang::GlobalDecl gd) {
       if (!fd->doesDeclarationForceExternallyVisibleDefinition())
         return;
 
-      errorNYI(fd->getSourceRange(),
-               "function declaration that forces code gen");
+      getAddrOfFunction(gd);
       return;
     }
   } else {
@@ -641,14 +683,38 @@ CIRGenModule::getOrCreateCIRGlobal(StringRef mangledName, mlir::Type ty,
     if (entry.getSymType() == ty)
       return entry;
 
-    // If there are two attempts to define the same mangled name, issue an
-    // error.
-    //
-    // TODO(cir): look at mlir::GlobalValue::isDeclaration for all aspects of
-    // recognizing the global as a declaration, for now only check if
-    // initializer is present.
-    if (isForDefinition && !entry.isDeclaration()) {
+    if (isForDefinition) {
+      // A prior declaration may have been emitted with the AST storage type,
+      // while the definition's constant initializer has a more precise CIR
+      // type. Upgrade the declaration in place so the module has one symbol.
+      //
+      // TODO(cir): look at mlir::GlobalValue::isDeclaration for all aspects of
+      // recognizing the global as a declaration, for now only check if
+      // initializer is present.
+      if (entry.isDeclaration()) {
+        entry.setSymType(ty);
+        if (std::optional<mlir::SymbolTable::UseRange> symUses =
+                entry.getSymbolUses(entry->getParentOp())) {
+          for (const mlir::SymbolTable::SymbolUse &use : symUses.value()) {
+            if (auto getGlobalOp =
+                    mlir::dyn_cast<cir::GetGlobalOp>(use.getUser())) {
+              getGlobalOp.getAddr().setType(builder.getPointerTo(ty));
+            } else if (mlir::isa<cir::ConstantOp, cir::GlobalOp>(
+                           use.getUser())) {
+              continue;
+            } else {
+              errorNYI(use.getUser()->getLoc(),
+                       "global declaration type replacement: unexpected use");
+            }
+          }
+        }
+        return entry;
+      }
+
+      // If there are two attempts to define the same mangled name, issue an
+      // error.
       errorNYI(d->getSourceRange(), "global with conflicting type");
+      return entry;
     }
 
     // Address space check removed because it is unnecessary because CIR records
@@ -824,7 +890,7 @@ void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
     // exists. A use may still exists, however, so we still may need
     // to do a RAUW.
     assert(!vd->getType()->isIncompleteType() && "Unexpected incomplete type");
-    init = builder.getZeroInitAttr(convertType(vd->getType()));
+    init = builder.getZeroInitAttr(getTypes().convertTypeForMem(vd->getType()));
   } else {
     emitter.emplace(*this);
     mlir::Attribute initializer = emitter->tryEmitForInitializer(*initDecl);
@@ -836,7 +902,7 @@ void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
       if (getLangOpts().CPlusPlus) {
         if (initDecl->hasFlexibleArrayInit(astContext))
           errorNYI(vd->getSourceRange(), "flexible array initializer");
-        init = builder.getZeroInitAttr(convertType(qt));
+        init = builder.getZeroInitAttr(getTypes().convertTypeForMem(qt));
         if (!isDefinitionAvailableExternally)
           needsGlobalCtor = true;
       } else {
@@ -862,12 +928,14 @@ void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
   }
   assert(!mlir::isa<mlir::NoneType>(initType) && "Should have a type by now");
 
+  mlir::Type declType = getTypes().convertTypeForMem(vd->getType());
   cir::GlobalOp gv =
-      getOrCreateCIRGlobal(vd, initType, ForDefinition_t(!isTentative));
+      getOrCreateCIRGlobal(vd, declType, ForDefinition_t(!isTentative));
   // TODO(cir): Strip off pointer casts from Entry if we get them?
 
-  if (!gv || gv.getSymType() != initType) {
-    errorNYI(vd->getSourceRange(), "global initializer with type mismatch");
+  if (!gv || gv.getSymType() != declType || initType != declType) {
+    errorNYI(vd->getSourceRange(),
+             "global initializer type does not match declared storage type");
     return;
   }
 
@@ -1360,6 +1428,10 @@ void CIRGenModule::replaceUsesOfNonProtoTypeWithRealFunction(
       // Replace type
       getGlobalOp.getAddr().setType(
           cir::PointerType::get(newFn.getFunctionType()));
+    } else if (mlir::isa<cir::ConstantOp, cir::GlobalOp>(use.getUser())) {
+      // Symbol attributes such as #cir.method and #cir.global_view keep the
+      // same symbol name; replacing the declaration is sufficient.
+      continue;
     } else {
       errorNYI(use.getUser()->getLoc(),
                "replaceUsesOfNonProtoTypeWithRealFunction: unexpected use");
@@ -1528,8 +1600,19 @@ mlir::Value CIRGenModule::emitMemberPointerConstant(const UnaryOperator *e) {
 
   // A member function pointer.
   if (isa<CXXMethodDecl>(decl)) {
-    errorNYI(e->getSourceRange(), "emitMemberPointerConstant: method pointer");
-    return {};
+    const auto *methodDecl = cast<CXXMethodDecl>(decl);
+    if (methodDecl->isVirtual()) {
+      errorNYI(e->getSourceRange(),
+               "emitMemberPointerConstant: virtual method pointer");
+      return {};
+    }
+    auto ty = mlir::cast<cir::MethodType>(convertType(e->getType()));
+    cir::FuncOp func = getAddrOfFunction(GlobalDecl(methodDecl));
+    return cir::ConstantOp::create(
+        builder, loc,
+        cir::MethodAttr::get(
+            ty, mlir::FlatSymbolRefAttr::get(func.getSymNameAttr()),
+            /*this_adjustment=*/0));
   }
 
   // Otherwise, a member data pointer.
@@ -1856,6 +1939,48 @@ CIRGenModule::getOpenACCBindMangledName(const IdentifierInfo *bindName,
   return ret;
 }
 
+void CIRGenModule::loadSelectedDeclRoots() {
+  if (codeGenOpts.ClangIRSelectedDeclsFile.empty())
+    return;
+
+  selectedDeclRootMode = true;
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> bufferOrErr =
+      llvm::MemoryBuffer::getFile(codeGenOpts.ClangIRSelectedDeclsFile);
+  if (!bufferOrErr) {
+    unsigned diagID = diags.getCustomDiagID(
+        DiagnosticsEngine::Error,
+        "failed to read -fclangir-emit-selected-decls file '%0': %1");
+    diags.Report(diagID) << codeGenOpts.ClangIRSelectedDeclsFile
+                         << bufferOrErr.getError().message();
+    return;
+  }
+
+  llvm::SmallVector<llvm::StringRef, 256> lines;
+  (*bufferOrErr)
+      ->getBuffer()
+      .split(lines, '\n', /*MaxSplit=*/-1,
+             /*KeepEmpty=*/false);
+  for (llvm::StringRef line : lines) {
+    line = line.trim();
+    if (line.empty())
+      continue;
+    selectedDeclRoots.insert(line);
+  }
+
+  if (selectedDeclRoots.empty()) {
+    unsigned diagID = diags.getCustomDiagID(
+        DiagnosticsEngine::Error, "-fclangir-emit-selected-decls file '%0' did "
+                                  "not contain any CIR symbols");
+    diags.Report(diagID) << codeGenOpts.ClangIRSelectedDeclsFile;
+  }
+}
+
+bool CIRGenModule::isSelectedDeclRoot(GlobalDecl gd) {
+  if (!selectedDeclRootMode)
+    return false;
+  return selectedDeclRoots.contains(getMangledName(gd));
+}
+
 StringRef CIRGenModule::getMangledName(GlobalDecl gd) {
   GlobalDecl canonicalGd = gd.getCanonicalDecl();
 
@@ -1901,6 +2026,9 @@ void CIRGenModule::emitTentativeDefinition(const VarDecl *d) {
 }
 
 bool CIRGenModule::mustBeEmitted(const ValueDecl *global) {
+  if (selectedDeclRootMode)
+    return isSelectedDeclRoot(GlobalDecl(global));
+
   // Never defer when EmitAllDecls is specified.
   if (langOpts.EmitAllDecls)
     return true;
@@ -2273,10 +2401,29 @@ cir::FuncOp CIRGenModule::getOrCreateCIRFunction(
     // error.
     auto fn = cast<cir::FuncOp>(entry);
     if (isForDefinition && fn && !fn.isDeclaration()) {
+      if (fn.getFunctionType() == funcType)
+        return fn;
       errorNYI(d->getSourceRange(), "Duplicate function definition");
     }
     if (fn && fn.getFunctionType() == funcType) {
       return fn;
+    }
+
+    if (fn && fn.isDeclaration() && !isForDefinition) {
+      auto oldTy = fn.getFunctionType();
+      auto newTy = mlir::cast<cir::FuncType>(funcType);
+      bool compatibleVarargRefinement =
+          newTy.isVarArg() && !oldTy.isVarArg() &&
+          oldTy.getReturnType() == newTy.getReturnType() &&
+          oldTy.getNumInputs() <= newTy.getNumInputs();
+      if (compatibleVarargRefinement) {
+        for (unsigned i = 0, e = oldTy.getNumInputs(); i != e; ++i)
+          compatibleVarargRefinement &= oldTy.getInput(i) == newTy.getInput(i);
+      }
+      if (compatibleVarargRefinement) {
+        fn.setFunctionType(newTy);
+        return fn;
+      }
     }
 
     if (!isForDefinition) {
@@ -2706,6 +2853,10 @@ void CIRGenModule::mapBlockAddress(cir::BlockAddrInfoAttr blockInfo,
       blockAddressInfoToLabel.try_emplace(blockInfo, label);
   assert(result.second &&
          "attempting to map a blockaddress info that is already mapped");
+}
+
+void CIRGenModule::mapConstantBlockAddress(cir::BlockAddrInfoAttr blockInfo) {
+  constantBlockAddresses.insert(blockInfo);
 }
 
 void CIRGenModule::mapUnresolvedBlockAddress(cir::BlockAddressOp op) {

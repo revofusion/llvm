@@ -47,6 +47,10 @@ public:
       cir::DataMemberAttr attr, const mlir::DataLayout &layout,
       const mlir::TypeConverter &typeConverter) const override;
 
+  mlir::TypedAttr
+  lowerMethodConstant(cir::MethodAttr attr,
+                      const mlir::TypeConverter &typeConverter) const override;
+
   mlir::Operation *
   lowerGetRuntimeMember(cir::GetRuntimeMemberOp op, mlir::Type loweredResultTy,
                         mlir::Value loweredAddr, mlir::Value loweredMember,
@@ -100,10 +104,10 @@ mlir::Type LowerItaniumCXXABI::lowerMethodType(
   //    };
 
   cir::IntType ptrdiffCIRTy = getPtrDiffCIRTy(lm);
+  mlir::Type loweredFuncTy = typeConverter.convertType(type.getMemberFuncTy());
+  auto fnPtrTy = cir::PointerType::get(loweredFuncTy);
 
-  // Note that clang CodeGen emits struct{ptrdiff_t, ptrdiff_t} for member
-  // function pointers. Let's follow this approach.
-  return cir::RecordType::get(type.getContext(), {ptrdiffCIRTy, ptrdiffCIRTy},
+  return cir::RecordType::get(type.getContext(), {fnPtrTy, ptrdiffCIRTy},
                               /*packed=*/false, /*padded=*/false,
                               cir::RecordType::Struct);
 }
@@ -127,6 +131,20 @@ mlir::TypedAttr LowerItaniumCXXABI::lowerDataMemberConstant(
 
   mlir::Type abiTy = lowerDataMemberType(attr.getType(), typeConverter);
   return cir::IntAttr::get(abiTy, memberOffset);
+}
+
+mlir::TypedAttr LowerItaniumCXXABI::lowerMethodConstant(
+    cir::MethodAttr attr, const mlir::TypeConverter &typeConverter) const {
+  auto recordTy = mlir::cast<cir::RecordType>(
+      lowerMethodType(attr.getType(), typeConverter));
+  llvm::SmallVector<mlir::Attribute, 2> members;
+  members.push_back(cir::GlobalViewAttr::get(
+      mlir::cast<cir::PointerType>(recordTy.getElementType(0)),
+      attr.getMethod(), {}));
+  members.push_back(cir::IntAttr::get(recordTy.getElementType(1),
+                                      attr.getThisAdjustment()));
+  return cir::ConstRecordAttr::get(
+      recordTy, mlir::ArrayAttr::get(attr.getContext(), members));
 }
 
 mlir::Operation *LowerItaniumCXXABI::lowerGetRuntimeMember(

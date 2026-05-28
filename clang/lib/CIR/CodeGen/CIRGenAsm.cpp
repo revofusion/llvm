@@ -88,11 +88,16 @@ mlir::LogicalResult CIRGenFunction::emitAsmStmt(const AsmStmt &s) {
   std::string asmString = s.generateAsmString(getContext());
 
   bool isGCCAsmGoto = false;
+  if (const auto *gccAsm = dyn_cast<GCCAsmStmt>(&s))
+    isGCCAsmGoto = gccAsm->isAsmGoto();
 
   std::string constraints;
   std::vector<mlir::Value> outArgs;
   std::vector<mlir::Value> inArgs;
   std::vector<mlir::Value> inOutArgs;
+  llvm::SmallVector<mlir::Attribute> operandAttrs;
+  llvm::SmallVector<LValue> resultStores;
+  llvm::SmallVector<mlir::Type> resultTypes;
 
   // An inline asm can be marked readonly if it meets the following conditions:
   //  - it doesn't have any sideeffects
@@ -102,18 +107,60 @@ mlir::LogicalResult CIRGenFunction::emitAsmStmt(const AsmStmt &s) {
   // in addition to meeting the conditions listed above.
   bool readOnly = true, readNone = true;
 
-  if (s.getNumInputs() != 0 || s.getNumOutputs() != 0) {
-    assert(!cir::MissingFeatures::asmInputOperands());
-    assert(!cir::MissingFeatures::asmOutputOperands());
-    cgm.errorNYI(s.getAsmLoc(), "asm with operands");
+  auto appendConstraint = [&](llvm::StringRef constraint) {
+    if (!constraints.empty())
+      constraints += ',';
+    constraints += constraint;
+  };
+
+  mlir::Type resultType;
+  for (unsigned i = 0, e = s.getNumOutputs(); i != e; ++i) {
+    std::string constraint = s.getOutputConstraint(i);
+    appendConstraint(constraint);
+
+    const Expr *outExpr = s.getOutputExpr(i);
+    LValue outLV = emitLValue(outExpr);
+    bool isReadWrite = s.isOutputPlusConstraint(i);
+    bool isMemory = constraint.find('m') != std::string::npos ||
+                    constraint.find('o') != std::string::npos ||
+                    constraint.find('V') != std::string::npos;
+
+    if (isMemory) {
+      outArgs.push_back(outLV.getPointer());
+      operandAttrs.push_back(builder.getUnitAttr());
+      continue;
+    }
+
+    if (isReadWrite) {
+      mlir::Value inOut =
+          emitLoadOfLValue(outLV, outExpr->getExprLoc()).getValue();
+      inOutArgs.push_back(inOut);
+      resultTypes.push_back(inOut.getType());
+    } else {
+      resultTypes.push_back(convertType(outExpr->getType()));
+    }
+    resultStores.push_back(outLV);
   }
+
+  if (resultTypes.size() == 1)
+    resultType = resultTypes.front();
+  else if (resultTypes.size() > 1)
+    resultType = builder.getAnonRecordTy(resultTypes);
+
+  for (unsigned i = 0, e = s.getNumInputs(); i != e; ++i) {
+    std::string constraint = s.getInputConstraint(i);
+    appendConstraint(constraint);
+    mlir::Value input = emitScalarExpr(s.getInputExpr(i));
+    inArgs.push_back(input);
+  }
+
+  operandAttrs.resize(outArgs.size() + inArgs.size() + inOutArgs.size(),
+                      mlir::Attribute());
 
   bool hasUnwindClobber = false;
   collectClobbers(*this, s, constraints, hasUnwindClobber, readOnly, readNone);
 
   std::array<mlir::ValueRange, 3> operands = {outArgs, inArgs, inOutArgs};
-
-  mlir::Type resultType;
 
   bool hasSideEffect = s.isVolatile() || s.getNumOutputs() == 0;
 
@@ -129,8 +176,25 @@ mlir::LogicalResult CIRGenFunction::emitAsmStmt(const AsmStmt &s) {
     assert(!cir::MissingFeatures::asmMemoryEffects());
   }
 
-  llvm::SmallVector<mlir::Attribute> operandAttrs;
   ia.setOperandAttrsAttr(builder.getArrayAttr(operandAttrs));
+
+  if (!resultStores.empty()) {
+    mlir::Value result = ia.getRes();
+    if (!result) {
+      cgm.errorNYI(s.getAsmLoc(), "asm register output without result");
+      return mlir::failure();
+    }
+    mlir::Location loc = getLoc(s.getAsmLoc());
+    if (resultStores.size() == 1) {
+      emitStoreThroughLValue(RValue::get(result), resultStores.front());
+    } else {
+      for (auto [index, resultStore] : llvm::enumerate(resultStores)) {
+        auto member =
+            cir::ExtractMemberOp::create(builder, loc, result, index).getResult();
+        emitStoreThroughLValue(RValue::get(member), resultStore);
+      }
+    }
+  }
 
   return mlir::success();
 }

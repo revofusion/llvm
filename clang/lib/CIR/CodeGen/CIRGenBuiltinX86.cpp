@@ -590,6 +590,7 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
     return emitIntrinsicCallOp(builder, getLoc(expr->getExprLoc()),
                                "x86.sse2.lfence", voidTy);
   case X86::BI_mm_pause:
+  case X86::BI__builtin_ia32_pause:
     return emitIntrinsicCallOp(builder, getLoc(expr->getExprLoc()),
                                "x86.sse2.pause", voidTy);
   case X86::BI_mm_mfence:
@@ -598,8 +599,27 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
   case X86::BI_mm_sfence:
     return emitIntrinsicCallOp(builder, getLoc(expr->getExprLoc()),
                                "x86.sse.sfence", voidTy);
-  case X86::BI_mm_prefetch:
   case X86::BI__rdtsc:
+  case X86::BI__builtin_ia32_rdtsc:
+    return emitIntrinsicCallOp(builder, getLoc(expr->getExprLoc()),
+                               "x86.rdtsc", convertType(expr->getType()));
+  case X86::BI__builtin_ia32_aeskeygenassist128:
+    return emitIntrinsicCallOp(builder, getLoc(expr->getExprLoc()),
+                               "x86.aesni.aeskeygenassist",
+                               convertType(expr->getType()), ops);
+  case X86::BI__builtin_ia32_sha256rnds2:
+    return emitIntrinsicCallOp(builder, getLoc(expr->getExprLoc()),
+                               "x86.sha256rnds2",
+                               convertType(expr->getType()), ops);
+  case X86::BI__builtin_ia32_sha256msg1:
+    return emitIntrinsicCallOp(builder, getLoc(expr->getExprLoc()),
+                               "x86.sha256msg1",
+                               convertType(expr->getType()), ops);
+  case X86::BI__builtin_ia32_sha256msg2:
+    return emitIntrinsicCallOp(builder, getLoc(expr->getExprLoc()),
+                               "x86.sha256msg2",
+                               convertType(expr->getType()), ops);
+  case X86::BI_mm_prefetch:
   case X86::BI__builtin_ia32_rdtscp: {
     cgm.errorNYI(expr->getSourceRange(),
                  std::string("unimplemented X86 builtin call: ") +

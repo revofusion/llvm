@@ -32,6 +32,7 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CIR/Dialect/IR/CIROpsEnums.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/TargetParser/Triple.h"
 
@@ -96,6 +97,12 @@ private:
 
   llvm::SmallVector<mlir::Attribute> globalScopeAsm;
 
+  bool selectedDeclRootMode = false;
+  llvm::StringSet<> selectedDeclRoots;
+
+  void loadSelectedDeclRoots();
+  bool isSelectedDeclRoot(clang::GlobalDecl gd);
+
 public:
   mlir::ModuleOp getModule() const { return theModule; }
   CIRGenBuilderTy &getBuilder() { return builder; }
@@ -133,12 +140,15 @@ public:
   /// Map CIR BlockAddressOps directly to their resolved LabelOps.
   /// Used once a block address has been successfully lowered to a label.
   llvm::MapVector<cir::BlockAddressOp, cir::LabelOp> blockAddressToLabel;
+  /// Block addresses emitted as constant attributes rather than SSA ops.
+  llvm::DenseSet<cir::BlockAddrInfoAttr> constantBlockAddresses;
   /// Track CIR BlockAddressOps that cannot be resolved immediately
   /// because their LabelOp has not yet been emitted. These entries
   /// are solved later once the corresponding label is available.
   llvm::DenseSet<cir::BlockAddressOp> unresolvedBlockAddressToLabel;
   cir::LabelOp lookupBlockAddressInfo(cir::BlockAddrInfoAttr blockInfo);
   void mapBlockAddress(cir::BlockAddrInfoAttr blockInfo, cir::LabelOp label);
+  void mapConstantBlockAddress(cir::BlockAddrInfoAttr blockInfo);
   void mapUnresolvedBlockAddress(cir::BlockAddressOp op);
   void mapResolvedBlockAddress(cir::BlockAddressOp op, cir::LabelOp);
   void updateResolvedBlockAddress(cir::BlockAddressOp op,

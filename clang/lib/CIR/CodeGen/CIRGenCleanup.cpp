@@ -28,16 +28,16 @@ using namespace clang::CIRGen;
 // CIRGenFunction cleanup related
 //===----------------------------------------------------------------------===//
 
+static mlir::Block *createNormalEntry(CIRGenFunction &cgf,
+                                      EHCleanupScope &scope);
+
 /// Build a unconditional branch to the lexical scope cleanup block
 /// or with the labeled blocked if already solved.
 ///
 /// Track on scope basis, goto's we need to fix later.
 cir::BrOp CIRGenFunction::emitBranchThroughCleanup(mlir::Location loc,
                                                    JumpDest dest) {
-  // Insert a branch: to the cleanup block (unsolved) or to the already
-  // materialized label. Keep track of unsolved goto's.
   assert(dest.getBlock() && "assumes incoming valid dest");
-  auto brOp = cir::BrOp::create(builder, loc, dest.getBlock());
 
   // Calculate the innermost active normal cleanup.
   EHScopeStack::stable_iterator topCleanup =
@@ -49,22 +49,17 @@ cir::BrOp CIRGenFunction::emitBranchThroughCleanup(mlir::Location loc,
   if (topCleanup == ehStack.stable_end() ||
       topCleanup.encloses(dest.getScopeDepth())) { // works for invalid
     // FIXME(cir): should we clear insertion point here?
-    return brOp;
+    return cir::BrOp::create(builder, loc, dest.getBlock());
   }
 
-  // If we can't resolve the destination cleanup scope, just add this
-  // to the current cleanup scope as a branch fixup.
-  if (!dest.getScopeDepth().isValid()) {
-    BranchFixup &fixup = ehStack.addBranchFixup();
-    fixup.destination = dest.getBlock();
-    fixup.destinationIndex = dest.getDestIndex();
-    fixup.initialBranch = brOp;
-    fixup.optimisticBranchBlock = nullptr;
-    // FIXME(cir): should we clear insertion point here?
-    return brOp;
-  }
+  EHCleanupScope &scope = llvm::cast<EHCleanupScope>(*ehStack.find(topCleanup));
+  auto brOp = cir::BrOp::create(builder, loc, createNormalEntry(*this, scope));
+  BranchFixup &fixup = ehStack.addBranchFixup();
+  fixup.destination = dest.getBlock();
+  fixup.destinationIndex = dest.getDestIndex();
+  fixup.initialBranch = brOp;
+  fixup.optimisticBranchBlock = nullptr;
 
-  cgm.errorNYI(loc, "emitBranchThroughCleanup: valid destination scope depth");
   return brOp;
 }
 
@@ -136,7 +131,13 @@ void EHScopeStack::deallocate(size_t size) {
 void EHScopeStack::popNullFixups() {
   // We expect this to only be called when there's still an innermost
   // normal cleanup;  otherwise there really shouldn't be any fixups.
-  cgf->cgm.errorNYI("popNullFixups");
+  assert(hasNormalCleanups());
+  EHCleanupScope &cleanup =
+      llvm::cast<EHCleanupScope>(*find(getInnermostNormalCleanup()));
+  unsigned minFixupDepth = cleanup.getFixupDepth();
+  while (branchFixups.size() > minFixupDepth &&
+         branchFixups.back().destination == nullptr)
+    branchFixups.pop_back();
 }
 
 void *EHScopeStack::pushCleanup(CleanupKind kind, size_t size) {
@@ -217,6 +218,39 @@ static void emitCleanup(CIRGenFunction &cgf, EHScopeStack::Cleanup *cleanup,
   assert(!cir::MissingFeatures::ehCleanupActiveFlag());
   cleanup->emit(cgf, flags);
   assert(cgf.haveInsertPoint() && "cleanup ended with no insertion point?");
+}
+
+void CIRGenFunction::emitCleanupsForReturn() {
+  for (EHScopeStack::stable_iterator si = ehStack.getInnermostNormalCleanup();
+       si != ehStack.stable_end();) {
+    EHCleanupScope &scope = cast<EHCleanupScope>(*ehStack.find(si));
+    si = scope.getEnclosingNormalCleanup();
+    if (!scope.isActive())
+      continue;
+
+    auto *cleanupSource = reinterpret_cast<char *>(scope.getCleanupBuffer());
+    alignas(EHScopeStack::ScopeStackAlignment) char
+        cleanupBufferStack[8 * sizeof(void *)];
+    std::unique_ptr<char[]> cleanupBufferHeap;
+    size_t cleanupSize = scope.getCleanupSize();
+    EHScopeStack::Cleanup *cleanup;
+    if (cleanupSize <= sizeof(cleanupBufferStack)) {
+      memcpy(cleanupBufferStack, cleanupSource, cleanupSize);
+      cleanup = reinterpret_cast<EHScopeStack::Cleanup *>(cleanupBufferStack);
+    } else {
+      cleanupBufferHeap.reset(new char[cleanupSize]);
+      memcpy(cleanupBufferHeap.get(), cleanupSource, cleanupSize);
+      cleanup =
+          reinterpret_cast<EHScopeStack::Cleanup *>(cleanupBufferHeap.get());
+    }
+
+    EHScopeStack::Cleanup::Flags cleanupFlags;
+    if (scope.isNormalCleanup())
+      cleanupFlags.setIsNormalCleanupKind();
+    if (scope.isEHCleanup())
+      cleanupFlags.setIsEHCleanupKind();
+    emitCleanup(*this, cleanup, cleanupFlags);
+  }
 }
 
 static mlir::Block *createNormalEntry(CIRGenFunction &cgf,
@@ -332,6 +366,36 @@ void CIRGenFunction::popCleanupBlock() {
     // epilogue.
     bool hasEnclosingCleanups =
         (scope.getEnclosingNormalCleanup() != ehStack.stable_end());
+    EHScopeStack::stable_iterator enclosingNormalCleanup =
+        scope.getEnclosingNormalCleanup();
+
+    mlir::Region *normalEntryRegion = normalEntry->getParent();
+    mlir::Block *branchThroughDest = nullptr;
+    unsigned branchThroughDestIndex = 0;
+    bool needsClonedFixupCleanups = false;
+    if (hasFixups) {
+      for (unsigned i = fixupDepth; i != ehStack.getNumBranchFixups(); ++i) {
+        BranchFixup &fixup = ehStack.getBranchFixup(i);
+        if (!fixup.destination)
+          continue;
+        if (fixup.initialBranch &&
+            fixup.initialBranch->getBlock()->getParent() !=
+                normalEntryRegion)
+          needsClonedFixupCleanups = true;
+        if (fixup.destination->getParent() != normalEntryRegion)
+          needsClonedFixupCleanups = true;
+        if (!branchThroughDest) {
+          branchThroughDest = fixup.destination;
+          branchThroughDestIndex = fixup.destinationIndex;
+          continue;
+        }
+        if (branchThroughDest != fixup.destination ||
+            branchThroughDestIndex != fixup.destinationIndex) {
+          needsClonedFixupCleanups = true;
+          break;
+        }
+      }
+    }
 
     // Compute the branch-through dest if we need it:
     //   - if there are branch-throughs threaded through the scope
@@ -339,10 +403,69 @@ void CIRGenFunction::popCleanupBlock() {
     //   - if there are fixups that will be optimistically forwarded
     //     to the enclosing cleanup
     assert(!cir::MissingFeatures::cleanupBranchThrough());
-    if (hasFixups && hasEnclosingCleanups)
-      cgm.errorNYI("cleanup branch-through dest");
 
     mlir::Block *fallthroughDest = nullptr;
+
+    if (needsClonedFixupCleanups) {
+      assert(hasFixups && "cloned cleanup routing requires branch fixups");
+      assert(!hasFallthrough &&
+             "fallthrough plus cloned cleanup routing needs cleanup.dest");
+
+      scope.markEmitted();
+      ehStack.popCleanup();
+      assert(ehStack.hasNormalCleanups() == hasEnclosingCleanups);
+
+      mlir::Block *enclosingCleanupBlock = nullptr;
+      if (hasEnclosingCleanups) {
+        EHCleanupScope &enclosingScope =
+            cast<EHCleanupScope>(*ehStack.find(enclosingNormalCleanup));
+        enclosingCleanupBlock = createNormalEntry(*this, enclosingScope);
+      }
+
+      if (hasFallthrough) {
+        builder.setInsertionPointToEnd(normalEntry);
+        emitCleanup(*this, cleanup, cleanupFlags);
+      }
+
+      for (unsigned i = fixupDepth; i != ehStack.getNumBranchFixups(); ++i) {
+        BranchFixup &fixup = ehStack.getBranchFixup(i);
+        if (!fixup.destination)
+          continue;
+
+        mlir::Region *cleanupRegion =
+            fixup.initialBranch->getBlock()->getParent();
+        mlir::Block *clonedEntry = builder.createBlock(cleanupRegion);
+        fixup.initialBranch.setSuccessor(clonedEntry);
+        builder.setInsertionPointToEnd(clonedEntry);
+        emitCleanup(*this, cleanup, cleanupFlags);
+
+        mlir::Block *nextBlock =
+            hasEnclosingCleanups ? enclosingCleanupBlock : fixup.destination;
+        if (!hasEnclosingCleanups && nextBlock &&
+            nextBlock->getParent() != cleanupRegion)
+          cgm.errorNYI(fixup.initialBranch.getLoc(),
+                       "cleanup final branch crosses CIR region boundary");
+        if (nextBlock)
+          fixup.initialBranch =
+              cir::BrOp::create(builder, builder.getUnknownLoc(), nextBlock);
+        if (!hasEnclosingCleanups)
+          fixup.destination = nullptr;
+      }
+
+      if (hasFallthrough) {
+        builder.setInsertionPointToEnd(normalEntry);
+      } else {
+        // Leave a dead continuation as the current insertion point. CIR's
+        // LexicalScope cleanup currently assumes a block is present and will
+        // erase an unreachable empty block before returning.
+        mlir::Region *continuationRegion =
+            builder.getBlock() ? builder.getBlock()->getParent()
+                               : normalEntryRegion;
+        mlir::Block *deadContinuation = builder.createBlock(continuationRegion);
+        builder.setInsertionPointToEnd(deadContinuation);
+      }
+      return;
+    }
 
     // If there's exactly one branch-after and no other threads,
     // we can route it without a switch.
@@ -364,9 +487,22 @@ void CIRGenFunction::popCleanupBlock() {
     // Append the prepared cleanup prologue from above.
     assert(!cir::MissingFeatures::cleanupAppendInsts());
 
-    // Optimistically hope that any fixups will continue falling through.
-    if (fixupDepth != ehStack.getNumBranchFixups())
+    if (hasFixups) {
+      mlir::Block *nextBlock = nullptr;
+      if (hasEnclosingCleanups) {
+        EHCleanupScope &enclosingScope =
+            cast<EHCleanupScope>(*ehStack.find(enclosingNormalCleanup));
+        nextBlock = createNormalEntry(*this, enclosingScope);
+      } else {
+        nextBlock = branchThroughDest;
+        for (unsigned i = fixupDepth; i != ehStack.getNumBranchFixups(); ++i)
+          ehStack.getBranchFixup(i).destination = nullptr;
+      }
+      if (nextBlock)
+        cir::BrOp::create(builder, builder.getUnknownLoc(), nextBlock);
+    } else if (fixupDepth != ehStack.getNumBranchFixups()) {
       cgm.errorNYI("cleanup fixup depth mismatch");
+    }
 
     // V.  Set up the fallthrough edge out.
 
@@ -377,7 +513,7 @@ void CIRGenFunction::popCleanupBlock() {
       // Non-prebranched fallthrough doesn't need to be forwarded.
       // Either way, all we need to do is restore the IP we cleared before.
       assert(!isActive);
-      cgm.errorNYI("cleanup inactive fallthrough");
+      builder.restoreInsertionPoint(savedInactiveFallthroughIP);
 
       // Case 2: a fallthrough source exists and should branch to the
       // cleanup, but we're not supposed to branch through to the next
@@ -392,7 +528,7 @@ void CIRGenFunction::popCleanupBlock() {
 
       // Case 4: no fallthrough source exists.
     } else {
-      // FIXME(cir): should we clear insertion point here?
+      builder.clearInsertionPoint();
     }
 
     // VI.  Assorted cleaning.

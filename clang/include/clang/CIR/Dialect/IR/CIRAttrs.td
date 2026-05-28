@@ -499,6 +499,37 @@ def CIR_DataMemberAttr : CIR_Attr<"DataMember", "data_member", [
 }
 
 //===----------------------------------------------------------------------===//
+// MethodAttr
+//===----------------------------------------------------------------------===//
+
+def CIR_MethodAttr : CIR_Attr<"Method", "method", [
+  TypedAttrInterface
+]> {
+  let summary = "Holds a constant C++ pointer-to-member-function value";
+  let parameters = (ins AttributeSelfTypeParameter<
+                            "", "cir::MethodType">:$type,
+                        "mlir::FlatSymbolRefAttr":$method,
+                        "int64_t":$this_adjustment);
+  let description = [{
+    A method attribute is a literal attribute that represents a non-null
+    pointer-to-member-function value before target ABI lowering. Null member
+    function pointers are represented with `#cir.zero` on the method type.
+  }];
+
+  let builders = [
+    AttrBuilderWithInferredContext<(ins "cir::MethodType":$type,
+                                        "mlir::FlatSymbolRefAttr":$method,
+                                        "int64_t":$this_adjustment), [{
+      return $_get(type.getContext(), type, method, this_adjustment);
+    }]>
+  ];
+
+  let assemblyFormat = [{
+    `<` $method `,` $this_adjustment `>`
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // GlobalViewAttr
 //===----------------------------------------------------------------------===//
 
@@ -1179,6 +1210,26 @@ def CIR_BlockAddrInfoAttr : CIR_Attr<"BlockAddrInfo", "block_addr_info"> {
                    mlir::StringAttr::get($_ctxt, label_name));
     }]>
   ];
+}
+
+def CIR_BlockAddressAttr : CIR_Attr<"BlockAddress", "block_address", [
+  TypedAttrInterface
+]> {
+  let summary = "Holds a constant label address";
+  let parameters = (ins AttributeSelfTypeParameter<
+                            "", "cir::PointerType">:$type,
+                        "cir::BlockAddrInfoAttr":$block_addr_info);
+  let description = [{
+    A block address attribute represents GCC's labels-as-values extension when
+    the label address appears in a constant initializer.
+  }];
+  let builders = [
+    AttrBuilderWithInferredContext<(ins "cir::PointerType":$type,
+                                        "cir::BlockAddrInfoAttr":$info), [{
+      return $_get(type.getContext(), type, info);
+    }]>
+  ];
+  let assemblyFormat = "`<` $block_addr_info `>`";
 }
 
 #endif // CLANG_CIR_DIALECT_IR_CIRATTRS_TD

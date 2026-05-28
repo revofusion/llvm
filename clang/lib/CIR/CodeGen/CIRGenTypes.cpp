@@ -648,12 +648,6 @@ bool CIRGenTypes::isZeroInitializable(clang::QualType t) {
   if (const auto *rd = t->getAsRecordDecl())
     return isZeroInitializable(rd);
 
-  if (t->getAs<MemberPointerType>()) {
-    cgm.errorNYI(SourceLocation(), "isZeroInitializable for MemberPointerType",
-                 t);
-    return false;
-  }
-
   return true;
 }
 
@@ -676,10 +670,12 @@ CIRGenTypes::arrangeCIRFunctionInfo(CanQualType returnType,
   if (fi) {
     // We found a matching function info based on id. These asserts verify that
     // it really is a match.
-    assert(
-        fi->getReturnType() == returnType &&
-        std::equal(fi->argTypesBegin(), fi->argTypesEnd(), argTypes.begin()) &&
-        "Bad match based on CIRGenFunctionInfo folding set id");
+    assert(fi->getRequiredArgs().getOpaqueData() == required.getOpaqueData() &&
+           fi->getReturnType() == returnType &&
+           fi->argTypeSize() == argTypes.size() &&
+           std::equal(fi->argTypesBegin(), fi->argTypesEnd(),
+                      argTypes.begin()) &&
+           "Bad match based on CIRGenFunctionInfo folding set id");
     return *fi;
   }
 

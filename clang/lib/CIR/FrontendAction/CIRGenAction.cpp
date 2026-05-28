@@ -129,6 +129,7 @@ public:
       if (OutputStream && MlirModule) {
         mlir::OpPrintingFlags Flags;
         Flags.enableDebugInfo(/*enable=*/true, /*prettyForm=*/false);
+        Flags.printUniqueSSAIDs();
         MlirModule->print(*OutputStream, Flags);
       }
       break;

@@ -105,11 +105,7 @@ mlir::Location CIRGenFunction::getLoc(SourceLocation srcLoc) {
   // Some AST nodes might contain invalid source locations (e.g.
   // CXXDefaultArgExpr), workaround that to still get something out.
   if (srcLoc.isValid()) {
-    const SourceManager &sm = getContext().getSourceManager();
-    PresumedLoc pLoc = sm.getPresumedLoc(srcLoc);
-    StringRef filename = pLoc.getFilename();
-    return mlir::FileLineColLoc::get(builder.getStringAttr(filename),
-                                     pLoc.getLine(), pLoc.getColumn());
+    return cgm.getLoc(srcLoc);
   }
   // Do our best...
   assert(currSrcLoc && "expected to inherit some source location");
@@ -120,11 +116,7 @@ mlir::Location CIRGenFunction::getLoc(SourceRange srcLoc) {
   // Some AST nodes might contain invalid source locations (e.g.
   // CXXDefaultArgExpr), workaround that to still get something out.
   if (srcLoc.isValid()) {
-    mlir::Location beg = getLoc(srcLoc.getBegin());
-    mlir::Location end = getLoc(srcLoc.getEnd());
-    SmallVector<mlir::Location, 2> locs = {beg, end};
-    mlir::Attribute metadata;
-    return mlir::FusedLoc::get(locs, metadata, &getMLIRContext());
+    return cgm.getLoc(srcLoc);
   }
   if (currSrcLoc) {
     return *currSrcLoc;
@@ -291,13 +283,20 @@ void CIRGenFunction::LexicalScope::cleanup() {
         } else {
           // Thread return block via cleanup block.
           if (cleanupBlock) {
+            llvm::SmallVector<cir::BrOp> retBranches;
             for (mlir::BlockOperand &blockUse : retBlock->getUses()) {
-              cir::BrOp brOp = mlir::cast<cir::BrOp>(blockUse.getOwner());
-              brOp.setSuccessor(cleanupBlock);
+              mlir::Operation *owner = blockUse.getOwner();
+              cir::BrOp brOp = mlir::cast<cir::BrOp>(owner);
+              if (owner->getBlock() == cleanupBlock)
+                continue;
+              retBranches.push_back(brOp);
             }
+            for (cir::BrOp brOp : retBranches)
+              brOp.setSuccessor(cleanupBlock);
           }
 
-          cir::BrOp::create(builder, retLoc, retBlock);
+          if (!builder.getInsertionBlock()->mightHaveTerminator())
+            cir::BrOp::create(builder, retLoc, retBlock);
           return;
         }
       }
@@ -318,16 +317,30 @@ void CIRGenFunction::LexicalScope::cleanup() {
   // and set the insertion point to continue at the cleanup block.
   // Terminators are then inserted either in the cleanup block or
   // inline in this current block.
+  mlir::Block *curBlock = builder.getBlock();
+  if (isGlobalInit() && !curBlock)
+    return;
+
+  // A direct cir.return emits all active cleanups inline and then leaves a dead
+  // continuation so surrounding structured builders can resume.  That block is
+  // not a real fallthrough edge and must not trigger lexical cleanups again.
+  if (curBlock && !curBlock->isEntryBlock() && curBlock->empty() &&
+      curBlock->hasNoPredecessors()) {
+    discardCleanups();
+    curBlock->erase();
+    for (mlir::Block *retBlock : retBlocks) {
+      if (retBlock->getUses().empty())
+        retBlock->erase();
+    }
+    return;
+  }
+
   mlir::Block *cleanupBlock = localScope->getCleanupBlock(builder);
   if (cleanupBlock)
     insertCleanupAndLeave(cleanupBlock);
 
   // Now deal with any pending block wrap up like implicit end of
   // scope.
-
-  mlir::Block *curBlock = builder.getBlock();
-  if (isGlobalInit() && !curBlock)
-    return;
   if (curBlock->mightHaveTerminator() && curBlock->getTerminator())
     return;
 
@@ -600,6 +613,15 @@ void CIRGenFunction::finishIndirectBranch() {
   llvm::SmallVector<mlir::ValueRange> rangeOperands;
   mlir::OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointToEnd(indirectGotoBlock);
+  auto func = cast<cir::FuncOp>(curFn);
+  for (cir::BlockAddrInfoAttr blockInfo : cgm.constantBlockAddresses) {
+    if (blockInfo.getFunc().getAttr() != func.getSymName())
+      continue;
+    cir::LabelOp labelOp = cgm.lookupBlockAddressInfo(blockInfo);
+    assert(labelOp && "expected constant block address label to be emitted");
+    succesors.push_back(labelOp->getBlock());
+    rangeOperands.push_back(labelOp->getBlock()->getArguments());
+  }
   for (auto &[blockAdd, labelOp] : cgm.blockAddressToLabel) {
     succesors.push_back(labelOp->getBlock());
     rangeOperands.push_back(labelOp->getBlock()->getArguments());
@@ -661,6 +683,49 @@ static void eraseEmptyAndUnusedBlocks(cir::FuncOp func) {
     block->erase();
 }
 
+static bool shouldUseImplicitYieldTerminator(mlir::Block &block) {
+  mlir::Operation *parent = block.getParentOp();
+  if (!parent)
+    return false;
+
+  if (auto scope = mlir::dyn_cast<cir::ScopeOp>(parent))
+    return scope.getNumResults() == 0;
+  if (auto ternary = mlir::dyn_cast<cir::TernaryOp>(parent))
+    return ternary.getNumResults() == 0;
+  if (auto whileOp = mlir::dyn_cast<cir::WhileOp>(parent))
+    return block.getParent() == &whileOp.getBody();
+  if (auto doWhileOp = mlir::dyn_cast<cir::DoWhileOp>(parent))
+    return block.getParent() == &doWhileOp.getBody();
+  if (auto forOp = mlir::dyn_cast<cir::ForOp>(parent))
+    return block.getParent() == &forOp.getBody() ||
+           block.getParent() == &forOp.getStep();
+
+  return mlir::isa<cir::ArrayCtor, cir::ArrayDtor, cir::AwaitOp, cir::CaseOp,
+                   cir::GlobalOp, cir::IfOp, cir::SwitchOp, cir::TryOp>(parent);
+}
+
+static void terminateUnterminatedBlocks(mlir::Operation *root,
+                                        CIRGenBuilderTy &builder,
+                                        mlir::Location loc) {
+  mlir::OpBuilder::InsertionGuard guard(builder);
+  llvm::SmallVector<mlir::Block *> blocks;
+  root->walk([&](mlir::Operation *op) {
+    for (mlir::Region &region : op->getRegions()) {
+      for (mlir::Block &block : region)
+        blocks.push_back(&block);
+    }
+  });
+  for (mlir::Block *block : blocks) {
+    if (!block->empty() &&
+        block->back().hasTrait<mlir::OpTrait::IsTerminator>())
+      continue;
+    builder.setInsertionPointToEnd(block);
+    if (shouldUseImplicitYieldTerminator(*block))
+      cir::YieldOp::create(builder, loc);
+    else if (mlir::isa<cir::FuncOp>(block->getParentOp()))
+      cir::UnreachableOp::create(builder, loc);
+  }
+}
 cir::FuncOp CIRGenFunction::generateCode(clang::GlobalDecl gd, cir::FuncOp fn,
                                          cir::FuncType funcType) {
   const auto *funcDecl = cast<FunctionDecl>(gd.getDecl());
@@ -769,13 +834,15 @@ cir::FuncOp CIRGenFunction::generateCode(clang::GlobalDecl gd, cir::FuncOp fn,
       llvm_unreachable("no definition for normal function");
     }
 
-    if (mlir::failed(fn.verifyBody()))
-      return nullptr;
-
     finishFunction(bodyRange.getEnd());
   }
 
+  terminateUnterminatedBlocks(fn, builder, getLoc(bodyRange.getEnd()));
   eraseEmptyAndUnusedBlocks(fn);
+
+  if (mlir::failed(fn.verifyBody()))
+    return nullptr;
+
   return fn;
 }
 
@@ -1084,11 +1151,6 @@ void CIRGenFunction::emitNullInitialization(mlir::Location loc, Address destPtr,
     if (const auto *rd = ty->getAsCXXRecordDecl(); rd && rd->isEmpty())
       return;
 
-  // Cast the dest ptr to the appropriate i8 pointer type.
-  if (builder.isInt8Ty(destPtr.getElementType())) {
-    cgm.errorNYI(loc, "Cast the dest ptr to the appropriate i8 pointer type");
-  }
-
   // Get size and alignment info for this aggregate.
   const CharUnits size = getContext().getTypeSizeInChars(ty);
   if (size.isZero()) {
@@ -1107,12 +1169,18 @@ void CIRGenFunction::emitNullInitialization(mlir::Location loc, Address destPtr,
   // like -1, which happens to be the pattern used by member-pointers.
   if (!cgm.getTypes().isZeroInitializable(ty)) {
     cgm.errorNYI(loc, "type is not zero initializable");
+    return;
   }
 
-  // In LLVM Codegen: otherwise, just memset the whole thing to zero using
-  // Builder.CreateMemSet. In CIR just emit a store of #cir.zero to the
-  // respective address.
-  // Builder.CreateMemSet(DestPtr, Builder.getInt8(0), SizeVal, false);
+  if (ty->isArrayType()) {
+    if (!getContext().getAsConstantArrayType(ty)) {
+      cgm.errorNYI(loc, "emitNullInitialization for non-constant array type");
+      return;
+    }
+  }
+
+  // Preserve aggregate zero-initialization structurally. Expanding this into
+  // scalar field/element stores makes large objects unusably large downstream.
   const mlir::Value zeroValue = builder.getNullValue(convertType(ty), loc);
   builder.createStore(loc, zeroValue, destPtr);
 }

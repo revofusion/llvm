@@ -152,6 +152,7 @@ Address CIRGenFunction::emitPointerWithAlignment(const Expr *expr,
     case CK_Dynamic:
     case CK_FunctionToPointerDecay:
     case CK_IntegralToPointer:
+    case CK_AtomicToNonAtomic:
     case CK_LValueToRValue:
     case CK_LValueToRValueBitCast:
     case CK_NullToMemberPointer:
@@ -166,7 +167,6 @@ Address CIRGenFunction::emitPointerWithAlignment(const Expr *expr,
     case CK_ARCExtendBlockObject:
     case CK_ARCProduceObject:
     case CK_ARCReclaimReturnedObject:
-    case CK_AtomicToNonAtomic:
     case CK_BooleanToSignedIntegral:
     case CK_ConstructorConversion:
     case CK_CopyAndAutoreleaseBlockObject:
@@ -356,12 +356,11 @@ void CIRGenFunction::emitStoreOfScalar(mlir::Value value, Address addr,
   }
 
   assert(currSrcLoc && "must pass in source location");
-  builder.createStore(*currSrcLoc, value, addr, isVolatile);
-
-  if (isNontemporal) {
-    cgm.errorNYI(addr.getPointer().getLoc(), "emitStoreOfScalar nontemporal");
-    return;
-  }
+  cir::StoreOp store =
+      builder.createStore(*currSrcLoc, value, addr, isVolatile);
+  if (isNontemporal)
+    store.getOperation()->setAttr("nontemporal",
+                                  mlir::UnitAttr::get(&getMLIRContext()));
 
   assert(!cir::MissingFeatures::opTBAA());
 }
@@ -499,11 +498,6 @@ LValue CIRGenFunction::emitLValueForField(LValue base, const FieldDecl *field) {
     fieldType = fieldType->getPointeeType();
   }
 
-  if (field->hasAttr<AnnotateAttr>()) {
-    cgm.errorNYI(field->getSourceRange(), "emitLValueForField: AnnotateAttr");
-    return LValue();
-  }
-
   LValue lv = makeAddrLValue(addr, fieldType, fieldBaseInfo);
   lv.getQuals().addCVRQualifiers(recordCVR);
 
@@ -588,8 +582,11 @@ mlir::Value CIRGenFunction::emitLoadOfScalar(Address addr, bool isVolatile,
 
   assert(!cir::MissingFeatures::opLoadStoreTbaa());
   LValue atomicLValue = LValue::makeAddr(addr, ty, baseInfo);
-  if (ty->isAtomicType() || isLValueSuitableForInlineAtomic(atomicLValue))
-    cgm.errorNYI("emitLoadOfScalar: load atomic");
+  if (ty->isAtomicType() || isLValueSuitableForInlineAtomic(atomicLValue)) {
+    cir::LoadOp loadOp = builder.createLoad(getLoc(loc), addr, isVolatile);
+    loadOp.setMemOrder(cir::MemOrder::SequentiallyConsistent);
+    return loadOp;
+  }
 
   if (mlir::isa<cir::VoidType>(eltTy))
     cgm.errorNYI(loc, "emitLoadOfScalar: void type");
@@ -896,10 +893,38 @@ LValue CIRGenFunction::emitDeclRefLValue(const DeclRefExpr *e) {
     auto iter = localDeclMap.find(vd);
     if (iter != localDeclMap.end()) {
       addr = iter->second;
+    } else if (isa<ParmVarDecl>(vd)) {
+      const Decl *canonical = vd->getCanonicalDecl();
+      for (const auto &entry : localDeclMap) {
+        const auto *mapped = dyn_cast<VarDecl>(entry.first);
+        if (mapped && mapped->getCanonicalDecl() == canonical) {
+          addr = entry.second;
+          replaceAddrOfLocalVar(vd, addr);
+          break;
+        }
+      }
+    } else if (vd->isStaticLocal()) {
+      cir::GlobalLinkageKind linkage =
+          cgm.getCIRLinkageVarDefinition(vd, /*IsConstant=*/false);
+      cir::GlobalOp global = cgm.getOrCreateStaticVarDecl(*vd, linkage);
+      mlir::Value value =
+          builder.createGetGlobal(getLoc(e->getSourceRange()), global,
+                                  vd->getTLSKind() != VarDecl::TLS_None);
+      mlir::Type realVarTy = convertTypeForMem(vd->getType());
+      cir::PointerType realPtrTy = builder.getPointerTo(realVarTy);
+      if (realPtrTy != value.getType())
+        value = builder.createBitcast(value.getLoc(), value, realPtrTy);
+      addr = Address(value, realVarTy, getContext().getDeclAlign(vd));
+      replaceAddrOfLocalVar(vd, addr);
     } else {
-      // Otherwise, it might be static local we haven't emitted yet for some
-      // reason; most likely, because it's in an outer function.
-      cgm.errorNYI(e->getSourceRange(), "emitDeclRefLValue: static local");
+      cgm.errorNYI(e->getSourceRange(),
+                   "emitDeclRefLValue: missing local declaration address");
+      return LValue();
+    }
+    if (!addr.isValid()) {
+      cgm.errorNYI(e->getSourceRange(),
+                   "emitDeclRefLValue: missing local declaration address");
+      return LValue();
     }
 
     // Drill into reference types.
@@ -1128,12 +1153,6 @@ static Address emitArraySubscriptPtr(CIRGenFunction &cgf,
 
 LValue
 CIRGenFunction::emitArraySubscriptExpr(const clang::ArraySubscriptExpr *e) {
-  if (getContext().getAsVariableArrayType(e->getType())) {
-    cgm.errorNYI(e->getSourceRange(),
-                 "emitArraySubscriptExpr: VariableArrayType");
-    return LValue::makeAddr(Address::invalid(), e->getType(), LValueBaseInfo());
-  }
-
   if (e->getType()->getAs<ObjCObjectType>()) {
     cgm.errorNYI(e->getSourceRange(), "emitArraySubscriptExpr: ObjCObjectType");
     return LValue::makeAddr(Address::invalid(), e->getType(), LValueBaseInfo());
@@ -1918,8 +1937,9 @@ RValue CIRGenFunction::getUndefRValue(QualType ty) {
   if (ty->isVoidType())
     return RValue::get(nullptr);
 
-  cgm.errorNYI("unsupported type for undef rvalue");
-  return RValue::get(nullptr);
+  mlir::Type cirTy = convertType(ty);
+  return RValue::get(cir::ConstantOp::create(builder, *currSrcLoc,
+                                             cir::UndefAttr::get(cirTy)));
 }
 
 RValue CIRGenFunction::emitCall(clang::QualType calleeTy,
@@ -2184,6 +2204,30 @@ mlir::LogicalResult CIRGenFunction::emitIfOnBoolExpr(const Expr *cond,
 
 /// Emit an `if` on a boolean condition, filling `then` and `else` into
 /// appropriated regions.
+static void terminateIfBody(CIRGenBuilderTy &builder, mlir::Region &region,
+                            mlir::Location loc) {
+  if (region.empty())
+    return;
+
+  SmallVector<mlir::Block *, 4> eraseBlocks;
+  unsigned numBlocks = region.getBlocks().size();
+  for (auto &block : region.getBlocks()) {
+    if (numBlocks != 1 && block.empty() && block.hasNoPredecessors() &&
+        block.hasNoSuccessors())
+      eraseBlocks.push_back(&block);
+
+    if (block.empty() ||
+        !block.back().hasTrait<mlir::OpTrait::IsTerminator>()) {
+      mlir::OpBuilder::InsertionGuard guard(builder);
+      builder.setInsertionPointToEnd(&block);
+      builder.createYield(loc);
+    }
+  }
+
+  for (auto *block : eraseBlocks)
+    block->erase();
+}
+
 cir::IfOp CIRGenFunction::emitIfOnBoolExpr(
     const clang::Expr *cond, BuilderCallbackRef thenBuilder,
     mlir::Location thenLoc, BuilderCallbackRef elseBuilder,
@@ -2198,9 +2242,34 @@ cir::IfOp CIRGenFunction::emitIfOnBoolExpr(
 
   // Emit the code with the fully general case.
   mlir::Value condV = emitOpOnBoolExpr(loc, cond);
-  return cir::IfOp::create(builder, loc, condV, elseLoc.has_value(),
-                           /*thenBuilder=*/thenBuilder,
-                           /*elseBuilder=*/elseBuilder);
+  mlir::OpBuilder::InsertPoint thenBody;
+  mlir::OpBuilder::InsertPoint elseBody;
+  cir::IfOp ifOp = cir::IfOp::create(
+      builder, loc, condV, elseLoc.has_value(),
+      /*thenBuilder=*/
+      [&](mlir::OpBuilder &b, mlir::Location) {
+        thenBody = b.saveInsertionPoint();
+      },
+      /*elseBuilder=*/
+      [&](mlir::OpBuilder &b, mlir::Location) {
+        elseBody = b.saveInsertionPoint();
+      });
+
+  {
+    mlir::OpBuilder::InsertionGuard guard(builder);
+    builder.restoreInsertionPoint(thenBody);
+    thenBuilder(builder, thenLoc);
+  }
+  terminateIfBody(builder, ifOp.getThenRegion(), thenLoc);
+
+  if (elseLoc) {
+    mlir::OpBuilder::InsertionGuard guard(builder);
+    builder.restoreInsertionPoint(elseBody);
+    elseBuilder(builder, *elseLoc);
+    terminateIfBody(builder, ifOp.getElseRegion(), *elseLoc);
+  }
+
+  return ifOp;
 }
 
 /// TODO(cir): see EmitBranchOnBoolExpr for extra ideas).

@@ -1997,10 +1997,11 @@ def CIR_ShiftOp : CIR_Op<"shift", [Pure]> {
     The `cir.shift` operation performs a bitwise shift, either to the left or to
     the right, based on the first operand. The second operand specifies the
     value to be shifted, and the third operand determines the number of
-    positions by which the shift is applied, They must be either all vector of
+    positions by which the shift is applied. They must be either all vector of
     integer type, or all integer type. If they are vectors, each vector element of
-    the shift target is shifted by the corresponding shift amount in
-    the shift amount vector.
+    the shift target is shifted by the corresponding shift amount in the shift
+    amount vector. Shift amount integer widths may differ from the shifted value
+    and are normalized during lowering.
 
     ```mlir
     %res = cir.shift(left, %lhs : !u64i, %amount : !s32i) -> !u64i
@@ -5258,8 +5259,8 @@ def CIR_VAStartOp : CIR_Op<"va_start"> {
     The first operand must be a pointer to the target's `va_list`
     representation. This operation has no results and produces its effect by
     mutating the storage referenced by the pointer operand. The second operand
-    must be an integer value that contains the expected number of arguments in
-    that list.
+    preserves the frontend's `va_start` marker operand; source builtins pass
+    the last named parameter, not a target-independent integer count.
 
     Each `cir.va_start` must be paired with a corresponding `cir.va_end`
     on the same logical `va_list` object along all control-flow paths. After
@@ -5282,7 +5283,7 @@ def CIR_VAStartOp : CIR_Op<"va_start"> {
   }];
   let arguments = (ins
     CIR_PointerType:$arg_list,
-    CIR_AnyFundamentalIntType:$count
+    CIR_AnyType:$count
   );
 
   let assemblyFormat = [{

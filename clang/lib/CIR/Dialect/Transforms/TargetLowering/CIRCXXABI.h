@@ -53,6 +53,10 @@ public:
                           const mlir::DataLayout &layout,
                           const mlir::TypeConverter &typeConverter) const = 0;
 
+  virtual mlir::TypedAttr
+  lowerMethodConstant(cir::MethodAttr attr,
+                      const mlir::TypeConverter &typeConverter) const = 0;
+
   /// Lower the given cir.get_runtime_member op to a sequence of more
   /// "primitive" CIR operations that act on the ABI types.
   virtual mlir::Operation *

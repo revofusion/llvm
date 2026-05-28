@@ -365,11 +365,11 @@ static LogicalResult checkConstantTypes(mlir::Operation *op, mlir::Type opType,
   }
 
   if (isa<cir::ZeroAttr>(attrType)) {
-    if (isa<cir::RecordType, cir::ArrayType, cir::VectorType, cir::ComplexType>(
-            opType))
+    if (isa<cir::RecordType, cir::ArrayType, cir::VectorType, cir::ComplexType,
+            cir::MethodType>(opType))
       return success();
     return op->emitOpError(
-        "zero expects struct, array, vector, or complex type");
+        "zero expects struct, array, vector, complex, or method type");
   }
 
   if (mlir::isa<cir::UndefAttr>(attrType)) {
@@ -397,8 +397,8 @@ static LogicalResult checkConstantTypes(mlir::Operation *op, mlir::Type opType,
 
   if (mlir::isa<cir::ConstArrayAttr, cir::ConstVectorAttr,
                 cir::ConstComplexAttr, cir::ConstRecordAttr,
-                cir::GlobalViewAttr, cir::PoisonAttr, cir::TypeInfoAttr,
-                cir::VTableAttr>(attrType))
+                cir::GlobalViewAttr, cir::MethodAttr, cir::BlockAddressAttr,
+                cir::PoisonAttr, cir::TypeInfoAttr, cir::VTableAttr>(attrType))
     return success();
 
   assert(isa<TypedAttr>(attrType) && "What else could we be looking at here?");
@@ -706,11 +706,15 @@ OpFoldResult cir::CastOp::fold(FoldAdaptor adaptor) {
   if (getSrc().getType() == getType()) {
     switch (getKind()) {
     case cir::CastKind::integral: {
+      auto *definingOp = getSrc().getDefiningOp();
+      if (!definingOp)
+        return getSrc();
       llvm::SmallVector<mlir::OpFoldResult, 1> foldResults;
-      auto foldOrder = getSrc().getDefiningOp()->fold(foldResults);
-      if (foldOrder.succeeded() && mlir::isa<mlir::Attribute>(foldResults[0]))
+      auto foldOrder = definingOp->fold(foldResults);
+      if (foldOrder.succeeded() && !foldResults.empty() &&
+          mlir::isa<mlir::Attribute>(foldResults[0]))
         return mlir::cast<mlir::Attribute>(foldResults[0]);
-      return {};
+      return getSrc();
     }
     case cir::CastKind::bitcast:
     case cir::CastKind::address_space:
@@ -2271,11 +2275,17 @@ mlir::LogicalResult cir::FuncOp::verify() {
 //===----------------------------------------------------------------------===//
 // BinOp
 //===----------------------------------------------------------------------===//
+static bool isIntegerOrIntegerVector(mlir::Type type) {
+  if (auto vectorType = dyn_cast<cir::VectorType>(type))
+    type = vectorType.getElementType();
+  return isa<cir::IntType>(type);
+}
+
 LogicalResult cir::BinOp::verify() {
   bool noWrap = getNoUnsignedWrap() || getNoSignedWrap();
   bool saturated = getSaturated();
 
-  if (!isa<cir::IntType>(getType()) && noWrap)
+  if (!isIntegerOrIntegerVector(getType()) && noWrap)
     return emitError()
            << "only operations on integer values may have nsw/nuw flags";
 
@@ -2409,11 +2419,6 @@ LogicalResult cir::ShiftOp::verify() {
                            << "if it is vector shift";
 
     auto op0VecEleTy = mlir::cast<cir::IntType>(op0VecTy.getElementType());
-    auto op1VecEleTy = mlir::cast<cir::IntType>(op1VecTy.getElementType());
-    if (op0VecEleTy.getWidth() != op1VecEleTy.getWidth())
-      return emitOpError()
-             << "vector operands do not have the same elements sizes";
-
     auto resVecEleTy = mlir::cast<cir::IntType>(opResultTy.getElementType());
     if (op0VecEleTy.getWidth() != resVecEleTy.getWidth())
       return emitOpError() << "vector operands and result type do not have the "

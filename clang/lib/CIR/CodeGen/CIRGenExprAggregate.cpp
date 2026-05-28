@@ -233,11 +233,6 @@ public:
   void VisitCastExpr(CastExpr *e) {
     switch (e->getCastKind()) {
     case CK_LValueToRValue:
-      // If we're loading from a volatile type, force the destination
-      // into existence.
-      if (e->getSubExpr()->getType().isVolatileQualified())
-        cgf.cgm.errorNYI(e->getSourceRange(),
-                         "AggExprEmitter: volatile lvalue-to-rvalue cast");
       [[fallthrough]];
     case CK_NoOp:
     case CK_UserDefinedConversion:
@@ -282,7 +277,7 @@ public:
   }
   void VisitMemberExpr(MemberExpr *e) { emitAggLoadOfLValue(e); }
   void VisitUnaryDeref(UnaryOperator *e) { emitAggLoadOfLValue(e); }
-  void VisitStringLiteral(StringLiteral *e) { emitAggLoadOfLValue(e); }
+  void VisitStringLiteral(StringLiteral *e);
   void VisitCompoundLiteralExpr(CompoundLiteralExpr *e);
 
   void VisitPredefinedExpr(const PredefinedExpr *e) {
@@ -323,10 +318,7 @@ public:
     emitInitializationToLValue(e->getBase(), destLV);
     VisitInitListExpr(e->getUpdater());
   }
-  void VisitAbstractConditionalOperator(const AbstractConditionalOperator *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "AggExprEmitter: VisitAbstractConditionalOperator");
-  }
+  void VisitAbstractConditionalOperator(const AbstractConditionalOperator *e);
   void VisitChooseExpr(const ChooseExpr *e) { Visit(e->getChosenSubExpr()); }
   void VisitCXXParenListInitExpr(CXXParenListInitExpr *e) {
     visitCXXParenListOrInitListExpr(e, e->getInitExprs(),
@@ -355,8 +347,49 @@ public:
                      "AggExprEmitter: VisitCXXInheritedCtorInitExpr");
   }
   void VisitCXXStdInitializerListExpr(CXXStdInitializerListExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "AggExprEmitter: VisitCXXStdInitializerListExpr");
+    ASTContext &ctx = cgf.getContext();
+    LValue array = cgf.emitLValue(e->getSubExpr());
+    assert(array.isSimple() && "initializer_list array not a simple lvalue");
+    Address arrayPtr = array.getAddress();
+
+    const ConstantArrayType *arrayType =
+        ctx.getAsConstantArrayType(e->getSubExpr()->getType());
+    assert(arrayType && "std::initializer_list constructed from non-array");
+
+    auto *record = e->getType()->castAsRecordDecl();
+    RecordDecl::field_iterator field = record->field_begin();
+    assert(field != record->field_end() && "initializer_list missing begin");
+
+    AggValueSlot dest = ensureSlot(cgf.getLoc(e->getSourceRange()), e->getType());
+    LValue destLV = cgf.makeAddrLValue(dest.getAddress(), e->getType());
+    auto &builder = cgf.getBuilder();
+    LValue start = cgf.emitLValueForFieldInitialization(destLV, *field,
+                                                        (*field)->getName());
+    mlir::Value arrayStart = cir::CastOp::create(
+        builder, cgf.getLoc(e->getSourceRange()), cgf.convertType((*field)->getType()),
+        cir::CastKind::array_to_ptrdecay, arrayPtr.getPointer());
+    cgf.emitStoreThroughLValue(RValue::get(arrayStart), start);
+
+    ++field;
+    assert(field != record->field_end() && "initializer_list missing size/end");
+    LValue endOrLength = cgf.emitLValueForFieldInitialization(
+        destLV, *field, (*field)->getName());
+    uint64_t size = arrayType->getSize().getZExtValue();
+    if (ctx.hasSameType((*field)->getType(), ctx.getSizeType())) {
+      mlir::Value sizeValue = builder.getConstInt(
+          cgf.getLoc(e->getSourceRange()), cgf.convertType((*field)->getType()),
+          size);
+      cgf.emitStoreThroughLValue(RValue::get(sizeValue), endOrLength);
+    } else {
+      mlir::Value sizeValue =
+          builder.getConstInt(cgf.getLoc(e->getSourceRange()), cgf.ptrDiffTy, size);
+      mlir::Value arrayEnd =
+          builder.createPtrStride(cgf.getLoc(e->getSourceRange()), arrayStart, sizeValue);
+      cgf.emitStoreThroughLValue(RValue::get(arrayEnd), endOrLength);
+    }
+
+    assert(++field == record->field_end() &&
+           "Expected std::initializer_list to only have two fields");
   }
   void VisitCXXScalarValueInitExpr(CXXScalarValueInitExpr *e) {
     cgf.cgm.errorNYI(e->getSourceRange(),
@@ -439,6 +472,74 @@ void AggExprEmitter::emitAggLoadOfLValue(const Expr *e) {
   emitFinalDestCopy(e->getType(), lv);
 }
 
+void AggExprEmitter::VisitAbstractConditionalOperator(
+    const AbstractConditionalOperator *e) {
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
+
+  CIRGenFunction::OpaqueValueMapping binding(cgf, e);
+
+  Expr *condExpr = e->getCond();
+  Expr *lhsExpr = e->getTrueExpr();
+  Expr *rhsExpr = e->getFalseExpr();
+
+  bool condExprBool;
+  if (cgf.constantFoldsToBool(condExpr, condExprBool)) {
+    Expr *live = lhsExpr;
+    Expr *dead = rhsExpr;
+    if (!condExprBool)
+      std::swap(live, dead);
+    if (!cgf.containsLabel(dead)) {
+      Visit(live);
+      return;
+    }
+  }
+
+  bool isExternallyDestructed = dest.isExternallyDestructed();
+  bool destructNonTrivialCStruct =
+      !dest.isIgnored() && !isExternallyDestructed &&
+      e->getType().isDestructedType() == QualType::DK_nontrivial_c_struct;
+  dest.setExternallyDestructed(isExternallyDestructed ||
+                               destructNonTrivialCStruct);
+
+  mlir::Value condValue = cgf.emitOpOnBoolExpr(loc, condExpr);
+  CIRGenFunction::ConditionalEvaluation eval(cgf);
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+
+  auto emitBranch = [&](mlir::OpBuilder &b, mlir::Location branchLoc,
+                        Expr *expr) {
+    CIRGenFunction::LexicalScope lexScope{cgf, branchLoc,
+                                          b.getInsertionBlock()};
+    cgf.curLexScope->setAsTernary();
+
+    assert(!cir::MissingFeatures::incrementProfileCounter());
+    eval.beginEvaluation();
+    Visit(expr);
+    eval.endEvaluation();
+
+    mlir::Block *block = b.getInsertionBlock();
+    if (block && (block->empty() ||
+                  !block->back().hasTrait<mlir::OpTrait::IsTerminator>()))
+      cir::YieldOp::create(b, branchLoc);
+  };
+
+  cir::TernaryOp::create(
+      builder, loc, condValue,
+      /*trueBuilder=*/
+      [&](mlir::OpBuilder &b, mlir::Location branchLoc) {
+        emitBranch(b, branchLoc, lhsExpr);
+      },
+      /*falseBuilder=*/
+      [&](mlir::OpBuilder &b, mlir::Location branchLoc) {
+        dest.setExternallyDestructed(isExternallyDestructed ||
+                                     destructNonTrivialCStruct);
+        emitBranch(b, branchLoc, rhsExpr);
+      });
+
+  if (destructNonTrivialCStruct)
+    cgf.pushDestroy(QualType::DK_nontrivial_c_struct, dest.getAddress(),
+                    e->getType());
+}
+
 void AggExprEmitter::VisitCompoundLiteralExpr(CompoundLiteralExpr *e) {
   if (dest.isPotentiallyAliased() && e->getType().isPODType(cgf.getContext())) {
     // For a POD type, just emit a load of the lvalue + a copy, because our
@@ -462,6 +563,46 @@ void AggExprEmitter::VisitCompoundLiteralExpr(CompoundLiteralExpr *e) {
     if ([[maybe_unused]] QualType::DestructionKind dtorKind =
             e->getType().isDestructedType())
       cgf.cgm.errorNYI(e->getSourceRange(), "compound literal with destructor");
+}
+
+void AggExprEmitter::VisitStringLiteral(StringLiteral *e) {
+  const mlir::Location loc = cgf.getLoc(e->getSourceRange());
+  AggValueSlot slot = ensureSlot(loc, e->getType());
+  dest = slot;
+
+  const ConstantArrayType *arrayType =
+      cgf.getContext().getAsConstantArrayType(e->getType());
+  if (!arrayType) {
+    emitAggLoadOfLValue(e);
+    return;
+  }
+
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  QualType elementType = arrayType->getElementType();
+  mlir::Type cirElementType = cgf.convertType(elementType);
+  cir::PointerType cirElementPtrType = builder.getPointerTo(cirElementType);
+  mlir::Value begin = cir::CastOp::create(
+      builder, loc, cirElementPtrType, cir::CastKind::array_to_ptrdecay,
+      slot.getAddress().getPointer());
+
+  const CharUnits elementSize = cgf.getContext().getTypeSizeInChars(elementType);
+  const CharUnits elementAlign =
+      slot.getAddress().getAlignment().alignmentOfArrayElement(elementSize);
+  const uint64_t arraySize = arrayType->getSize().getZExtValue();
+  const uint64_t stringSize = e->getLength();
+
+  for (uint64_t index = 0; index != arraySize; ++index) {
+    mlir::Value element = begin;
+    if (index != 0) {
+      mlir::Value offset = builder.getConstInt(loc, cgf.ptrDiffTy, index);
+      element = builder.createPtrStride(loc, begin, offset);
+    }
+    uint32_t codeUnit = index < stringSize ? e->getCodeUnit(index) : 0;
+    mlir::Value value = builder.getConstantInt(loc, cirElementType, codeUnit);
+    LValue elementLV = cgf.makeAddrLValue(
+        Address(element, cirElementType, elementAlign), elementType);
+    cgf.emitStoreThroughLValue(RValue::get(value), elementLV);
+  }
 }
 
 void AggExprEmitter::emitArrayInit(Address destPtr, cir::ArrayType arrayTy,
@@ -883,8 +1024,15 @@ void AggExprEmitter::visitCXXParenListOrInitListExpr(
   LValue destLV = cgf.makeAddrLValue(dest.getAddress(), e->getType());
 
   if (record->isUnion()) {
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "visitCXXParenListOrInitListExpr union type");
+    if (!initializedFieldInUnion)
+      return;
+
+    LValue lv = cgf.emitLValueForFieldInitialization(
+        destLV, initializedFieldInUnion, initializedFieldInUnion->getName());
+    if (numInitElements)
+      emitInitializationToLValue(args[0], lv);
+    else
+      emitNullInitializationToLValue(cgf.getLoc(e->getSourceRange()), lv);
     return;
   }
 

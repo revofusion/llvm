@@ -5044,6 +5044,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (Args.hasArg(options::OPT_fclangir))
     CmdArgs.push_back("-fclangir");
+  Args.AddLastArg(CmdArgs, options::OPT_fclangir_emit_selected_decls_EQ);
 
   if (IsOpenMPDevice) {
     // We have to pass the triple of the host if compiling for an OpenMP device.

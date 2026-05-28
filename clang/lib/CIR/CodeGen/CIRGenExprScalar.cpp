@@ -1801,11 +1801,6 @@ static mlir::Value emitPointerArithmetic(CIRGenFunction &cgf,
     return nullptr;
   }
 
-  if (elementType->isVoidType() || elementType->isFunctionType()) {
-    cgf.cgm.errorNYI("void* or function pointer arithmetic");
-    return nullptr;
-  }
-
   assert(!cir::MissingFeatures::sanitizers());
   return cir::PtrStrideOp::create(cgf.getBuilder(),
                                   cgf.getLoc(op.e->getExprLoc()),
@@ -1814,7 +1809,8 @@ static mlir::Value emitPointerArithmetic(CIRGenFunction &cgf,
 
 mlir::Value ScalarExprEmitter::emitMul(const BinOpInfo &ops) {
   const mlir::Location loc = cgf.getLoc(ops.loc);
-  if (ops.compType->isSignedIntegerOrEnumerationType()) {
+  if (!ops.fullType->isVectorType() &&
+      ops.compType->isSignedIntegerOrEnumerationType()) {
     switch (cgf.getLangOpts().getSignedOverflowBehavior()) {
     case LangOptions::SOB_Defined:
       if (!cgf.sanOpts.has(SanitizerKind::SignedIntegerOverflow))
@@ -1872,7 +1868,8 @@ mlir::Value ScalarExprEmitter::emitAdd(const BinOpInfo &ops) {
     return emitPointerArithmetic(cgf, ops, /*isSubtraction=*/false);
 
   const mlir::Location loc = cgf.getLoc(ops.loc);
-  if (ops.compType->isSignedIntegerOrEnumerationType()) {
+  if (!ops.fullType->isVectorType() &&
+      ops.compType->isSignedIntegerOrEnumerationType()) {
     switch (cgf.getLangOpts().getSignedOverflowBehavior()) {
     case LangOptions::SOB_Defined:
       if (!cgf.sanOpts.has(SanitizerKind::SignedIntegerOverflow))
@@ -1918,7 +1915,8 @@ mlir::Value ScalarExprEmitter::emitSub(const BinOpInfo &ops) {
   const mlir::Location loc = cgf.getLoc(ops.loc);
   // The LHS is always a pointer if either side is.
   if (!mlir::isa<cir::PointerType>(ops.lhs.getType())) {
-    if (ops.compType->isSignedIntegerOrEnumerationType()) {
+    if (!ops.fullType->isVectorType() &&
+        ops.compType->isSignedIntegerOrEnumerationType()) {
       switch (cgf.getLangOpts().getSignedOverflowBehavior()) {
       case LangOptions::SOB_Defined: {
         if (!cgf.sanOpts.has(SanitizerKind::SignedIntegerOverflow))
@@ -2143,12 +2141,7 @@ mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
         cgf, Visit(subExpr), subExprAS, convertType(destTy));
   }
 
-  case CK_AtomicToNonAtomic: {
-    cgf.getCIRGenModule().errorNYI(subExpr->getSourceRange(),
-                                   "CastExpr: ", ce->getCastKindName());
-    mlir::Location loc = cgf.getLoc(subExpr->getSourceRange());
-    return cgf.createDummyValue(loc, destTy);
-  }
+  case CK_AtomicToNonAtomic:
   case CK_NonAtomicToAtomic:
   case CK_UserDefinedConversion:
     return Visit(const_cast<Expr *>(subExpr));

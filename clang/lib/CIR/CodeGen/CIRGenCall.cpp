@@ -513,6 +513,12 @@ emitCallLikeOp(CIRGenFunction &cgf, mlir::Location callLoc,
     op = builder.createIndirectCallOp(callLoc, indirectFuncVal, indirectFuncTy,
                                       cirCallArgs, attrs);
   } else {
+    cir::FuncType directTy = directFuncOp.getFunctionType();
+    if (directFuncOp.isDeclaration() && !directTy.isVarArg() &&
+        cirCallArgs.size() > directTy.getNumInputs()) {
+      directFuncOp.setFunctionType(cir::FuncType::get(
+          directTy.getInputs(), directTy.getReturnType(), /*isVarArg=*/true));
+    }
     op = builder.createCallOp(callLoc, directFuncOp, cirCallArgs, attrs);
   }
 

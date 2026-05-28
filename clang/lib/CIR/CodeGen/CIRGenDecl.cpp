@@ -23,6 +23,58 @@
 using namespace clang;
 using namespace clang::CIRGen;
 
+namespace {
+struct CallCleanupFunction final : EHScopeStack::Cleanup {
+  cir::FuncOp cleanupFn;
+  const CIRGenFunctionInfo &fnInfo;
+  const VarDecl &var;
+  const CleanupAttr *attribute;
+
+  CallCleanupFunction(cir::FuncOp cleanupFn, const CIRGenFunctionInfo *info,
+                      const VarDecl *var, const CleanupAttr *attribute)
+      : cleanupFn(cleanupFn), fnInfo(*info), var(*var), attribute(attribute) {}
+
+  void emit(CIRGenFunction &cgf, Flags flags) override {
+    DeclRefExpr declRef(cgf.getContext(), const_cast<VarDecl *>(&var), false,
+                        var.getType(), VK_LValue, SourceLocation());
+    mlir::Value addr = cgf.emitDeclRefLValue(&declRef).getPointer();
+
+    QualType argTy = fnInfo.arguments().front();
+    mlir::Type argCIRTy = cgf.convertType(argTy);
+    if (addr.getType() != argCIRTy)
+      addr = cgf.getBuilder().createBitcast(addr, argCIRTy);
+
+    CallArgList args;
+    args.add(RValue::get(addr), cgf.getContext().getPointerType(var.getType()));
+    CIRGenCallee callee = CIRGenCallee::forDirect(
+        cleanupFn, CIRGenCalleeInfo(GlobalDecl(attribute->getFunctionDecl())));
+    cgf.emitCall(fnInfo, callee, ReturnValueSlot(), args, nullptr,
+                 cgf.getLoc(attribute->getRange()));
+  }
+};
+
+bool isSupportedStaticLocalAttr(const Attr *attr) {
+  return isa<AlignedAttr>(attr);
+}
+
+bool containsBlockAddressAttr(mlir::Attribute attr) {
+  if (!attr)
+    return false;
+  if (mlir::isa<cir::BlockAddressAttr>(attr))
+    return true;
+  if (auto array = mlir::dyn_cast<cir::ConstArrayAttr>(attr))
+    return containsBlockAddressAttr(array.getElts());
+  if (auto record = mlir::dyn_cast<cir::ConstRecordAttr>(attr))
+    return containsBlockAddressAttr(record.getMembers());
+  if (auto elements = mlir::dyn_cast<mlir::ArrayAttr>(attr)) {
+    for (mlir::Attribute element : elements)
+      if (containsBlockAddressAttr(element))
+        return true;
+  }
+  return false;
+}
+} // namespace
+
 CIRGenFunction::AutoVarEmission
 CIRGenFunction::emitAutoVarAlloca(const VarDecl &d,
                                   mlir::OpBuilder::InsertPoint ip) {
@@ -291,6 +343,14 @@ void CIRGenFunction::emitAutoVarInit(
     }
   }
 
+  // Preserve producer-owned aggregate structure for local arrays and records.
+  // Emitting one opaque const_array/const_record store forces downstream
+  // consumers to reconstruct field and element writes from attributes.
+  if (constant && (type->isArrayType() || type->isRecordType()) &&
+      !containsBlockAddressAttr(constant) &&
+      !mlir::isa<cir::ZeroAttr>(constant))
+    constant = {};
+
   // NOTE(cir): In case we have a constant initializer, we can just emit a
   // store. But, in CIR, we wish to retain any ctor calls, so if it is a
   // CXX temporary object creation, we ensure the ctor call is used deferring
@@ -318,6 +378,8 @@ void CIRGenFunction::emitAutoVarInit(
   // FIXME(cir): migrate most of this file to use mlir::TypedAttr directly.
   auto typedConstant = mlir::dyn_cast<mlir::TypedAttr>(constant);
   assert(typedConstant && "expected typed attribute");
+  if (auto allocaOp = addr.getDefiningOp<cir::AllocaOp>())
+    allocaOp.setInitAttr(mlir::UnitAttr::get(&getMLIRContext()));
   if (!emission.isConstantAggregate) {
     // For simple scalar/complex initialization, store the value directly.
     LValue lv = makeAddrLValue(addr, type);
@@ -343,8 +405,15 @@ void CIRGenFunction::emitAutoVarCleanups(
   assert(!cir::MissingFeatures::opAllocaPreciseLifetime());
 
   // Handle the cleanup attribute.
-  if (d.hasAttr<CleanupAttr>())
-    cgm.errorNYI(d.getSourceRange(), "emitAutoVarCleanups: CleanupAttr");
+  if (const CleanupAttr *cleanup = d.getAttr<CleanupAttr>()) {
+    const FunctionDecl *fd = cleanup->getFunctionDecl();
+    const CIRGenFunctionInfo &info =
+        cgm.getTypes().arrangeFunctionDeclaration(fd);
+    cir::FuncType funcType = cgm.getTypes().getFunctionType(info);
+    cir::FuncOp func = cgm.getAddrOfFunction(GlobalDecl(fd), funcType);
+    ehStack.pushCleanup<CallCleanupFunction>(NormalAndEHCleanup, func, &info,
+                                             &d, cleanup);
+  }
 }
 
 /// Emit code and set up symbol table for a variable declaration with auto,
@@ -442,7 +511,7 @@ CIRGenModule::getOrCreateStaticVarDecl(const VarDecl &d,
              "getOrCreateStaticVarDecl: LoaderUninitializedAttr");
   assert(!cir::MissingFeatures::addressSpace());
 
-  mlir::Attribute init = builder.getZeroInitAttr(convertType(ty));
+  mlir::Attribute init = builder.getZeroInitAttr(lty);
 
   cir::GlobalOp gv = builder.createVersionedGlobal(
       getModule(), getLoc(d.getLocation()), name, lty, false, linkage);
@@ -454,8 +523,11 @@ CIRGenModule::getOrCreateStaticVarDecl(const VarDecl &d,
   if (supportsCOMDAT() && gv.isWeakForLinker())
     gv.setComdat(true);
 
-  if (d.getTLSKind())
-    errorNYI(d.getSourceRange(), "getOrCreateStaticVarDecl: TLS");
+  if (d.getTLSKind()) {
+    if (d.getTLSKind() == VarDecl::TLS_Dynamic)
+      errorNYI(d.getSourceRange(), "getOrCreateStaticVarDecl: TLS dynamic");
+    setTLSMode(gv, d);
+  }
 
   setGVProperties(gv, &d);
 
@@ -522,20 +594,11 @@ cir::GlobalOp CIRGenFunction::addInitializerToStaticVarDecl(
   // the type alloc size is not implemented yet.
   assert(!cir::MissingFeatures::dataLayoutTypeAllocSize());
 
-  // The initializer may differ in type from the global. Rewrite
-  // the global to match the initializer.  (We have to do this
-  // because some types, like unions, can't be completely represented
-  // in the LLVM type system.)
   if (gv.getSymType() != init.getType()) {
-    gv.setSymType(init.getType());
-
-    // Normally this should be done with a call to cgm.replaceGlobal(oldGV, gv),
-    // but since at this point the current block hasn't been really attached,
-    // there's no visibility into the GetGlobalOp corresponding to this Global.
-    // Given those constraints, thread in the GetGlobalOp and update it
-    // directly.
-    assert(!cir::MissingFeatures::addressSpace());
-    gvAddr.getAddr().setType(builder.getPointerTo(init.getType()));
+    cgm.errorNYI(
+        d.getSourceRange(),
+        "static initializer type does not match declared storage type");
+    return gv;
   }
 
   bool needsDtor =
@@ -565,7 +628,8 @@ void CIRGenFunction::emitStaticVarDecl(const VarDecl &d,
   cir::GlobalOp globalOp = cgm.getOrCreateStaticVarDecl(d, linkage);
   // TODO(cir): we should have a way to represent global ops as values without
   // having to emit a get global op. Sometimes these emissions are not used.
-  mlir::Value addr = builder.createGetGlobal(globalOp);
+  mlir::Value addr =
+      builder.createGetGlobal(globalOp, d.getTLSKind() != VarDecl::TLS_None);
   auto getAddrOp = addr.getDefiningOp<cir::GetGlobalOp>();
   assert(getAddrOp && "expected cir::GetGlobalOp");
 
@@ -597,10 +661,11 @@ void CIRGenFunction::emitStaticVarDecl(const VarDecl &d,
 
   var.setAlignment(alignment.getAsAlign().value());
 
-  // There are a lot of attributes that need to be handled here. Until
-  // we start to support them, we just report an error if there are any.
-  if (d.hasAttrs())
-    cgm.errorNYI(d.getSourceRange(), "static var with attrs");
+  for (const Attr *attr : d.attrs()) {
+    if (!isSupportedStaticLocalAttr(attr))
+      cgm.errorNYI(attr->getRange(), "static var unsupported attr",
+                   attr->getSpelling());
+  }
 
   if (cgm.getCodeGenOpts().KeepPersistentStorageVariables)
     cgm.errorNYI(d.getSourceRange(), "static var keep persistent storage");

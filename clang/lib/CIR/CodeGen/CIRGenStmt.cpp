@@ -16,6 +16,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Location.h"
 #include "mlir/Support/LLVM.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/StmtOpenACC.h"
@@ -112,6 +113,25 @@ void CIRGenFunction::emitStopPoint(const Stmt *s) {
 mlir::LogicalResult CIRGenFunction::emitStmt(const Stmt *s,
                                              bool useCurrentScope,
                                              ArrayRef<const Attr *> attr) {
+  if (const auto *as = dyn_cast<AttributedStmt>(s)) {
+    for (const Attr *stmtAttr : as->getAttrs()) {
+      switch (stmtAttr->getKind()) {
+      case attr::FallThrough:
+      case attr::HLSLLoopHint:
+      case attr::Likely:
+      case attr::LoopHint:
+      case attr::Unlikely:
+        break;
+      default:
+        cgm.errorNYI(as->getSourceRange(),
+                     std::string("emitStmt: AttributedStmt attribute ") +
+                         stmtAttr->getSpelling());
+        return mlir::failure();
+      }
+    }
+    return emitStmt(as->getSubStmt(), useCurrentScope, as->getAttrs());
+  }
+
   if (mlir::succeeded(emitSimpleStmt(s, useCurrentScope)))
     return mlir::success();
 
@@ -532,12 +552,19 @@ mlir::LogicalResult CIRGenFunction::emitIfStmt(const IfStmt &s) {
   // LexicalScope ConditionScope(*this, S.getCond()->getSourceRange());
   // The if scope contains the full source range for IfStmt.
   mlir::Location scopeLoc = getLoc(s.getSourceRange());
-  cir::ScopeOp::create(builder, scopeLoc, /*scopeBuilder=*/
-                       [&](mlir::OpBuilder &b, mlir::Location loc) {
-                         LexicalScope lexScope{*this, scopeLoc,
-                                               builder.getInsertionBlock()};
-                         res = ifStmtBuilder();
-                       });
+  mlir::OpBuilder::InsertPoint scopeBody;
+  cir::ScopeOp scope =
+      cir::ScopeOp::create(builder, scopeLoc, /*scopeBuilder=*/
+                           [&](mlir::OpBuilder &b, mlir::Location loc) {
+                             scopeBody = b.saveInsertionPoint();
+                           });
+  {
+    mlir::OpBuilder::InsertionGuard guard(builder);
+    builder.restoreInsertionPoint(scopeBody);
+    LexicalScope lexScope{*this, scopeLoc, builder.getInsertionBlock()};
+    res = ifStmtBuilder();
+  }
+  terminateBody(builder, scope.getRegion(), scopeLoc);
 
   return res;
 }
@@ -639,15 +666,26 @@ mlir::LogicalResult CIRGenFunction::emitReturnStmt(const ReturnStmt &s) {
 
   cleanupScope.forceCleanup();
 
-  // In CIR we might have returns in different scopes.
-  // FIXME(cir): cleanup code is handling actual return emission, the logic
-  // should try to match traditional codegen more closely (to the extent which
-  // is possible).
-  auto *retBlock = curLexScope->getOrCreateRetBlock(*this, loc);
-  emitBranchThroughCleanup(loc, returnBlock(retBlock));
+  // CIR has structured regions, so a return that crosses lexical scopes must
+  // emit the active cleanups in the current region before terminating with
+  // cir.return.  Routing through shared cleanup/return blocks would require
+  // cross-region cir.br edges, which MLIR correctly rejects.
+  emitCleanupsForReturn();
+
+  auto fn = dyn_cast<cir::FuncOp>(curFn);
+  assert(fn && "emitReturnStmt from non-function");
+  if (!fn.getFunctionType().hasVoidReturn()) {
+    auto value = cir::LoadOp::create(builder, loc,
+                                     fn.getFunctionType().getReturnType(),
+                                     *fnRetAlloca);
+    cir::ReturnOp::create(builder, loc, llvm::ArrayRef(value.getResult()));
+  } else {
+    cir::ReturnOp::create(builder, loc);
+  }
 
   // Insert the new block to continue codegen after branch to ret block.
-  builder.createBlock(builder.getBlock()->getParent());
+  mlir::Block *nextBlock = builder.createBlock(builder.getBlock()->getParent());
+  builder.setInsertionPointToEnd(nextBlock);
 
   return mlir::success();
 }
@@ -665,7 +703,8 @@ mlir::LogicalResult CIRGenFunction::emitGotoStmt(const clang::GotoStmt &s) {
   // A goto marks the end of a block, create a new one for codegen after
   // emitGotoStmt can resume building in that block.
   // Insert the new block to continue codegen after goto.
-  builder.createBlock(builder.getBlock()->getParent());
+  mlir::Block *nextBlock = builder.createBlock(builder.getBlock()->getParent());
+  builder.setInsertionPointToEnd(nextBlock);
 
   return mlir::success();
 }
@@ -673,20 +712,23 @@ mlir::LogicalResult CIRGenFunction::emitGotoStmt(const clang::GotoStmt &s) {
 mlir::LogicalResult
 CIRGenFunction::emitIndirectGotoStmt(const IndirectGotoStmt &s) {
   mlir::Value val = emitScalarExpr(s.getTarget());
-  assert(indirectGotoBlock &&
-         "If you jumping to a indirect branch should be alareadye emitted");
+  instantiateIndirectGotoBlock();
   cir::BrOp::create(builder, getLoc(s.getSourceRange()), indirectGotoBlock,
                     val);
-  builder.createBlock(builder.getBlock()->getParent());
+  mlir::Block *nextBlock = builder.createBlock(builder.getBlock()->getParent());
+  builder.setInsertionPointToEnd(nextBlock);
   return mlir::success();
 }
 
 mlir::LogicalResult
 CIRGenFunction::emitContinueStmt(const clang::ContinueStmt &s) {
+  if (curLexScope)
+    curLexScope->forceCleanup();
   builder.createContinue(getLoc(s.getKwLoc()));
 
   // Insert the new block to continue codegen after the continue statement.
-  builder.createBlock(builder.getBlock()->getParent());
+  mlir::Block *nextBlock = builder.createBlock(builder.getBlock()->getParent());
+  builder.setInsertionPointToEnd(nextBlock);
 
   return mlir::success();
 }
@@ -723,10 +765,13 @@ mlir::LogicalResult CIRGenFunction::emitLabel(const clang::LabelDecl &d) {
 }
 
 mlir::LogicalResult CIRGenFunction::emitBreakStmt(const clang::BreakStmt &s) {
+  if (curLexScope)
+    curLexScope->forceCleanup();
   builder.createBreak(getLoc(s.getKwLoc()));
 
   // Insert the new block to continue codegen after the break statement.
-  builder.createBlock(builder.getBlock()->getParent());
+  mlir::Block *nextBlock = builder.createBlock(builder.getBlock()->getParent());
+  builder.setInsertionPointToEnd(nextBlock);
 
   return mlir::success();
 }

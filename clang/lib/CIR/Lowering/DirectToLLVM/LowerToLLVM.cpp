@@ -1721,13 +1721,11 @@ mlir::LogicalResult CIRToLLVMLoadOpLowering::matchAndRewrite(
 
   assert(!cir::MissingFeatures::lowerModeOptLevel());
 
-  // TODO: nontemporal.
-  assert(!cir::MissingFeatures::opLoadStoreNontemporal());
   std::optional<llvm::StringRef> syncScope =
       getLLVMSyncScope(op.getSyncScope());
   mlir::LLVM::LoadOp newLoad = mlir::LLVM::LoadOp::create(
       rewriter, op->getLoc(), llvmTy, adaptor.getAddr(), alignment,
-      op.getIsVolatile(), /*isNonTemporal=*/false,
+      op.getIsVolatile(), /*isNonTemporal=*/op->hasAttr("nontemporal"),
       /*isInvariant=*/false, /*isInvariantGroup=*/false, ordering,
       syncScope.value_or(llvm::StringRef()));
 
@@ -1754,15 +1752,13 @@ mlir::LogicalResult CIRToLLVMStoreOpLowering::matchAndRewrite(
   // Convert adapted value to its memory type if needed.
   mlir::Value value = emitToMemory(rewriter, dataLayout,
                                    op.getValue().getType(), adaptor.getValue());
-  // TODO: nontemporal.
-  assert(!cir::MissingFeatures::opLoadStoreNontemporal());
   assert(!cir::MissingFeatures::opLoadStoreTbaa());
   std::optional<llvm::StringRef> syncScope =
       getLLVMSyncScope(op.getSyncScope());
   mlir::LLVM::StoreOp storeOp = mlir::LLVM::StoreOp::create(
       rewriter, op->getLoc(), value, adaptor.getAddr(), alignment,
       op.getIsVolatile(),
-      /*isNonTemporal=*/false, /*isInvariantGroup=*/false, memorder,
+      /*isNonTemporal=*/op->hasAttr("nontemporal"), /*isInvariantGroup=*/false, memorder,
       syncScope.value_or(llvm::StringRef()));
   rewriter.replaceOp(op, storeOp);
   assert(!cir::MissingFeatures::opLoadStoreTbaa());
@@ -2845,24 +2841,16 @@ mlir::LogicalResult CIRToLLVMShiftOpLowering::matchAndRewrite(
   mlir::Value amt = adaptor.getAmount();
   mlir::Value val = adaptor.getValue();
 
-  auto cirAmtTy = mlir::dyn_cast<cir::IntType>(op.getAmount().getType());
-  bool isUnsigned;
-  if (cirAmtTy) {
-    auto cirValTy = mlir::cast<cir::IntType>(op.getValue().getType());
-    isUnsigned = cirValTy.isUnsigned();
+  auto cirValTy =
+      mlir::cast<cir::IntType>(elementTypeIfVector(op.getValue().getType()));
+  auto cirAmtTy =
+      mlir::cast<cir::IntType>(elementTypeIfVector(op.getAmount().getType()));
+  bool isUnsigned = cirValTy.isUnsigned();
 
-    // Ensure shift amount is the same type as the value. Some undefined
-    // behavior might occur in the casts below as per [C99 6.5.7.3].
-    // Vector type shift amount needs no cast as type consistency is expected to
-    // be already be enforced at CIRGen.
-    if (cirAmtTy)
-      amt = getLLVMIntCast(rewriter, amt, llvmTy, true, cirAmtTy.getWidth(),
-                           cirValTy.getWidth());
-  } else {
-    auto cirValVTy = mlir::cast<cir::VectorType>(op.getValue().getType());
-    isUnsigned =
-        mlir::cast<cir::IntType>(cirValVTy.getElementType()).isUnsigned();
-  }
+  // Ensure the shift amount lowers to the same LLVM type as the value. Some
+  // undefined behavior might occur in the casts below as per [C99 6.5.7.3].
+  amt = getLLVMIntCast(rewriter, amt, llvmTy, /*isUnsigned=*/true,
+                       cirAmtTy.getWidth(), cirValTy.getWidth());
 
   // Lower to the proper LLVM shift operation.
   if (op.getIsShiftleft()) {

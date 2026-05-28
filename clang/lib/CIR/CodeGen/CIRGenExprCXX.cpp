@@ -419,13 +419,11 @@ static mlir::Value emitCXXNewAllocSize(CIRGenFunction &cgf, const CXXNewExpr *e,
   // We multiply the size of all dimensions for NumElements.
   // e.g for 'int[2][3]', ElemType is 'int' and NumElements is 6.
   const Expr *arraySize = *e->getArraySize();
-  mlir::Attribute constNumElements =
-      ConstantEmitter(cgf.cgm, &cgf)
-          .emitAbstract(arraySize, arraySize->getType());
+  std::optional<llvm::APSInt> constNumElements =
+      arraySize->getIntegerConstantExpr(cgf.getContext());
   if (constNumElements) {
     // Get an APInt from the constant
-    const llvm::APInt &count =
-        mlir::cast<cir::IntAttr>(constNumElements).getValue();
+    llvm::APInt count = constNumElements->extOrTrunc(sizeWidth);
 
     [[maybe_unused]] unsigned numElementsWidth = count.getBitWidth();
     bool hasAnyOverflow = false;
@@ -476,9 +474,25 @@ static mlir::Value emitCXXNewAllocSize(CIRGenFunction &cgf, const CXXNewExpr *e,
       size = cgf.getBuilder().getConstInt(loc, allocationSize);
     }
   } else {
-    // TODO: Handle the variable size case
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "emitCXXNewAllocSize: variable array size");
+    mlir::Value count = cgf.emitScalarExpr(arraySize);
+    if (count.getType() != cgf.sizeTy)
+      count = cgf.getBuilder().createIntCast(count, cgf.sizeTy);
+
+    mlir::Value arrayMultiplier =
+        cgf.getBuilder().getConstInt(loc, cgf.sizeTy,
+                                     arraySizeMultiplier.getZExtValue());
+    numElements = cgf.getBuilder().createMul(loc, count, arrayMultiplier);
+
+    mlir::Value typeMultiplier =
+        cgf.getBuilder().getConstInt(loc, cgf.sizeTy,
+                                     typeSizeMultiplier.getZExtValue());
+    sizeWithoutCookie = cgf.getBuilder().createMul(loc, count, typeMultiplier);
+    size = sizeWithoutCookie;
+    if (cookieSize != 0) {
+      mlir::Value cookie = cgf.getBuilder().getConstInt(
+          loc, cgf.sizeTy, cookieSize.getZExtValue());
+      size = cgf.getBuilder().createAdd(loc, size, cookie);
+    }
   }
 
   if (cookieSize == 0)
@@ -519,6 +533,8 @@ void CIRGenFunction::emitNewArrayInitializer(
     const CXXNewExpr *e, QualType elementType, mlir::Type elementTy,
     Address beginPtr, mlir::Value numElements,
     mlir::Value allocSizeWithoutCookie) {
+  mlir::Location loc = getLoc(e->getSourceRange());
+
   // If we have a type with trivial initialization and no initializer,
   // there's nothing to do.
   if (!e->hasInitializer())
@@ -529,7 +545,61 @@ void CIRGenFunction::emitNewArrayInitializer(
   const Expr *init = e->getInitializer();
   const InitListExpr *ile = dyn_cast<InitListExpr>(init);
   if (ile) {
-    cgm.errorNYI(ile->getSourceRange(), "emitNewArrayInitializer: init list");
+    initListElements = ile->getNumInits();
+    const CharUnits elementSize = getContext().getTypeSizeInChars(elementType);
+    const CharUnits elementAlign =
+        beginPtr.getAlignment().alignmentOfArrayElement(elementSize);
+    mlir::Value begin = beginPtr.getPointer();
+    for (unsigned i = 0; i != initListElements; ++i) {
+      mlir::Value element = begin;
+      if (i != 0) {
+        mlir::Value offset = builder.getConstInt(
+            getLoc(ile->getInit(i)->getSourceRange()), ptrDiffTy, i);
+        element = builder.createPtrStride(element.getLoc(), begin, offset);
+      }
+      Address elementAddr(element, elementTy, elementAlign);
+      storeAnyExprIntoOneUnit(*this, ile->getInit(i), elementType, elementAddr,
+                              AggValueSlot::MayOverlap);
+    }
+
+    mlir::Value count = numElements;
+    if (count.getType() != ptrDiffTy)
+      count = builder.createIntCast(count, ptrDiffTy);
+    mlir::Value end = builder.createPtrStride(loc, begin, count);
+    mlir::Value firstRest = begin;
+    if (initListElements != 0) {
+      mlir::Value offset =
+          builder.getConstInt(loc, ptrDiffTy, initListElements);
+      firstRest = builder.createPtrStride(loc, begin, offset);
+    }
+    Address tmpAddr = createTempAlloca(begin.getType(), getPointerAlign(), loc,
+                                       "arrayinit.rest");
+    LValue tmpLV = makeAddrLValue(tmpAddr, getContext().getPointerType(elementType));
+    emitStoreThroughLValue(RValue::get(firstRest), tmpLV);
+    cir::CmpOp hasRest =
+        cir::CmpOp::create(builder, loc, cir::CmpOpKind::ne, firstRest, end);
+    cir::IfOp::create(
+        builder, loc, hasRest, /*withElseRegion=*/false,
+        [&](mlir::OpBuilder &, mlir::Location loc) {
+          builder.createDoWhile(
+              loc,
+              [&](mlir::OpBuilder &, mlir::Location loc) {
+                cir::LoadOp current = builder.createLoad(loc, tmpAddr);
+                cir::CmpOp cmp = cir::CmpOp::create(
+                    builder, loc, cir::CmpOpKind::ne, current, end);
+                builder.createCondition(cmp);
+              },
+              [&](mlir::OpBuilder &, mlir::Location loc) {
+                cir::LoadOp current = builder.createLoad(loc, tmpAddr);
+                emitNullInitialization(
+                    loc, Address(current, elementTy, elementAlign), elementType);
+                mlir::Value one = builder.getConstInt(loc, ptrDiffTy, 1);
+                mlir::Value next = builder.createPtrStride(loc, current, one);
+                emitStoreThroughLValue(RValue::get(next), tmpLV);
+                builder.createYield(loc);
+              });
+          builder.createYield(loc);
+        });
     return;
   }
 
@@ -785,9 +855,7 @@ void CIRGenFunction::emitCXXDeleteExpr(const CXXDeleteExpr *e) {
   }
 
   if (e->isArrayForm()) {
-    assert(!cir::MissingFeatures::deleteArray());
-    cgm.errorNYI(e->getSourceRange(), "emitCXXDeleteExpr: array delete");
-    return;
+    emitDeleteCall(e->getOperatorDelete(), ptr.getPointer(), deleteTy);
   } else {
     emitObjectDelete(*this, e, ptr, deleteTy);
   }
@@ -895,9 +963,7 @@ mlir::Value CIRGenFunction::emitCXXNewExpr(const CXXNewExpr *e) {
 
   // If there's an operator delete, enter a cleanup to call it if an
   // exception is thrown.
-  if (e->getOperatorDelete() &&
-      !e->getOperatorDelete()->isReservedGlobalPlacementOperator())
-    cgm.errorNYI(e->getSourceRange(), "emitCXXNewExpr: operator delete");
+  assert(!cir::MissingFeatures::cleanupsToDeactivate());
 
   if (allocSize != allocSizeWithoutCookie) {
     assert(e->isArray());

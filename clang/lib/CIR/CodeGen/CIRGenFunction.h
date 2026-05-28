@@ -68,7 +68,7 @@ private:
     JumpDest() = default;
     JumpDest(mlir::Block *block, EHScopeStack::stable_iterator depth = {},
              unsigned index = 0)
-        : block(block) {}
+        : block(block), scopeDepth(depth), index(index) {}
 
     bool isValid() const { return block != nullptr; }
     mlir::Block *getBlock() const { return block; }
@@ -95,7 +95,10 @@ public:
   /// In CIR this is a function because each scope might have
   /// its associated return block.
   JumpDest returnBlock(mlir::Block *retBlock) {
-    return getJumpDestInCurrentScope(retBlock);
+    // A return leaves all active normal cleanup scopes before reaching the
+    // region-local return block.
+    return JumpDest(retBlock, EHScopeStack::stable_iterator::invalid(),
+                    nextCleanupDestIndex++);
   }
 
   unsigned nextCleanupDestIndex = 1;
@@ -175,6 +178,8 @@ public:
 
   CIRGenModule &getCIRGenModule() { return cgm; }
   const CIRGenModule &getCIRGenModule() const { return cgm; }
+
+  cir::FuncOp getCurFuncOp() const { return mlir::cast<cir::FuncOp>(curFn); }
 
   mlir::Block *getCurFunctionEntryBlock() {
     // We currently assume this isn't called for a global initializer.
@@ -989,6 +994,7 @@ public:
   /// that have been added.
   void popCleanupBlocks(EHScopeStack::stable_iterator oldCleanupStackDepth);
   void popCleanupBlock();
+  void emitCleanupsForReturn();
 
   /// Push a cleanup to be run at the end of the current full-expression.  Safe
   /// against the possibility that we're currently inside a
@@ -1047,6 +1053,15 @@ public:
         performCleanup = false;
         cgf.currentCleanupStackDepth = oldCleanupStackDepth;
       }
+    }
+
+    void discardCleanups() {
+      assert(performCleanup && "Already forced cleanup");
+      cgf.didCallStackSave = oldDidCallStackSave;
+      while (cgf.ehStack.stable_begin() != cleanupStackDepth)
+        cgf.ehStack.popCleanup();
+      performCleanup = false;
+      cgf.currentCleanupStackDepth = oldCleanupStackDepth;
     }
   };
 
@@ -1169,8 +1184,9 @@ public:
     mlir::Block *createCleanupBlock(mlir::OpBuilder &builder) {
       // Create the cleanup block but dont hook it up around just yet.
       mlir::OpBuilder::InsertionGuard guard(builder);
-      mlir::Region *r = builder.getBlock() ? builder.getBlock()->getParent()
-                                           : &cgf.curFn->getRegion(0);
+      assert(entryBlock && entryBlock->getParent() &&
+             "cleanup block requires a lexical-scope entry region");
+      mlir::Region *r = entryBlock->getParent();
       cleanupBlock = builder.createBlock(r);
       return cleanupBlock;
     }

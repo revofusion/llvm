@@ -118,6 +118,8 @@ public:
       return cir::ZeroAttr::get(recordTy);
     if (auto dataMemberTy = mlir::dyn_cast<cir::DataMemberType>(ty))
       return getNullDataMemberAttr(dataMemberTy);
+    if (auto methodTy = mlir::dyn_cast<cir::MethodType>(ty))
+      return cir::ZeroAttr::get(methodTy);
     if (mlir::isa<cir::BoolType>(ty)) {
       return getFalseAttr();
     }
@@ -393,16 +395,19 @@ public:
                            mlir::Type returnType, mlir::ValueRange operands,
                            llvm::ArrayRef<mlir::NamedAttribute> attrs = {}) {
     auto op = cir::CallOp::create(*this, loc, callee, returnType, operands);
-    op->setAttrs(attrs);
+    for (const mlir::NamedAttribute &attr : attrs)
+      op->setAttr(attr.getName(), attr.getValue());
     return op;
   }
 
   cir::CallOp createCallOp(mlir::Location loc, cir::FuncOp callee,
                            mlir::ValueRange operands,
                            llvm::ArrayRef<mlir::NamedAttribute> attrs = {}) {
+    mlir::Type returnType = callee.getFunctionType().getReturnType();
+    if (!returnType)
+      returnType = cir::VoidType::get(getContext());
     return createCallOp(loc, mlir::SymbolRefAttr::get(callee),
-                        callee.getFunctionType().getReturnType(), operands,
-                        attrs);
+                        returnType, operands, attrs);
   }
 
   cir::CallOp
@@ -418,7 +423,8 @@ public:
   cir::CallOp createCallOp(mlir::Location loc, mlir::SymbolRefAttr callee,
                            mlir::ValueRange operands = mlir::ValueRange(),
                            llvm::ArrayRef<mlir::NamedAttribute> attrs = {}) {
-    return createCallOp(loc, callee, cir::VoidType(), operands, attrs);
+    return createCallOp(loc, callee, cir::VoidType::get(getContext()), operands,
+                        attrs);
   }
 
   //===--------------------------------------------------------------------===//

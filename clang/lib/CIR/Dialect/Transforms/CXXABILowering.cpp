@@ -143,7 +143,23 @@ mlir::LogicalResult CIRConstantOpABILowering::matchAndRewrite(
     return mlir::success();
   }
 
-  llvm_unreachable("constant operand is not an CXXABI-dependent type");
+  if (mlir::isa<cir::MethodType>(op.getType())) {
+    mlir::TypedAttr abiValue;
+    if (auto method = mlir::dyn_cast<cir::MethodAttr>(op.getValue())) {
+      abiValue =
+          lowerModule->getCXXABI().lowerMethodConstant(method,
+                                                       *getTypeConverter());
+    } else if (mlir::isa<cir::ZeroAttr>(op.getValue())) {
+      mlir::Type abiTy = getTypeConverter()->convertType(op.getType());
+      abiValue = cir::ZeroAttr::get(abiTy);
+    } else {
+      return mlir::failure();
+    }
+    rewriter.replaceOpWithNewOp<ConstantOp>(op, abiValue);
+    return mlir::success();
+  }
+
+  llvm_unreachable("constant operand is not a CXXABI-dependent type");
 }
 
 mlir::LogicalResult CIRCmpOpABILowering::matchAndRewrite(
@@ -213,6 +229,16 @@ mlir::LogicalResult CIRGlobalOpABILowering::matchAndRewrite(
         mlir::cast_if_present<cir::DataMemberAttr>(op.getInitialValueAttr());
     loweredInit = lowerModule->getCXXABI().lowerDataMemberConstant(
         init, layout, *getTypeConverter());
+  } else if (mlir::isa<cir::MethodType>(ty)) {
+    if (auto init =
+            mlir::dyn_cast_if_present<cir::MethodAttr>(op.getInitialValueAttr()))
+      loweredInit =
+          lowerModule->getCXXABI().lowerMethodConstant(init,
+                                                       *getTypeConverter());
+    else if (mlir::isa_and_nonnull<cir::ZeroAttr>(op.getInitialValueAttr()))
+      loweredInit = cir::ZeroAttr::get(loweredTy);
+    else
+      return mlir::failure();
   } else {
     llvm_unreachable(
         "inputs to cir.global in ABI lowering must be data member or method");

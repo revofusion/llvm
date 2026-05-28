@@ -369,7 +369,7 @@ Attribute ConstArrayAttr::parse(AsmParser &parser, Type type) {
     }
   } else {
     auto ta = mlir::cast<TypedAttr>(*resultVal);
-    resultTy = ta.getType();
+    resultTy = mlir::isa<mlir::NoneType>(type) ? ta.getType() : type;
     if (mlir::isa<mlir::NoneType>(*resultTy)) {
       parser.emitError(parser.getCurrentLocation(),
                        "expected type declaration for string literal");

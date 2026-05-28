@@ -3216,6 +3216,10 @@ defm clangir : BoolFOption<"clangir",
   BothFlags<[], [ClangOption, CC1Option], "">>;
 def emit_cir : Flag<["-"], "emit-cir">, Visibility<[ClangOption, CC1Option]>,
   Group<Action_Group>, HelpText<"Build ASTs and then lower to ClangIR">;
+def fclangir_emit_selected_decls_EQ : Joined<["-"], "fclangir-emit-selected-decls=">,
+  Group<f_Group>, Visibility<[ClangOption, CC1Option]>,
+  HelpText<"Emit only the newline-delimited CIR symbol roots listed in the specified file">,
+  MarshallingInfoString<CodeGenOpts<"ClangIRSelectedDeclsFile">>;
 /// ClangIR-specific options - END
 
 def flto_EQ : Joined<["-"], "flto=">,

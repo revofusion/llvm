@@ -32,6 +32,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 #include <functional>
 #include <iterator>
 
@@ -88,6 +89,454 @@ struct ConstantAggregateBuilderUtils {
     return computePadding(cgm, size);
   }
 };
+
+static std::optional<mlir::TypedAttr>
+retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
+                                mlir::Type desiredType) {
+  if (attr.getType() == desiredType)
+    return attr;
+
+  CIRGenBuilderTy &builder = cgm.getBuilder();
+  if (builder.isNullValue(attr))
+    return builder.getZeroInitAttr(desiredType);
+  if (mlir::isa<cir::UndefAttr>(attr))
+    return cir::UndefAttr::get(desiredType);
+
+  ConstantAggregateBuilderUtils utils(cgm);
+  if (utils.getSize(attr) == utils.getSize(desiredType)) {
+    if (auto intAttr = mlir::dyn_cast<cir::IntAttr>(attr)) {
+      if (auto desiredInt =
+              mlir::dyn_cast<cir::IntTypeInterface>(desiredType)) {
+        if (intAttr.getBitWidth() == desiredInt.getWidth())
+          return cir::IntAttr::get(desiredType, intAttr.getValue());
+      }
+    }
+
+    if (auto ptrAttr = mlir::dyn_cast<cir::ConstPtrAttr>(attr)) {
+      if (auto desiredPtr = mlir::dyn_cast<cir::PointerType>(desiredType))
+        return cir::ConstPtrAttr::get(desiredPtr, ptrAttr.getValue());
+    }
+
+    if (auto globalView = mlir::dyn_cast<cir::GlobalViewAttr>(attr)) {
+      if (mlir::isa<cir::PointerType, cir::IntTypeInterface>(desiredType))
+        return cir::GlobalViewAttr::get(desiredType, globalView.getSymbol(),
+                                        globalView.getIndices());
+    }
+
+    if (auto blockAddress = mlir::dyn_cast<cir::BlockAddressAttr>(attr)) {
+      if (auto desiredPtr = mlir::dyn_cast<cir::PointerType>(desiredType))
+        return cir::BlockAddressAttr::get(desiredPtr,
+                                          blockAddress.getBlockAddrInfo());
+    }
+  }
+
+  if (auto desiredRecord = mlir::dyn_cast<cir::RecordType>(desiredType)) {
+    auto record = mlir::dyn_cast<cir::ConstRecordAttr>(attr);
+    auto buildUnion = [&](unsigned activeIndex,
+                          mlir::TypedAttr activeMember) -> mlir::TypedAttr {
+      SmallVector<mlir::Attribute> members;
+      members.reserve(desiredRecord.getNumElements());
+      for (unsigned index = 0; index < desiredRecord.getNumElements(); ++index)
+        members.push_back(cgm.getBuilder().getZeroInitAttr(
+            desiredRecord.getElementType(index)));
+      members[activeIndex] = activeMember;
+      return cir::ConstRecordAttr::get(
+          desiredRecord, mlir::ArrayAttr::get(builder.getContext(), members));
+    };
+
+    if (!record) {
+      if (!desiredRecord.isUnion())
+        return std::nullopt;
+      for (unsigned index = 0; index < desiredRecord.getNumElements();
+           ++index) {
+        auto retargeted = retargetLayoutIdenticalConstant(
+            cgm, attr, desiredRecord.getElementType(index));
+        if (retargeted)
+          return buildUnion(index, *retargeted);
+      }
+      return std::nullopt;
+    }
+
+    auto sourceRecord = mlir::cast<cir::RecordType>(record.getType());
+    auto getSourceOffset = [&](unsigned index) {
+      return CharUnits::fromQuantity(
+          sourceRecord.getElementOffset(utils.dataLayout.layout, index));
+    };
+    auto allUnusedSourceMembersAreNull =
+        [&](const SmallVectorImpl<bool> &used) {
+          for (unsigned index = 0; index < sourceRecord.getNumElements();
+               ++index) {
+            if (used[index])
+              continue;
+            auto typedMember =
+                mlir::dyn_cast<mlir::TypedAttr>(record.getMembers()[index]);
+            if (!typedMember || !builder.isNullValue(typedMember))
+              return false;
+          }
+          return true;
+        };
+    auto retargetSourceMemberAtOffset =
+        [&](CharUnits offset, mlir::Type memberType,
+            SmallVectorImpl<bool> &used) -> std::optional<mlir::TypedAttr> {
+      for (unsigned index = 0; index < sourceRecord.getNumElements(); ++index) {
+        if (used[index] || getSourceOffset(index) != offset)
+          continue;
+        auto typedMember =
+            mlir::dyn_cast<mlir::TypedAttr>(record.getMembers()[index]);
+        if (!typedMember)
+          continue;
+        auto retargeted =
+            retargetLayoutIdenticalConstant(cgm, typedMember, memberType);
+        if (!retargeted)
+          continue;
+        used[index] = true;
+        return retargeted;
+      }
+      return std::nullopt;
+    };
+    std::function<std::optional<mlir::TypedAttr>(
+        CharUnits, mlir::Type, SmallVectorImpl<bool> &)>
+        retargetSourceRangeAtOffset;
+    retargetSourceRangeAtOffset =
+        [&](CharUnits offset, mlir::Type memberType,
+            SmallVectorImpl<bool> &used) -> std::optional<mlir::TypedAttr> {
+      if (auto retargeted =
+              retargetSourceMemberAtOffset(offset, memberType, used))
+        return retargeted;
+
+      auto desiredVector = mlir::dyn_cast<cir::VectorType>(memberType);
+      if (!desiredVector || desiredVector.getIsScalable())
+        return std::nullopt;
+
+      mlir::Type elementType = desiredVector.getElementType();
+      CharUnits elementSize = utils.getSize(elementType);
+      if (elementSize.isZero())
+        return std::nullopt;
+
+      SmallVector<bool, 16> trialUsed(used.begin(), used.end());
+      SmallVector<mlir::Attribute, 16> elements;
+      elements.reserve(desiredVector.getSize());
+      for (uint64_t index = 0; index < desiredVector.getSize(); ++index) {
+        CharUnits elementOffset =
+            offset + CharUnits::fromQuantity(elementSize.getQuantity() *
+                                             static_cast<int64_t>(index));
+        auto retargeted =
+            retargetSourceMemberAtOffset(elementOffset, elementType, trialUsed);
+        if (!retargeted)
+          return std::nullopt;
+        elements.push_back(*retargeted);
+      }
+
+      used.assign(trialUsed.begin(), trialUsed.end());
+      return cir::ConstVectorAttr::get(
+          desiredVector, mlir::ArrayAttr::get(builder.getContext(), elements));
+    };
+
+    if (desiredRecord.isUnion()) {
+      std::optional<unsigned> activeIndex;
+      std::optional<mlir::TypedAttr> activeMember;
+      for (unsigned index = 0; index < desiredRecord.getNumElements();
+           ++index) {
+        mlir::Type memberType = desiredRecord.getElementType(index);
+        auto retargeted =
+            retargetLayoutIdenticalConstant(cgm, attr, memberType);
+        if (!retargeted && sourceRecord.getNumElements() == 1) {
+          auto singleton =
+              mlir::dyn_cast<mlir::TypedAttr>(record.getMembers()[0]);
+          if (singleton)
+            retargeted =
+                retargetLayoutIdenticalConstant(cgm, singleton, memberType);
+        }
+        if (!retargeted) {
+          SmallVector<bool, 8> used(sourceRecord.getNumElements(), false);
+          retargeted =
+              retargetSourceMemberAtOffset(CharUnits::Zero(), memberType, used);
+          if (retargeted && !allUnusedSourceMembersAreNull(used))
+            retargeted = std::nullopt;
+        }
+        if (!activeMember && retargeted) {
+          activeIndex = index;
+          activeMember = *retargeted;
+        }
+      }
+      if (activeIndex.has_value() && activeMember.has_value())
+        return buildUnion(*activeIndex, *activeMember);
+      return std::nullopt;
+    }
+
+    if (utils.getSize(attr) == utils.getSize(desiredType)) {
+      SmallVector<bool, 16> used(sourceRecord.getNumElements(), false);
+      SmallVector<mlir::Attribute> members;
+      members.reserve(desiredRecord.getNumElements());
+      for (unsigned index = 0; index < desiredRecord.getNumElements();
+           ++index) {
+        CharUnits desiredOffset = CharUnits::fromQuantity(
+            desiredRecord.getElementOffset(utils.dataLayout.layout, index));
+        auto retargeted = retargetSourceRangeAtOffset(
+            desiredOffset, desiredRecord.getElementType(index), used);
+        if (!retargeted) {
+          members.clear();
+          break;
+        }
+        members.push_back(*retargeted);
+      }
+
+      if (members.size() == desiredRecord.getNumElements() &&
+          allUnusedSourceMembersAreNull(used))
+        return cir::ConstRecordAttr::get(
+            desiredRecord, mlir::ArrayAttr::get(builder.getContext(), members));
+    }
+
+    {
+      SmallVector<bool, 16> used(sourceRecord.getNumElements(), false);
+      SmallVector<mlir::Attribute> members;
+      members.reserve(desiredRecord.getNumElements());
+      unsigned sourceIndex = 0;
+      bool consumedVector = false;
+
+      auto retargetSourceMemberAtIndex =
+          [&](unsigned index,
+              mlir::Type memberType) -> std::optional<mlir::TypedAttr> {
+        if (index >= sourceRecord.getNumElements())
+          return std::nullopt;
+        auto typedMember =
+            mlir::dyn_cast<mlir::TypedAttr>(record.getMembers()[index]);
+        if (!typedMember)
+          return std::nullopt;
+        if (typedMember.getType() == memberType)
+          return typedMember;
+        if (builder.isNullValue(typedMember))
+          return builder.getZeroInitAttr(memberType);
+        return retargetLayoutIdenticalConstant(cgm, typedMember, memberType);
+      };
+
+      std::function<std::optional<mlir::TypedAttr>(mlir::Type)>
+          consumeLogicalMember;
+      consumeLogicalMember =
+          [&](mlir::Type memberType) -> std::optional<mlir::TypedAttr> {
+        if (auto desiredVector = mlir::dyn_cast<cir::VectorType>(memberType);
+            desiredVector && !desiredVector.getIsScalable()) {
+          mlir::Type elementType = desiredVector.getElementType();
+          SmallVector<mlir::Attribute, 16> elements;
+          elements.reserve(desiredVector.getSize());
+          for (uint64_t index = 0; index < desiredVector.getSize(); ++index) {
+            auto retargeted =
+                retargetSourceMemberAtIndex(sourceIndex, elementType);
+            if (!retargeted)
+              return std::nullopt;
+            used[sourceIndex++] = true;
+            elements.push_back(*retargeted);
+          }
+          consumedVector = true;
+          return cir::ConstVectorAttr::get(
+              desiredVector,
+              mlir::ArrayAttr::get(builder.getContext(), elements));
+        }
+
+        auto retargeted = retargetSourceMemberAtIndex(sourceIndex, memberType);
+        if (!retargeted)
+          return std::nullopt;
+        used[sourceIndex++] = true;
+        return retargeted;
+      };
+
+      for (unsigned index = 0; index < desiredRecord.getNumElements();
+           ++index) {
+        auto retargeted =
+            consumeLogicalMember(desiredRecord.getElementType(index));
+        if (!retargeted) {
+          members.clear();
+          break;
+        }
+        members.push_back(*retargeted);
+      }
+
+      if (consumedVector && members.size() == desiredRecord.getNumElements() &&
+          allUnusedSourceMembersAreNull(used))
+        return cir::ConstRecordAttr::get(
+            desiredRecord, mlir::ArrayAttr::get(builder.getContext(), members));
+    }
+
+    if (sourceRecord.getNumElements() == desiredRecord.getNumElements()) {
+      SmallVector<mlir::Attribute> members;
+      members.reserve(desiredRecord.getNumElements());
+      for (unsigned index = 0; index < desiredRecord.getNumElements();
+           ++index) {
+        auto typedMember =
+            mlir::dyn_cast<mlir::TypedAttr>(record.getMembers()[index]);
+        if (!typedMember) {
+          members.clear();
+          break;
+        }
+        auto retargeted = retargetLayoutIdenticalConstant(
+            cgm, typedMember, desiredRecord.getElementType(index));
+        if (!retargeted) {
+          members.clear();
+          break;
+        }
+        members.push_back(*retargeted);
+      }
+
+      if (members.size() == desiredRecord.getNumElements())
+        return cir::ConstRecordAttr::get(
+            desiredRecord, mlir::ArrayAttr::get(builder.getContext(), members));
+    }
+
+    if (sourceRecord.getNumElements() >= desiredRecord.getNumElements()) {
+      SmallVector<mlir::Attribute> members;
+      members.reserve(desiredRecord.getNumElements());
+      bool changed =
+          !sourceRecord.isLayoutIdentical(desiredRecord) ||
+          sourceRecord.getNumElements() != desiredRecord.getNumElements();
+      for (unsigned index = 0; index < desiredRecord.getNumElements();
+           ++index) {
+        mlir::Attribute member = record.getMembers()[index];
+        if (sourceRecord.getElementOffset(utils.dataLayout.layout, index) !=
+            desiredRecord.getElementOffset(utils.dataLayout.layout, index)) {
+          members.clear();
+          break;
+        }
+
+        auto typedMember = mlir::dyn_cast<mlir::TypedAttr>(member);
+        if (!typedMember) {
+          members.clear();
+          break;
+        }
+
+        mlir::Type desiredElement = desiredRecord.getElementType(index);
+        if (typedMember.getType() == desiredElement) {
+          members.push_back(typedMember);
+          continue;
+        }
+
+        changed = true;
+        if (builder.isNullValue(typedMember)) {
+          members.push_back(builder.getZeroInitAttr(desiredElement));
+          continue;
+        }
+
+        auto retargeted =
+            retargetLayoutIdenticalConstant(cgm, typedMember, desiredElement);
+        if (!retargeted) {
+          members.clear();
+          break;
+        }
+        members.push_back(*retargeted);
+      }
+
+      for (unsigned index = desiredRecord.getNumElements();
+           index < sourceRecord.getNumElements() && !members.empty(); ++index) {
+        auto typedMember =
+            mlir::dyn_cast<mlir::TypedAttr>(record.getMembers()[index]);
+        if (!typedMember || !builder.isNullValue(typedMember))
+          members.clear();
+      }
+
+      if (changed && members.size() == desiredRecord.getNumElements())
+        return cir::ConstRecordAttr::get(
+            desiredRecord, mlir::ArrayAttr::get(builder.getContext(), members));
+    }
+
+    if (utils.getSize(attr) != utils.getSize(desiredType))
+      return std::nullopt;
+
+    if (sourceRecord.getNumElements() == 1) {
+      auto singleton = mlir::dyn_cast<mlir::TypedAttr>(record.getMembers()[0]);
+      if (!singleton)
+        return std::nullopt;
+      if (utils.getSize(singleton) == utils.getSize(desiredType)) {
+        auto retargeted =
+            retargetLayoutIdenticalConstant(cgm, singleton, desiredType);
+        if (retargeted)
+          return retargeted;
+      }
+    }
+
+    if (!sourceRecord.isLayoutIdentical(desiredRecord) ||
+        sourceRecord.getNumElements() != desiredRecord.getNumElements())
+      return std::nullopt;
+
+    SmallVector<mlir::Attribute> members;
+    members.reserve(record.getMembers().size());
+    for (auto [index, member] : llvm::enumerate(record.getMembers())) {
+      auto typedMember = mlir::dyn_cast<mlir::TypedAttr>(member);
+      if (!typedMember)
+        return std::nullopt;
+      auto retargeted = retargetLayoutIdenticalConstant(
+          cgm, typedMember, desiredRecord.getElementType(index));
+      if (!retargeted)
+        return std::nullopt;
+      members.push_back(*retargeted);
+    }
+    return cir::ConstRecordAttr::get(
+        desiredRecord, mlir::ArrayAttr::get(builder.getContext(), members));
+  }
+
+  if (auto desiredArray = mlir::dyn_cast<cir::ArrayType>(desiredType)) {
+    auto array = mlir::dyn_cast<cir::ConstArrayAttr>(attr);
+    if (!array)
+      return std::nullopt;
+    auto sourceArray = mlir::cast<cir::ArrayType>(array.getType());
+    if (sourceArray.getSize() > desiredArray.getSize())
+      return std::nullopt;
+
+    mlir::Type desiredElement = desiredArray.getElementType();
+    if (auto arrayElements = mlir::dyn_cast<mlir::ArrayAttr>(array.getElts())) {
+      SmallVector<mlir::Attribute> elements;
+      elements.resize(desiredArray.getSize(),
+                      builder.getZeroInitAttr(desiredElement));
+      if (arrayElements.size() > desiredArray.getSize())
+        return std::nullopt;
+      unsigned index = 0;
+      for (auto member : arrayElements) {
+        auto typedMember = mlir::dyn_cast<mlir::TypedAttr>(member);
+        if (!typedMember)
+          return std::nullopt;
+        auto retargeted =
+            retargetLayoutIdenticalConstant(cgm, typedMember, desiredElement);
+        if (!retargeted)
+          return std::nullopt;
+        elements[index++] = *retargeted;
+      }
+      return cir::ConstArrayAttr::get(
+          desiredArray, mlir::ArrayAttr::get(builder.getContext(), elements),
+          /*trailingZerosNum=*/0);
+    }
+    if (auto string = mlir::dyn_cast<mlir::StringAttr>(array.getElts())) {
+      auto sourceElement =
+          mlir::dyn_cast<cir::IntTypeInterface>(sourceArray.getElementType());
+      auto retargetedElement =
+          mlir::dyn_cast<cir::IntTypeInterface>(desiredElement);
+      if (!sourceElement || !retargetedElement ||
+          sourceElement.getWidth() != retargetedElement.getWidth() ||
+          retargetedElement.getWidth() != 8 ||
+          string.getValue().size() > desiredArray.getSize())
+        return std::nullopt;
+      unsigned trailingZeros =
+          static_cast<unsigned>(desiredArray.getSize() - string.getValue().size());
+      return cir::ConstArrayAttr::get(desiredArray, string,
+                                      trailingZeros);
+    }
+  }
+
+  if (utils.getSize(attr) != utils.getSize(desiredType))
+    return std::nullopt;
+
+  return std::nullopt;
+}
+
+static std::optional<mlir::TypedAttr>
+retargetAggregateConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
+                          mlir::Type desiredType);
+
+static std::string describeInitializerRetargetFailure(mlir::Type sourceType,
+                                                      mlir::Type memoryType) {
+  std::string message;
+  llvm::raw_string_ostream os(message);
+  os << "emitForMemory: initializer type does not match memory type: "
+     << sourceType << " -> " << memoryType;
+  return message;
+}
 
 /// Incremental builder for an mlir::TypedAttr holding a record or array
 /// constant.
@@ -347,8 +796,99 @@ std::optional<size_t> ConstantAggregateBuilder::splitAt(CharUnits pos) {
 /// Hint indicates the location at which we'd like to split, but may be
 /// ignored.
 bool ConstantAggregateBuilder::split(size_t index, CharUnits hint) {
-  cgm.errorNYI("split constant at index");
-  return false;
+  Element elt = elements[index];
+  CharUnits eltEnd = elt.offset + getSize(elt.element);
+  if (hint <= elt.offset || hint >= eltEnd)
+    return false;
+
+  if (!mlir::isa<cir::ZeroAttr>(elt.element) &&
+      !mlir::isa<cir::UndefAttr>(elt.element)) {
+    if (auto record = mlir::dyn_cast<cir::ConstRecordAttr>(elt.element)) {
+      auto recordTy = mlir::cast<cir::RecordType>(record.getType());
+      llvm::SmallVector<Element, 8> replacement;
+      for (auto [i, member] : llvm::enumerate(record.getMembers())) {
+        auto typedMember = mlir::cast<mlir::TypedAttr>(member);
+        CharUnits memberOffset =
+            elt.offset + CharUnits::fromQuantity(
+                             recordTy.getElementOffset(dataLayout.layout, i));
+        replacement.emplace_back(typedMember, memberOffset);
+      }
+      replace(elements, index, index + 1, replacement);
+      naturalLayout = false;
+      return true;
+    }
+    if (auto array = mlir::dyn_cast<cir::ConstArrayAttr>(elt.element)) {
+      auto arrayTy = mlir::cast<cir::ArrayType>(array.getType());
+      mlir::Type elementTy = arrayTy.getElementType();
+      CharUnits elementSize = getSize(elementTy);
+      llvm::SmallVector<Element, 8> replacement;
+      if (auto arrayElements =
+              mlir::dyn_cast<mlir::ArrayAttr>(array.getElts())) {
+        for (auto [i, member] : llvm::enumerate(arrayElements))
+          replacement.emplace_back(
+              mlir::cast<mlir::TypedAttr>(member),
+              elt.offset + CharUnits::fromQuantity(elementSize.getQuantity() *
+                                                   static_cast<int64_t>(i)));
+        for (int i = 0; i < array.getTrailingZerosNum(); ++i)
+          replacement.emplace_back(
+              cgm.getBuilder().getZeroInitAttr(elementTy),
+              elt.offset + CharUnits::fromQuantity(
+                               elementSize.getQuantity() *
+                               static_cast<int64_t>(arrayElements.size() + i)));
+      } else if (auto string =
+                     mlir::dyn_cast<mlir::StringAttr>(array.getElts())) {
+        for (auto [i, ch] : llvm::enumerate(string.getValue())) {
+          auto intTy = mlir::cast<cir::IntType>(elementTy);
+          replacement.emplace_back(
+              cir::IntAttr::get(intTy, static_cast<unsigned char>(ch)),
+              elt.offset + CharUnits::fromQuantity(elementSize.getQuantity() *
+                                                   static_cast<int64_t>(i)));
+        }
+        for (int i = 0; i < array.getTrailingZerosNum(); ++i)
+          replacement.emplace_back(
+              cgm.getBuilder().getZeroInitAttr(elementTy),
+              elt.offset + CharUnits::fromQuantity(
+                               elementSize.getQuantity() *
+                               static_cast<int64_t>(string.size() + i)));
+      } else {
+        return false;
+      }
+      replace(elements, index, index + 1, replacement);
+      naturalLayout = false;
+      return true;
+    }
+    if (auto vector = mlir::dyn_cast<cir::ConstVectorAttr>(elt.element)) {
+      auto vectorTy = mlir::cast<cir::VectorType>(vector.getType());
+      if (vectorTy.getIsScalable()) {
+        cgm.errorNYI("split scalable vector constant at index");
+        return false;
+      }
+      mlir::Type elementTy = vectorTy.getElementType();
+      CharUnits elementSize = getSize(elementTy);
+      llvm::SmallVector<Element, 8> replacement;
+      for (auto [i, member] : llvm::enumerate(vector.getElts()))
+        replacement.emplace_back(
+            mlir::cast<mlir::TypedAttr>(member),
+            elt.offset + CharUnits::fromQuantity(elementSize.getQuantity() *
+                                                 static_cast<int64_t>(i)));
+      replace(elements, index, index + 1, replacement);
+      naturalLayout = false;
+      return true;
+    }
+    cgm.errorNYI("split constant at index");
+    return false;
+  }
+
+  llvm::SmallVector<Element, 2> replacement;
+  CharUnits before = hint - elt.offset;
+  CharUnits after = eltEnd - hint;
+  if (!before.isZero())
+    replacement.emplace_back(getPadding(before), elt.offset);
+  if (!after.isZero())
+    replacement.emplace_back(getPadding(after), hint);
+  replace(elements, index, index + 1, replacement);
+  naturalLayout = false;
+  return true;
 }
 
 void ConstantAggregateBuilder::condense(CharUnits offset,
@@ -399,9 +939,94 @@ ConstantAggregateBuilder::buildFrom(CIRGenModule &cgm, ArrayRef<Element> elems,
 
   // If we want an array type, see if all the elements are the same type and
   // appropriately spaced.
-  if (mlir::isa<cir::ArrayType>(desiredTy)) {
-    cgm.errorNYI("array aggregate constants");
-    return {};
+  if (auto arrayTy = mlir::dyn_cast<cir::ArrayType>(desiredTy)) {
+    CIRGenBuilderTy &builder = cgm.getBuilder();
+    mlir::Type elementTy = arrayTy.getElementType();
+    CharUnits elementSize = utils.getSize(elementTy);
+    if (elementSize.isZero()) {
+      cgm.errorNYI("zero-sized array aggregate constants");
+      return {};
+    }
+
+    llvm::SmallVector<mlir::Attribute, 32> arrayElems;
+    arrayElems.resize(arrayTy.getSize(), builder.getZeroInitAttr(elementTy));
+    for (auto [element, offset] : elems) {
+      if (offset < startOffset) {
+        cgm.errorNYI("array aggregate constant element before array start");
+        return {};
+      }
+      CharUnits relOffset = offset - startOffset;
+      if (relOffset.getQuantity() % elementSize.getQuantity() != 0 ||
+          utils.getSize(element) != elementSize) {
+        cgm.errorNYI("array aggregate constant element layout mismatch");
+        return {};
+      }
+      if (element.getType() != elementTy) {
+        auto retargeted = retargetAggregateConstant(cgm, element, elementTy);
+        if (!retargeted) {
+          cgm.errorNYI("array aggregate constant element type mismatch");
+          return {};
+        }
+        element = *retargeted;
+      }
+      uint64_t index = static_cast<uint64_t>(relOffset.getQuantity() /
+                                             elementSize.getQuantity());
+      if (index >= arrayTy.getSize()) {
+        cgm.errorNYI("array aggregate constant element outside array bounds");
+        return {};
+      }
+      arrayElems[index] = element;
+    }
+
+    return cir::ConstArrayAttr::get(
+        arrayTy, mlir::ArrayAttr::get(builder.getContext(), arrayElems));
+  }
+
+  if (auto vectorTy = mlir::dyn_cast<cir::VectorType>(desiredTy)) {
+    CIRGenBuilderTy &builder = cgm.getBuilder();
+    if (vectorTy.getIsScalable()) {
+      cgm.errorNYI("scalable vector aggregate constants");
+      return {};
+    }
+    mlir::Type elementTy = vectorTy.getElementType();
+    CharUnits elementSize = utils.getSize(elementTy);
+    if (elementSize.isZero()) {
+      cgm.errorNYI("zero-sized vector aggregate constants");
+      return {};
+    }
+
+    llvm::SmallVector<mlir::Attribute, 16> vectorElems;
+    vectorElems.resize(vectorTy.getSize(), builder.getZeroInitAttr(elementTy));
+    for (auto [element, offset] : elems) {
+      if (offset < startOffset) {
+        cgm.errorNYI("vector aggregate constant element before vector start");
+        return {};
+      }
+      CharUnits relOffset = offset - startOffset;
+      if (relOffset.getQuantity() % elementSize.getQuantity() != 0 ||
+          utils.getSize(element) != elementSize) {
+        cgm.errorNYI("vector aggregate constant element layout mismatch");
+        return {};
+      }
+      if (element.getType() != elementTy) {
+        auto retargeted = retargetAggregateConstant(cgm, element, elementTy);
+        if (!retargeted) {
+          cgm.errorNYI("vector aggregate constant element type mismatch");
+          return {};
+        }
+        element = *retargeted;
+      }
+      uint64_t index = static_cast<uint64_t>(relOffset.getQuantity() /
+                                             elementSize.getQuantity());
+      if (index >= vectorTy.getSize()) {
+        cgm.errorNYI("vector aggregate constant element outside vector bounds");
+        return {};
+      }
+      vectorElems[index] = element;
+    }
+
+    return cir::ConstVectorAttr::get(
+        vectorTy, mlir::ArrayAttr::get(builder.getContext(), vectorElems));
   }
 
   // The size of the constant we plan to generate. This is usually just the size
@@ -479,6 +1104,29 @@ ConstantAggregateBuilder::buildFrom(CIRGenModule &cgm, ArrayRef<Element> elems,
       recordType = desired;
 
   return builder.getConstRecordOrZeroAttr(arrAttr, packed, padded, recordType);
+}
+
+static std::optional<mlir::TypedAttr>
+retargetAggregateConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
+                          mlir::Type desiredType) {
+  if (auto retargeted = retargetLayoutIdenticalConstant(cgm, attr, desiredType))
+    return retargeted;
+
+  ConstantAggregateBuilderUtils utils(cgm);
+  if (utils.getSize(attr) != utils.getSize(desiredType))
+    return std::nullopt;
+
+  ConstantAggregateBuilder builder(cgm);
+  if (!builder.add(attr, CharUnits::Zero(), /*allowOverwrite=*/false))
+    return std::nullopt;
+
+  mlir::Attribute rebuilt =
+      builder.build(desiredType, /*allowOversized=*/false);
+  auto typed = mlir::dyn_cast_or_null<mlir::TypedAttr>(rebuilt);
+  if (!typed || typed.getType() != desiredType)
+    return std::nullopt;
+
+  return typed;
 }
 
 //===----------------------------------------------------------------------===//
@@ -828,7 +1476,7 @@ mlir::Attribute ConstRecordBuilder::finalize(QualType type) {
   type = type.getNonReferenceType();
   RecordDecl *rd =
       type->castAs<clang::RecordType>()->getDecl()->getDefinitionOrSelf();
-  mlir::Type valTy = cgm.convertType(type);
+  mlir::Type valTy = cgm.getTypes().convertTypeForMem(type);
   return builder.build(valTy, rd->hasFlexibleArrayMember());
 }
 
@@ -1038,7 +1686,10 @@ public:
 
   mlir::Attribute VisitImplicitValueInitExpr(ImplicitValueInitExpr *e,
                                              QualType t) {
-    return cgm.getBuilder().getZeroInitAttr(cgm.convertType(t));
+    if (cgm.getTypes().isZeroInitializable(t))
+      return cgm.getBuilder().getZeroInitAttr(
+          cgm.getTypes().convertTypeForMem(t));
+    return cgm.emitNullConstantAttr(t);
   }
 
   mlir::Attribute VisitInitListExpr(InitListExpr *ile, QualType t) {
@@ -1140,6 +1791,7 @@ emitArrayConstant(CIRGenModule &cgm, mlir::Type desiredType,
                   SmallVectorImpl<mlir::TypedAttr> &elements,
                   mlir::TypedAttr filler) {
   CIRGenBuilderTy &builder = cgm.getBuilder();
+  (void)commonElementType;
 
   unsigned nonzeroLength = arrayBound;
   if (elements.size() < nonzeroLength && builder.isNullValue(filler))
@@ -1155,64 +1807,28 @@ emitArrayConstant(CIRGenModule &cgm, mlir::Type desiredType,
     return cir::ZeroAttr::get(desiredType);
 
   const unsigned trailingZeroes = arrayBound - nonzeroLength;
-
-  // Add a zeroinitializer array filler if we have lots of trailing zeroes.
-  if (trailingZeroes >= 8) {
-    assert(elements.size() >= nonzeroLength &&
-           "missing initializer for non-zero element");
-
-    if (commonElementType && nonzeroLength >= 8) {
-      // If all the elements had the same type up to the trailing zeroes and
-      // there are eight or more nonzero elements, emit a struct of two arrays
-      // (the nonzero data and the zeroinitializer).
-      SmallVector<mlir::Attribute> eles;
-      eles.reserve(nonzeroLength);
-      for (const auto &element : elements)
-        eles.push_back(element);
-      auto initial = cir::ConstArrayAttr::get(
-          cir::ArrayType::get(commonElementType, nonzeroLength),
-          mlir::ArrayAttr::get(builder.getContext(), eles));
-      elements.resize(2);
-      elements[0] = initial;
-    } else {
-      // Otherwise, emit a struct with individual elements for each nonzero
-      // initializer, followed by a zeroinitializer array filler.
-      elements.resize(nonzeroLength + 1);
-    }
-
-    mlir::Type fillerType =
-        commonElementType
-            ? commonElementType
-            : mlir::cast<cir::ArrayType>(desiredType).getElementType();
-    fillerType = cir::ArrayType::get(fillerType, trailingZeroes);
-    elements.back() = cir::ZeroAttr::get(fillerType);
-    commonElementType = nullptr;
-  } else if (elements.size() != arrayBound) {
-    elements.resize(arrayBound, filler);
-
-    if (filler.getType() != commonElementType)
-      commonElementType = {};
-  }
-
-  if (commonElementType) {
-    SmallVector<mlir::Attribute> eles;
-    eles.reserve(elements.size());
-
-    for (const auto &element : elements)
-      eles.push_back(element);
-
-    return cir::ConstArrayAttr::get(
-        cir::ArrayType::get(commonElementType, arrayBound),
-        mlir::ArrayAttr::get(builder.getContext(), eles));
-  }
+  auto arrayType = mlir::cast<cir::ArrayType>(desiredType);
+  mlir::Type elementType = arrayType.getElementType();
+  if (elements.size() < nonzeroLength)
+    elements.resize(nonzeroLength, filler);
 
   SmallVector<mlir::Attribute> eles;
-  eles.reserve(elements.size());
-  for (auto const &element : elements)
-    eles.push_back(element);
+  eles.reserve(nonzeroLength);
+  for (unsigned i = 0; i < nonzeroLength; ++i) {
+    if (elements[i].getType() != elementType) {
+      auto retargeted =
+          retargetAggregateConstant(cgm, elements[i], elementType);
+      if (!retargeted) {
+        cgm.errorNYI("array aggregate constant element type mismatch");
+        return {};
+      }
+      elements[i] = *retargeted;
+    }
+    eles.push_back(elements[i]);
+  }
 
   auto arrAttr = mlir::ArrayAttr::get(builder.getContext(), eles);
-  return builder.getAnonConstRecord(arrAttr, /*packed=*/true);
+  return cir::ConstArrayAttr::get(arrayType, arrAttr, trailingZeroes);
 }
 
 } // namespace
@@ -1232,6 +1848,8 @@ struct ConstantLValue {
       : value(nullptr), hasOffsetApplied(false) {}
   /*implicit*/ ConstantLValue(cir::GlobalViewAttr address)
       : value(address), hasOffsetApplied(false) {}
+  /*implicit*/ ConstantLValue(cir::BlockAddressAttr address)
+      : value(address), hasOffsetApplied(true) {}
 
   ConstantLValue() : value(nullptr), hasOffsetApplied(false) {}
 };
@@ -1463,8 +2081,21 @@ ConstantLValueEmitter::VisitPredefinedExpr(const PredefinedExpr *e) {
 
 ConstantLValue
 ConstantLValueEmitter::VisitAddrLabelExpr(const AddrLabelExpr *e) {
-  cgm.errorNYI(e->getSourceRange(), "ConstantLValueEmitter: addr label expr");
-  return {};
+  if (!emitter.cgf) {
+    cgm.errorNYI(e->getSourceRange(),
+                 "ConstantLValueEmitter: addr label outside function");
+    return {};
+  }
+
+  CIRGenBuilderTy &builder = cgm.getBuilder();
+  cir::FuncOp func = emitter.cgf->getCurFuncOp();
+  cir::BlockAddrInfoAttr blockInfo = cir::BlockAddrInfoAttr::get(
+      builder.getContext(), func.getSymNameAttr(),
+      builder.getStringAttr(e->getLabel()->getName()));
+  cgm.mapConstantBlockAddress(blockInfo);
+
+  auto ptrTy = mlir::cast<cir::PointerType>(cgm.convertType(e->getType()));
+  return cir::BlockAddressAttr::get(ptrTy, blockInfo);
 }
 
 ConstantLValue ConstantLValueEmitter::VisitCallExpr(const CallExpr *e) {
@@ -1688,6 +2319,8 @@ mlir::Attribute ConstantEmitter::tryEmitPrivateForMemory(const Expr *e,
   mlir::TypedAttr c = tryEmitPrivate(e, nonMemoryDestType);
   if (c) {
     mlir::Attribute attr = emitForMemory(c, destType);
+    if (!attr)
+      return nullptr;
     return mlir::cast<mlir::TypedAttr>(attr);
   }
   return nullptr;
@@ -1737,7 +2370,19 @@ mlir::Attribute ConstantEmitter::emitForMemory(mlir::Attribute c,
     return {};
   }
 
-  return c;
+  auto typed = mlir::dyn_cast<mlir::TypedAttr>(c);
+  if (!typed)
+    return c;
+
+  mlir::Type memoryType = cgm.getTypes().convertTypeForMem(destType);
+  if (typed.getType() == memoryType)
+    return c;
+
+  if (auto retargeted = retargetAggregateConstant(cgm, typed, memoryType))
+    return *retargeted;
+
+  cgm.errorNYI(describeInitializerRetargetFailure(typed.getType(), memoryType));
+  return {};
 }
 
 mlir::Attribute ConstantEmitter::emitForMemory(CIRGenModule &cgm,
@@ -1746,9 +2391,22 @@ mlir::Attribute ConstantEmitter::emitForMemory(CIRGenModule &cgm,
   // For an _Atomic-qualified constant, we may need to add tail padding.
   if (destType->getAs<AtomicType>()) {
     cgm.errorNYI("atomic constants");
+    return {};
   }
 
-  return c;
+  auto typed = mlir::dyn_cast<mlir::TypedAttr>(c);
+  if (!typed)
+    return c;
+
+  mlir::Type memoryType = cgm.getTypes().convertTypeForMem(destType);
+  if (typed.getType() == memoryType)
+    return c;
+
+  if (auto retargeted = retargetAggregateConstant(cgm, typed, memoryType))
+    return *retargeted;
+
+  cgm.errorNYI(describeInitializerRetargetFailure(typed.getType(), memoryType));
+  return {};
 }
 
 mlir::TypedAttr ConstantEmitter::tryEmitPrivate(const Expr *e,
@@ -1847,7 +2505,7 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
     if (filler && !typedFiller)
       cgm.errorNYI("array filler should always be typed");
 
-    mlir::Type desiredType = cgm.convertType(destType);
+    mlir::Type desiredType = cgm.getTypes().convertTypeForMem(destType);
     return emitArrayConstant(cgm, desiredType, commonElementType, numElements,
                              elements, typedFiller);
   }
@@ -1885,8 +2543,17 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
     }
 
     if (isa<CXXMethodDecl>(memberDecl)) {
-      cgm.errorNYI("ConstExprEmitter::tryEmitPrivate member pointer to method");
-      return {};
+      const auto *methodDecl = cast<CXXMethodDecl>(memberDecl);
+      if (methodDecl->isVirtual()) {
+        cgm.errorNYI("ConstExprEmitter::tryEmitPrivate virtual member pointer "
+                     "to method");
+        return {};
+      }
+      auto cirTy = mlir::cast<cir::MethodType>(cgm.convertType(destType));
+      cir::FuncOp func = cgm.getAddrOfFunction(GlobalDecl(methodDecl));
+      return cir::MethodAttr::get(
+          cirTy, mlir::FlatSymbolRefAttr::get(func.getSymNameAttr()),
+          /*this_adjustment=*/0);
     }
 
     auto cirTy = mlir::cast<cir::DataMemberType>(cgm.convertType(destType));
@@ -1946,8 +2613,18 @@ mlir::TypedAttr CIRGenModule::emitNullConstantAttr(QualType t) {
     return {};
   }
 
-  if (const RecordType *rt = t->getAs<RecordType>())
-    return ::emitNullConstant(*this, rt->getDecl(), /*asCompleteObject=*/true);
+  if (const RecordType *rt = t->getAs<RecordType>()) {
+    auto attr =
+        ::emitNullConstant(*this, rt->getDecl(), /*asCompleteObject=*/true);
+    mlir::Type memoryType = getTypes().convertTypeForMem(t);
+    if (attr && attr.getType() != memoryType) {
+      if (auto retargeted = retargetAggregateConstant(*this, attr, memoryType))
+        return *retargeted;
+      errorNYI(describeInitializerRetargetFailure(attr.getType(), memoryType));
+      return {};
+    }
+    return attr;
+  }
 
   assert(t->isMemberDataPointerType() &&
          "Should only see pointers to data members here!");
