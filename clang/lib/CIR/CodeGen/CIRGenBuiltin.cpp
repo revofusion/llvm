@@ -1548,8 +1548,14 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_extend_pointer:
   case Builtin::BI__builtin_setjmp:
   case Builtin::BI__builtin_longjmp:
-  case Builtin::BI__builtin_launder:
     return errorBuiltinNYI(*this, e, builtinID);
+  case Builtin::BI__builtin_launder: {
+    mlir::Value ptr = emitScalarExpr(e->getArg(0));
+    mlir::Type resultTy = convertType(e->getType());
+    if (ptr && ptr.getType() != resultTy)
+      ptr = builder.createBitcast(loc, ptr, resultTy);
+    return RValue::get(ptr);
+  }
   case Builtin::BI__sync_fetch_and_add:
   case Builtin::BI__sync_fetch_and_add_1:
   case Builtin::BI__sync_fetch_and_add_2:

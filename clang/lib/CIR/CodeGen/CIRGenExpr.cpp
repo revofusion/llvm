@@ -23,6 +23,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
+#include "clang/AST/ExprObjC.h"
 #include "clang/Basic/AddressSpaces.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
@@ -30,6 +31,7 @@
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "clang/CIR/MissingFeatures.h"
 #include <optional>
+#include <string>
 
 using namespace clang;
 using namespace clang::CIRGen;
@@ -2039,6 +2041,239 @@ RValue CIRGenFunction::getUndefRValue(QualType ty) {
   mlir::Type cirTy = convertType(ty);
   return RValue::get(cir::ConstantOp::create(builder, *currSrcLoc,
                                              cir::UndefAttr::get(cirTy)));
+}
+
+namespace {
+struct LValueOrRValue {
+  LValue lv;
+  RValue rv;
+};
+
+static std::string getObjCRuntimeGlobalName(StringRef prefix, StringRef name) {
+  std::string result = prefix.str();
+  static constexpr char hex[] = "0123456789ABCDEF";
+  for (unsigned char c : name) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+        (c >= '0' && c <= '9') || c == '_') {
+      result.push_back(c);
+      continue;
+    }
+    result.push_back('_');
+    result.push_back(hex[c >> 4]);
+    result.push_back(hex[c & 0xf]);
+  }
+  return result;
+}
+
+static mlir::Value emitObjCRuntimeGlobalValue(CIRGenFunction &cgf,
+                                              mlir::Location loc,
+                                              StringRef name) {
+  mlir::Type opaquePtrTy = cgf.convertType(cgf.getContext().VoidPtrTy);
+  cir::GlobalOp global = cgf.cgm.createOrReplaceCXXRuntimeVariable(
+      loc, name, opaquePtrTy, cir::GlobalLinkageKind::ExternalLinkage,
+      cgf.getPointerAlign());
+  mlir::Value addr = cgf.getBuilder().createGetGlobal(loc, global);
+  return cgf.getBuilder().createLoad(
+      loc, Address(addr, opaquePtrTy, cgf.getPointerAlign()));
+}
+
+static mlir::Value emitObjCSelectorValue(CIRGenFunction &cgf,
+                                         mlir::Location loc, Selector sel) {
+  std::string name =
+      getObjCRuntimeGlobalName("OBJC_SELECTOR_REFERENCES_", sel.getAsString());
+  return emitObjCRuntimeGlobalValue(cgf, loc, name);
+}
+
+static mlir::Value emitObjCClassValue(CIRGenFunction &cgf, mlir::Location loc,
+                                      const ObjCInterfaceDecl *iface) {
+  std::string name = getObjCRuntimeGlobalName(
+      "OBJC_CLASS_REFERENCES_", iface->getObjCRuntimeNameAsString());
+  return emitObjCRuntimeGlobalValue(cgf, loc, name);
+}
+
+static mlir::Value emitObjCStringLiteralValue(CIRGenFunction &cgf,
+                                              mlir::Location loc,
+                                              const StringLiteral *literal) {
+  std::string name =
+      getObjCRuntimeGlobalName("OBJC_STRING_LITERAL_", literal->getBytes());
+  return emitObjCRuntimeGlobalValue(cgf, loc, name);
+}
+
+static cir::FuncOp getObjCMsgSendFn(CIRGenFunction &cgf) {
+  mlir::Type opaquePtrTy = cgf.convertType(cgf.getContext().VoidPtrTy);
+  auto fnTy = cir::FuncType::get({opaquePtrTy, opaquePtrTy}, opaquePtrTy, true);
+  return cgf.cgm.createRuntimeFunction(fnTy, "objc_msgSend");
+}
+}
+
+mlir::Value CIRGenFunction::emitObjCStringLiteral(const ObjCStringLiteral *e) {
+  mlir::Location loc = getLoc(e->getSourceRange());
+  mlir::Value value = emitObjCStringLiteralValue(*this, loc, e->getString());
+  mlir::Type resultTy = convertType(e->getType());
+  if (value.getType() != resultTy) {
+    if (mlir::isa<cir::PointerType>(value.getType()) &&
+        mlir::isa<cir::PointerType>(resultTy))
+      value = builder.createBitcast(loc, value, resultTy);
+    else {
+      cgm.errorNYI(e->getSourceRange(), "ObjCStringLiteral: result cast");
+      return {};
+    }
+  }
+  return value;
+}
+
+RValue CIRGenFunction::emitObjCMessageExpr(const ObjCMessageExpr *e,
+                                           ReturnValueSlot) {
+  if (e->getReceiverKind() == ObjCMessageExpr::SuperInstance ||
+      e->getReceiverKind() == ObjCMessageExpr::SuperClass) {
+    cgm.errorNYI(e->getSourceRange(), "ObjCMessageExpr: super message");
+    return getUndefRValue(e->getType());
+  }
+
+  const ObjCMethodDecl *method = e->getMethodDecl();
+  if (method && method->isDirectMethod()) {
+    cgm.errorNYI(e->getSourceRange(), "ObjCMessageExpr: direct method");
+    return getUndefRValue(e->getType());
+  }
+
+  QualType resultType = method ? method->getReturnType() : e->getType();
+  if (!resultType->isVoidType() && !resultType->isPointerType() &&
+      !resultType->isObjCObjectPointerType() &&
+      !resultType->isBlockPointerType()) {
+    cgm.errorNYI(e->getSourceRange(),
+                 "ObjCMessageExpr: non-pointer scalar return");
+    return getUndefRValue(e->getType());
+  }
+
+  mlir::Location loc = getLoc(e->getSourceRange());
+  QualType opaquePtrASTTy = getContext().VoidPtrTy;
+  mlir::Type opaquePtrTy = convertType(opaquePtrASTTy);
+
+  mlir::Value receiver;
+  switch (e->getReceiverKind()) {
+  case ObjCMessageExpr::Instance:
+    receiver = emitScalarExpr(e->getInstanceReceiver());
+    break;
+  case ObjCMessageExpr::Class: {
+    QualType receiverType = e->getClassReceiver();
+    const ObjCInterfaceDecl *iface =
+        receiverType->castAs<ObjCObjectType>()->getInterface();
+    if (!iface) {
+      cgm.errorNYI(e->getSourceRange(),
+                   "ObjCMessageExpr: class receiver without interface");
+      return getUndefRValue(e->getType());
+    }
+    receiver = emitObjCClassValue(*this, loc, iface);
+    break;
+  }
+  case ObjCMessageExpr::SuperInstance:
+  case ObjCMessageExpr::SuperClass:
+    llvm_unreachable("super messages handled above");
+  }
+
+  if (!receiver) {
+    cgm.errorNYI(e->getSourceRange(), "ObjCMessageExpr: receiver without value");
+    receiver = builder.getNullPtr(opaquePtrTy, loc);
+  }
+  if (receiver.getType() != opaquePtrTy)
+    receiver = builder.createBitcast(loc, receiver, opaquePtrTy);
+
+  mlir::Value selector = emitObjCSelectorValue(*this, loc, e->getSelector());
+  if (selector.getType() != opaquePtrTy)
+    selector = builder.createBitcast(loc, selector, opaquePtrTy);
+
+  CallArgList args;
+  args.add(RValue::get(receiver), opaquePtrASTTy);
+  args.add(RValue::get(selector), opaquePtrASTTy);
+  for (const Expr *arg : e->arguments())
+    emitCallArg(args, arg, arg->getType());
+
+  SmallVector<CanQualType, 8> argTypes;
+  for (const CallArg &arg : args)
+    argTypes.push_back(getContext().getCanonicalParamType(arg.ty));
+  const CIRGenFunctionInfo &fnInfo = getTypes().arrangeCIRFunctionInfo(
+      getContext().getCanonicalParamType(opaquePtrASTTy), argTypes,
+      RequiredArgs(2));
+
+  CIRGenCallee callee = CIRGenCallee::forDirect(getObjCMsgSendFn(*this));
+  RValue callResult = emitCall(fnInfo, callee, ReturnValueSlot(), args, nullptr,
+                               loc);
+  if (e->getType()->isVoidType())
+    return RValue::get(nullptr);
+
+  mlir::Type resultCIRTy = convertType(e->getType());
+  mlir::Value result = callResult.getValue();
+  if (result.getType() != resultCIRTy) {
+    if (mlir::isa<cir::PointerType>(result.getType()) &&
+        mlir::isa<cir::PointerType>(resultCIRTy))
+      result = builder.createBitcast(loc, result, resultCIRTy);
+    else {
+      cgm.errorNYI(e->getSourceRange(), "ObjCMessageExpr: result cast");
+      return getUndefRValue(e->getType());
+    }
+  }
+  return RValue::get(result);
+}
+
+static LValueOrRValue emitPseudoObjectExpr(CIRGenFunction &cgf,
+                                           const PseudoObjectExpr *e,
+                                           bool forLValue,
+                                           AggValueSlot slot) {
+  SmallVector<CIRGenFunction::OpaqueValueMappingData, 4> opaques;
+  const Expr *resultExpr = e->getResultExpr();
+  LValueOrRValue result;
+
+  for (const Expr *semantic : e->semantics()) {
+    if (const auto *opaque = dyn_cast<OpaqueValueExpr>(semantic)) {
+      if (opaque->isUnique()) {
+        assert(opaque != resultExpr);
+        continue;
+      }
+
+      CIRGenFunction::OpaqueValueMappingData opaqueData;
+      if (opaque == resultExpr && opaque->isPRValue() && !forLValue &&
+          CIRGenFunction::hasAggregateEvaluationKind(opaque->getType())) {
+        cgf.emitAggExpr(opaque->getSourceExpr(), slot);
+        LValue lv = cgf.makeAddrLValue(slot.getAddress(), opaque->getType(),
+                                       AlignmentSource::Decl);
+        opaqueData =
+            CIRGenFunction::OpaqueValueMappingData::bind(cgf, opaque, lv);
+        result.rv = slot.asRValue();
+      } else {
+        opaqueData = CIRGenFunction::OpaqueValueMappingData::bind(
+            cgf, opaque, opaque->getSourceExpr());
+        if (opaque == resultExpr) {
+          if (forLValue)
+            result.lv = cgf.emitLValue(opaque);
+          else
+            result.rv = cgf.emitAnyExpr(opaque, slot);
+        }
+      }
+
+      opaques.push_back(opaqueData);
+    } else if (semantic == resultExpr) {
+      if (forLValue)
+        result.lv = cgf.emitLValue(semantic);
+      else
+        result.rv = cgf.emitAnyExpr(semantic, slot);
+    } else {
+      cgf.emitIgnoredExpr(semantic);
+    }
+  }
+
+  for (CIRGenFunction::OpaqueValueMappingData &opaque : opaques)
+    opaque.unbind(cgf);
+
+  return result;
+}
+
+RValue CIRGenFunction::emitPseudoObjectRValue(const PseudoObjectExpr *e,
+                                              AggValueSlot slot) {
+  return emitPseudoObjectExpr(*this, e, false, slot).rv;
+}
+
+LValue CIRGenFunction::emitPseudoObjectLValue(const PseudoObjectExpr *e) {
+  return emitPseudoObjectExpr(*this, e, true, AggValueSlot::ignored()).lv;
 }
 
 RValue CIRGenFunction::emitCall(clang::QualType calleeTy,

@@ -484,8 +484,7 @@ public:
   }
 
   void VisitPseudoObjectExpr(PseudoObjectExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "AggExprEmitter: VisitPseudoObjectExpr");
+    cgf.emitPseudoObjectRValue(e, dest);
   }
 
   void VisitVAArgExpr(VAArgExpr *e) {

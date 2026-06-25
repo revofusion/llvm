@@ -1455,6 +1455,12 @@ public:
   RValue emitAnyExpr(const clang::Expr *e,
                      AggValueSlot aggSlot = AggValueSlot::ignored(),
                      bool ignoreResult = false);
+  RValue emitPseudoObjectRValue(const clang::PseudoObjectExpr *e,
+                                AggValueSlot aggSlot = AggValueSlot::ignored());
+  LValue emitPseudoObjectLValue(const clang::PseudoObjectExpr *e);
+  RValue emitObjCMessageExpr(const clang::ObjCMessageExpr *e,
+                             ReturnValueSlot returnValue = ReturnValueSlot());
+  mlir::Value emitObjCStringLiteral(const clang::ObjCStringLiteral *e);
 
   /// Emits the code necessary to evaluate an arbitrary expression into the
   /// given memory location.

@@ -270,8 +270,7 @@ public:
     return {};
   }
   mlir::Value VisitPseudoObjectExpr(PseudoObjectExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(), "ScalarExprEmitter: pseudo object");
-    return {};
+    return cgf.emitPseudoObjectRValue(e).getValue();
   }
   mlir::Value VisitSYCLUniqueStableNameExpr(SYCLUniqueStableNameExpr *e) {
     cgf.cgm.errorNYI(e->getSourceRange(),
@@ -307,8 +306,7 @@ public:
     return {};
   }
   mlir::Value VisitObjCMessageExpr(ObjCMessageExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(), "ScalarExprEmitter: objc message");
-    return {};
+    return cgf.emitObjCMessageExpr(e).getValue();
   }
   mlir::Value VisitObjCIsaExpr(ObjCIsaExpr *e) {
     cgf.cgm.errorNYI(e->getSourceRange(), "ScalarExprEmitter: objc isa");
@@ -1394,9 +1392,7 @@ public:
   }
 
   mlir::Value VisitObjCStringLiteral(const ObjCStringLiteral *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "ScalarExprEmitter: objc string literal");
-    return {};
+    return cgf.emitObjCStringLiteral(e);
   }
   mlir::Value VisitObjCBoxedExpr(ObjCBoxedExpr *e) {
     cgf.cgm.errorNYI(e->getSourceRange(), "ScalarExprEmitter: objc boxed");
