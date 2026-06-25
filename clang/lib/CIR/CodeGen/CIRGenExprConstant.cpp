@@ -2364,34 +2364,40 @@ mlir::Attribute ConstantEmitter::emitNullForMemory(mlir::Location loc,
 
 mlir::Attribute ConstantEmitter::emitForMemory(mlir::Attribute c,
                                                QualType destType) {
-  // For an _Atomic-qualified constant, we may need to add tail padding.
-  if (destType->getAs<AtomicType>()) {
-    cgm.errorNYI("emitForMemory: atomic type");
-    return {};
-  }
-
-  auto typed = mlir::dyn_cast<mlir::TypedAttr>(c);
-  if (!typed)
-    return c;
-
-  mlir::Type memoryType = cgm.getTypes().convertTypeForMem(destType);
-  if (typed.getType() == memoryType)
-    return c;
-
-  if (auto retargeted = retargetAggregateConstant(cgm, typed, memoryType))
-    return *retargeted;
-
-  cgm.errorNYI(describeInitializerRetargetFailure(typed.getType(), memoryType));
-  return {};
+  return emitForMemory(cgm, c, destType);
 }
 
 mlir::Attribute ConstantEmitter::emitForMemory(CIRGenModule &cgm,
                                                mlir::Attribute c,
                                                QualType destType) {
   // For an _Atomic-qualified constant, we may need to add tail padding.
-  if (destType->getAs<AtomicType>()) {
-    cgm.errorNYI("atomic constants");
-    return {};
+  if (const auto *at = destType->getAs<AtomicType>()) {
+    QualType destValueType = at->getValueType();
+    c = emitForMemory(cgm, c, destValueType);
+    if (!c)
+      return {};
+
+    uint64_t innerSize = cgm.getASTContext().getTypeSize(destValueType);
+    uint64_t outerSize = cgm.getASTContext().getTypeSize(destType);
+    if (innerSize == outerSize)
+      return c;
+
+    assert(innerSize < outerSize && "emitted over-large constant for atomic");
+
+    // Wrap the value constant followed by tail padding in an anonymous record,
+    // matching classic CodeGen's getAnon({C, zeroes}). The padding is a byte
+    // array (alignment 1), so packed vs non-packed yields the same layout; use
+    // non-packed to match classic ConstantStruct::getAnon.
+    auto typed = mlir::dyn_cast<mlir::TypedAttr>(c);
+    if (!typed) {
+      cgm.errorNYI("emitForMemory: atomic type with non-typed value constant");
+      return {};
+    }
+    CharUnits padSize =
+        cgm.getASTContext().toCharUnitsFromBits(outerSize - innerSize);
+    SmallVector<mlir::Attribute, 2> elts = {typed, computePadding(cgm, padSize)};
+    auto arrAttr = mlir::ArrayAttr::get(cgm.getBuilder().getContext(), elts);
+    return cgm.getBuilder().getAnonConstRecord(arrAttr, /*packed=*/false);
   }
 
   auto typed = mlir::dyn_cast<mlir::TypedAttr>(c);

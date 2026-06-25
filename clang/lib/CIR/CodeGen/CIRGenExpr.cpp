@@ -933,6 +933,20 @@ LValue CIRGenFunction::emitDeclRefLValue(const DeclRefExpr *e) {
         return makeAddrLValue(addr, ty, AlignmentSource::Decl);
       }
 
+      if (vd->getType()->isReferenceType() && typedVal) {
+        // For a reference-typed constant, the emitted constant is the value of
+        // the reference itself, i.e. the (constant) address of the referent.
+        // Materialize that pointer and build a natural-alignment address for
+        // the referent type. This matches classic CodeGen's
+        // makeNaturalAddressForPointer path for NOUR_Constant references.
+        mlir::Value ptrVal =
+            builder.getConstant(getLoc(e->getSourceRange()), typedVal);
+        CharUnits alignment =
+            cgm.getNaturalTypeAlignment(e->getType(), /*baseInfo=*/nullptr);
+        Address addr = makeNaturalAddressForPointer(ptrVal, ty, alignment);
+        return makeAddrLValue(addr, ty, AlignmentSource::Decl);
+      }
+
       cgm.errorNYI(e->getSourceRange(),
                    "emitDeclRefLValue: NonOdrUse reference constant");
       return LValue();

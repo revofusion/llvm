@@ -622,7 +622,7 @@ void CIRGenFunction::emitNewArrayInitializer(
     if (ctor->isTrivial()) {
       // If new expression did not specify value-initialization, then there
       // is no initialization.
-      if (!cce->requiresZeroInitialization())
+      if (!cce->requiresZeroInitialization() || ctor->getParent()->isEmpty())
         return;
 
       cgm.errorNYI(cce->getSourceRange(),
@@ -630,8 +630,77 @@ void CIRGenFunction::emitNewArrayInitializer(
       return;
     }
 
-    cgm.errorNYI(cce->getSourceRange(),
-                 "emitNewArrayInitializer: ctor initializer");
+    // Exceptional partial-array cleanups (to run dtors on the
+    // already-constructed prefix if a later element's ctor throws) are not yet
+    // modeled in CIRGen. Rather than silently dropping them (which would be
+    // unsound for an analyzer), flag the missing feature.
+    if (getLangOpts().Exceptions && !ctor->getParent()->hasTrivialDestructor()) {
+      cgm.errorNYI(cce->getSourceRange(),
+                   "emitNewArrayInitializer: partial array cleanups");
+      return;
+    }
+
+    const CharUnits elementSize = getContext().getTypeSizeInChars(elementType);
+    const CharUnits elementAlign =
+        beginPtr.getAlignment().alignmentOfArrayElement(elementSize);
+    mlir::Value begin = beginPtr.getPointer();
+
+    // Compute the end pointer (begin + numElements).
+    mlir::Value count = numElements;
+    if (count.getType() != ptrDiffTy)
+      count = builder.createIntCast(count, ptrDiffTy);
+    mlir::Value end = builder.createPtrStride(loc, begin, count);
+
+    // The first element the ctor loop must initialize is the one past any
+    // elements already covered by an init-list prefix.
+    mlir::Value firstRest = begin;
+    if (initListElements != 0) {
+      mlir::Value offset =
+          builder.getConstInt(loc, ptrDiffTy, initListElements);
+      firstRest = builder.createPtrStride(loc, begin, offset);
+    }
+
+    // Use a stack slot to hold the current element pointer, walking from
+    // firstRest up to end, constructing each element. This mirrors the
+    // init-list "rest" loop above and works for both constant and dynamic
+    // element counts (the cir.array.ctor op only supports constant counts).
+    Address tmpAddr = createTempAlloca(begin.getType(), getPointerAlign(), loc,
+                                       "arrayinit.ctor.cur");
+    LValue tmpLV =
+        makeAddrLValue(tmpAddr, getContext().getPointerType(elementType));
+    emitStoreThroughLValue(RValue::get(firstRest), tmpLV);
+    cir::CmpOp hasRest =
+        cir::CmpOp::create(builder, loc, cir::CmpOpKind::ne, firstRest, end);
+    cir::IfOp::create(
+        builder, loc, hasRest, /*withElseRegion=*/false,
+        [&](mlir::OpBuilder &, mlir::Location loc) {
+          builder.createDoWhile(
+              loc,
+              /*condBuilder=*/
+              [&](mlir::OpBuilder &, mlir::Location loc) {
+                cir::LoadOp current = builder.createLoad(loc, tmpAddr);
+                cir::CmpOp cmp = cir::CmpOp::create(
+                    builder, loc, cir::CmpOpKind::ne, current, end);
+                builder.createCondition(cmp);
+              },
+              /*bodyBuilder=*/
+              [&](mlir::OpBuilder &, mlir::Location loc) {
+                cir::LoadOp current = builder.createLoad(loc, tmpAddr);
+                Address curAddr(current, elementTy, elementAlign);
+                auto currAVS = AggValueSlot::forAddr(
+                    curAddr, elementType.getQualifiers(),
+                    AggValueSlot::IsDestructed, AggValueSlot::IsNotAliased,
+                    AggValueSlot::DoesNotOverlap, AggValueSlot::IsNotZeroed);
+                emitCXXConstructorCall(ctor, Ctor_Complete,
+                                       /*ForVirtualBase=*/false,
+                                       /*Delegating=*/false, currAVS, cce);
+                mlir::Value one = builder.getConstInt(loc, ptrDiffTy, 1);
+                mlir::Value next = builder.createPtrStride(loc, current, one);
+                emitStoreThroughLValue(RValue::get(next), tmpLV);
+                builder.createYield(loc);
+              });
+          builder.createYield(loc);
+        });
     return;
   }
 

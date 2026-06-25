@@ -1742,6 +1742,14 @@ void CIRGenModule::emitTopLevelDecl(Decl *decl) {
   case Decl::Typedef:
   case Decl::TypeAlias: // using foo = bar; [C++11]
   case Decl::Record:
+  // Objective-C interface/category declarations are forward declarations with
+  // no (immediate) code generation, matching classic CodeGen. This lets ObjC++
+  // (.mm) translation units whose substantive logic is C++ lower without
+  // requiring the (out-of-scope) ObjC runtime. ObjC constructs that *do* need
+  // the runtime (protocols, implementations, methods) remain clean errorNYIs
+  // below.
+  case Decl::ObjCInterface:
+  case Decl::ObjCCategory:
     assert(!cir::MissingFeatures::generateDebugInfo());
     break;
 

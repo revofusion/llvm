@@ -4,6 +4,7 @@
 #include "CIRGenModule.h"
 
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/DeclObjC.h"
 #include "clang/AST/GlobalDecl.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/TargetInfo.h"
@@ -528,13 +529,15 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
     const ConstantArrayType *arrTy = cast<ConstantArrayType>(ty);
     mlir::Type elemTy = convertTypeForMem(arrTy->getElementType());
 
-    // TODO(CIR): In LLVM, "lower arrays of undefined struct type to arrays of
-    // i8 just to have a concrete type"
-    if (!cir::isSized(elemTy)) {
-      cgm.errorNYI(SourceLocation(), "arrays of undefined struct type", type);
-      resultType = cgm.uInt32Ty;
-      break;
-    }
+    // Lower arrays of undefined struct type to arrays of i8 just to have a
+    // concrete type, matching classic CodeGen. Crucially we keep the array
+    // *shape* (element count) so that downstream code that expects an array
+    // type (array-to-pointer decay, allocas, GEPs) does not see a scalar where
+    // it expects a cir.array, which previously crashed. The byte element type
+    // is a placeholder; such incomplete-element arrays are only ever used
+    // by-reference.
+    if (!cir::isSized(elemTy))
+      elemTy = cgm.sInt8Ty;
 
     resultType = cir::ArrayType::get(elemTy, arrTy->getSize().getZExtValue());
     break;
@@ -604,6 +607,33 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
 
     break;
   }
+
+  case Type::ObjCObject:
+    // The object type lowers to its base (interface) type. This mirrors
+    // classic CodeGen.
+    resultType = convertType(cast<ObjCObjectType>(ty)->getBaseType());
+    break;
+
+  case Type::ObjCInterface: {
+    // Objective-C interfaces are always opaque (outside of the runtime, which
+    // can do whatever it likes); we never refine these. Lower to a named
+    // incomplete record so that C++/Metal logic referencing ObjC objects only
+    // by-reference lowers without pulling in any ObjC runtime layout. Deep ObjC
+    // runtime handling remains a clean errorNYI elsewhere. The result is
+    // memoized in typeCache below, so each interface yields a single opaque
+    // record.
+    const auto *it = cast<ObjCInterfaceType>(ty);
+    resultType =
+        builder.getIncompleteRecordTy(it->getDecl()->getName(), /*rd=*/nullptr);
+    break;
+  }
+
+  case Type::ObjCObjectPointer:
+    // Objective-C object pointers are opaque pointers, matching classic
+    // CodeGen (which lowers them to an unqualified opaque pointer). This keeps
+    // ObjC objects strictly by-reference and out of any layout decisions.
+    resultType = builder.getVoidPtrTy();
+    break;
 
   default:
     cgm.errorNYI(SourceLocation(), "processing of type",
