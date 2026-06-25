@@ -571,14 +571,21 @@ void CIRRecordLowering::accumulateFields() {
       field = accumulateBitFields(field, fieldEnd);
       assert((field == fieldEnd || !field->isBitField()) &&
              "Failed to accumulate all the bitfields");
-    } else if (!field->isZeroSize(astContext)) {
-      members.push_back(MemberInfo(bitsToCharUnits(getFieldBitOffset(*field)),
-                                   MemberInfo::InfoKind::Field,
-                                   getStorageType(*field), *field));
+    } else if (isEmptyFieldForLayout(astContext, *field)) {
       ++field;
     } else {
-      // TODO(cir): do we want to do anything special about zero size members?
-      assert(!cir::MissingFeatures::zeroSizeRecordMembers());
+      mlir::Type storageType;
+      if (field->isPotentiallyOverlapping()) {
+        if (const CXXRecordDecl *fieldRD =
+                field->getType()->getAsCXXRecordDecl())
+          if (!fieldRD->isUnion())
+            storageType = getStorageType(fieldRD);
+      }
+      if (!storageType)
+        storageType = getStorageType(*field);
+      members.push_back(MemberInfo(bitsToCharUnits(getFieldBitOffset(*field)),
+                                   MemberInfo::InfoKind::Field, storageType,
+                                   *field));
       ++field;
     }
   }

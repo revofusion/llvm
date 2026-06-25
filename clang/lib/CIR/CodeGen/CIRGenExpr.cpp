@@ -15,6 +15,7 @@
 #include "CIRGenFunction.h"
 #include "CIRGenModule.h"
 #include "CIRGenValue.h"
+#include "TargetInfo.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Value.h"
 #include "clang/AST/Attr.h"
@@ -34,8 +35,8 @@ using namespace clang;
 using namespace clang::CIRGen;
 using namespace cir;
 
-/// Get the address of a zero-sized field within a record. The resulting address
-/// doesn't necessarily have the right type.
+/// Get the address of a field within a record. The resulting address doesn't
+/// necessarily have the right type.
 Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
                                                const FieldDecl *field,
                                                llvm::StringRef fieldName,
@@ -46,7 +47,7 @@ Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
   // CIRRecordLowering::accumulateFields). Their address is computed directly
   // from the field's byte offset, mirroring classic CodeGen's
   // emitAddrOfZeroSizeField.
-  if (field->isZeroSize(getContext())) {
+  if (isEmptyFieldForLayout(getContext(), field)) {
     CharUnits offset = getContext().toCharUnitsFromBits(
         getContext().getFieldOffset(field));
     // The result must have the field's pointer type (CIR pointers are typed),
@@ -71,12 +72,19 @@ Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
   }
 
   mlir::Type fieldType = convertType(field->getType());
-  auto fieldPtr = cir::PointerType::get(fieldType);
+  mlir::Type memberType = fieldType;
+  auto baseRecordTy = mlir::cast<cir::RecordType>(base.getElementType());
+  if (!field->getParent()->isUnion()) {
+    assert(fieldIndex < baseRecordTy.getMembers().size() &&
+           "member index out of bounds");
+    memberType = baseRecordTy.getMembers()[fieldIndex];
+  }
+  auto memberPtr = cir::PointerType::get(memberType);
   // For most cases fieldName is the same as field->getName() but for lambdas,
   // which do not currently carry the name, so it can be passed down from the
   // CaptureStmt.
   cir::GetMemberOp memberAddr = builder.createGetMember(
-      loc, fieldPtr, base.getPointer(), fieldName, fieldIndex);
+      loc, memberPtr, base.getPointer(), fieldName, fieldIndex);
 
   // Retrieve layout information, compute alignment and return the final
   // address.
@@ -84,8 +92,10 @@ Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
   const CIRGenRecordLayout &layout = cgm.getTypes().getCIRGenRecordLayout(rec);
   unsigned idx = layout.getCIRFieldNo(field);
   CharUnits offset = CharUnits::fromQuantity(
-      layout.getCIRType().getElementOffset(cgm.getDataLayout().layout, idx));
-  return Address(memberAddr, base.getAlignment().alignmentAtOffset(offset));
+      baseRecordTy.getElementOffset(cgm.getDataLayout().layout, idx));
+  Address addr(memberAddr, memberType,
+               base.getAlignment().alignmentAtOffset(offset));
+  return builder.createElementBitCast(loc, addr, fieldType);
 }
 
 /// Given an expression of pointer type, try to
@@ -499,7 +509,7 @@ LValue CIRGenFunction::emitLValueForField(LValue base, const FieldDecl *field) {
 
   if (rec->isUnion())
     fieldIndex = field->getFieldIndex();
-  else if (field->isZeroSize(getContext())) {
+  else if (isEmptyFieldForLayout(getContext(), field)) {
     // Empty fields have no storage in the record layout, so there is no field
     // index to look up; emitAddrOfFieldStorage computes the address directly
     // from the byte offset.

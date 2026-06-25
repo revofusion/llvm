@@ -321,6 +321,21 @@ static void emitAtomicCmpXchg(CIRGenFunction &cgf, AtomicExpr *e, bool isWeak,
   CIRGenBuilderTy &builder = cgf.getBuilder();
   mlir::Value expected = builder.createLoad(loc, val1);
   mlir::Value desired = builder.createLoad(loc, val2);
+  auto atomicPtrTy = mlir::cast<cir::PointerType>(ptr.getPointer().getType());
+  mlir::Type atomicValueTy = atomicPtrTy.getPointee();
+  auto normalizeCmpXchgValue = [&](mlir::Value value) -> mlir::Value {
+    if (value.getType() == atomicValueTy)
+      return value;
+    if (value.getType() == builder.getBoolTy() &&
+        mlir::isa<cir::IntType>(atomicValueTy))
+      return builder.createBoolToInt(value, atomicValueTy);
+    if (mlir::isa<cir::IntType>(value.getType()) &&
+        mlir::isa<cir::IntType>(atomicValueTy))
+      return builder.createIntCast(value, atomicValueTy);
+    return value;
+  };
+  expected = normalizeCmpXchgValue(expected);
+  desired = normalizeCmpXchgValue(desired);
 
   auto cmpxchg = cir::AtomicCmpXchgOp::create(
       builder, loc, expected.getType(), builder.getBoolTy(), ptr.getPointer(),
@@ -335,12 +350,9 @@ static void emitAtomicCmpXchg(CIRGenFunction &cgf, AtomicExpr *e, bool isWeak,
   mlir::Value failed = builder.createNot(cmpxchg.getSuccess());
   cir::IfOp::create(builder, loc, failed, /*withElseRegion=*/false,
                     [&](mlir::OpBuilder &, mlir::Location) {
-                      auto ptrTy = mlir::cast<cir::PointerType>(
-                          val1.getPointer().getType());
-                      if (val1.getElementType() != ptrTy.getPointee()) {
-                        val1 = val1.withPointer(builder.createPtrBitcast(
-                            val1.getPointer(), val1.getElementType()));
-                      }
+                      if (val1.getElementType() != cmpxchg.getOld().getType())
+                        val1 = builder.createElementBitCast(
+                            loc, val1, cmpxchg.getOld().getType());
                       builder.createStore(loc, cmpxchg.getOld(), val1);
                       builder.createYield(loc);
                     });
@@ -1002,6 +1014,8 @@ RValue CIRGenFunction::emitAtomicExpr(AtomicExpr *e) {
     ptr = atomics.castToAtomicIntPointer(ptr);
     if (val1.isValid())
       val1 = atomics.convertToAtomicIntPointer(val1);
+    if (val2.isValid())
+      val2 = atomics.convertToAtomicIntPointer(val2);
   }
   if (dest.isValid()) {
     if (shouldCastToIntPtrTy)

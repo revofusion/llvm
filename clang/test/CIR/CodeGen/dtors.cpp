@@ -223,11 +223,13 @@ struct D {
 };
 
 // CIR: cir.func {{.*}} @_ZN1DD2Ev
-// CIR:   %[[C:.*]] = cir.get_member %{{.*}}[1] {name = "c"}
+// CIR:   %[[THIS_AS_I8:.*]] = cir.cast bitcast %{{.*}} : !cir.ptr<!rec_D> -> !cir.ptr<!u8i>
+// CIR:   %[[C_AS_I8:.*]] = cir.ptr_stride %[[THIS_AS_I8]], %{{.*}} : (!cir.ptr<!u8i>, !s64i) -> !cir.ptr<!u8i>
+// CIR:   %[[C:.*]] = cir.cast bitcast %[[C_AS_I8]] : !cir.ptr<!u8i> -> !cir.ptr<!rec_C>
 // CIR:   cir.call @_ZN1CD1Ev(%[[C]])
 
 // LLVM: define {{.*}} void @_ZN1DD2Ev
-// LLVM:   %[[C:.*]] = getelementptr %struct.D, ptr %{{.*}}, i32 0, i32 1
+// LLVM:   %[[C:.*]] = getelementptr i8, ptr %{{.*}}, i64 4
 // LLVM:   call void @_ZN1CD1Ev(ptr %[[C]])
 
 // This destructor is defined after the calling function in OGCG.
