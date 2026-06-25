@@ -1309,7 +1309,9 @@ public:
           CIRGenFunction::LexicalScope lexScope{cgf, loc,
                                                 b.getInsertionBlock()};
           cgf.curLexScope->setAsTernary();
+          eval.beginEvaluation();
           mlir::Value res = cgf.evaluateExprAsBool(e->getRHS());
+          eval.endEvaluation();
           lexScope.forceCleanup();
           cir::YieldOp::create(b, loc, res);
         },
@@ -1363,7 +1365,9 @@ public:
           CIRGenFunction::LexicalScope lexScope{cgf, loc,
                                                 b.getInsertionBlock()};
           cgf.curLexScope->setAsTernary();
+          eval.beginEvaluation();
           mlir::Value res = cgf.evaluateExprAsBool(e->getRHS());
+          eval.endEvaluation();
           lexScope.forceCleanup();
           cir::YieldOp::create(b, loc, res);
         });
@@ -2791,6 +2795,8 @@ mlir::Value ScalarExprEmitter::VisitAbstractConditionalOperator(
     eval.beginEvaluation();
     mlir::Value branch = Visit(expr);
     eval.endEvaluation();
+    if (cgf.haveInsertPoint())
+      lexScope.forceCleanup();
 
     if (branch) {
       yieldTy = branch.getType();

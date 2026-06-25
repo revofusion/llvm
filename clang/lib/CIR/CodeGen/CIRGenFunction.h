@@ -36,6 +36,8 @@
 #include "clang/CIR/MissingFeatures.h"
 #include "clang/CIR/TypeEvaluationKind.h"
 #include "llvm/ADT/ScopedHashTable.h"
+#include <tuple>
+#include <utility>
 
 namespace {
 class ScalarExprEmitter;
@@ -50,6 +52,58 @@ class LoopOp;
 namespace clang::CIRGen {
 
 struct CGCoroData;
+
+template <class T> struct InvariantValue {
+  using saved_type = T;
+
+  static saved_type save(CIRGenFunction &, T value) { return value; }
+  static T restore(CIRGenFunction &, saved_type value) { return value; }
+};
+
+template <class T> struct DominatingValue : InvariantValue<T> {};
+
+template <> struct DominatingValue<mlir::Value> {
+  struct saved_type {
+    mlir::Value value;
+    Address addr = Address::invalid();
+  };
+
+  static saved_type save(CIRGenFunction &cgf, mlir::Value value);
+  static mlir::Value restore(CIRGenFunction &cgf, saved_type saved);
+};
+
+template <> struct DominatingValue<Address> {
+  struct saved_type {
+    DominatingValue<mlir::Value>::saved_type pointer;
+    mlir::Type elementType;
+    CharUnits alignment;
+  };
+
+  static saved_type save(CIRGenFunction &cgf, Address addr);
+  static Address restore(CIRGenFunction &cgf, saved_type saved);
+};
+
+template <class T, class... As>
+class ConditionalCleanup final : public EHScopeStack::Cleanup {
+  using Base = EHScopeStack::Cleanup;
+
+  template <std::size_t... I>
+  T restore(CIRGenFunction &cgf, std::index_sequence<I...>) const {
+    return T(DominatingValue<As>::restore(cgf, std::get<I>(saved))...);
+  }
+
+public:
+  using SavedTuple = std::tuple<typename DominatingValue<As>::saved_type...>;
+
+  explicit ConditionalCleanup(SavedTuple saved) : saved(saved) {}
+
+  void emit(CIRGenFunction &cgf, typename Base::Flags flags) override {
+    restore(cgf, std::index_sequence_for<As...>()).emit(cgf, flags);
+  }
+
+private:
+  SavedTuple saved;
+};
 
 class CIRGenFunction : public CIRGenTypeCache {
 public:
@@ -168,6 +222,9 @@ public:
   /// This keeps track of the CIR allocas or globals for local C
   /// declarations.
   DeclMapTy localDeclMap;
+
+  llvm::DenseMap<const ParmVarDecl *, EHScopeStack::stable_iterator>
+      calleeDestructedParamCleanups;
 
   /// The type of the condition for the emitting switch statement.
   llvm::SmallVector<mlir::Type, 2> condTypeStack;
@@ -1013,6 +1070,10 @@ public:
   void popCleanupBlocks(EHScopeStack::stable_iterator oldCleanupStackDepth);
   void popCleanupBlock();
   void emitCleanupsForReturn();
+  Address createCleanupActiveFlag();
+  void initFullExprCleanupWithFlag(Address activeFlag);
+  void DeactivateCleanupBlock(EHScopeStack::stable_iterator cleanup,
+                              mlir::OpBuilder::InsertPoint dominatingIP = {});
 
   /// Emit, inline at the current insertion point, the active normal cleanups on
   /// the EH stack from the innermost cleanup down to (but not including)
@@ -1034,7 +1095,12 @@ public:
     if (!isInConditionalBranch())
       return ehStack.pushCleanup<T>(kind, a...);
 
-    cgm.errorNYI("pushFullExprCleanup in conditional branch");
+    Address activeFlag = createCleanupActiveFlag();
+    using ConditionalCleanupTy = ConditionalCleanup<T, As...>;
+    using SavedTuple = typename ConditionalCleanupTy::SavedTuple;
+    SavedTuple saved(DominatingValue<As>::save(*this, a)...);
+    ehStack.pushCleanup<ConditionalCleanupTy>(kind, std::move(saved));
+    initFullExprCleanupWithFlag(activeFlag);
   }
 
   /// Enters a new scope for capturing cleanups, all of which
@@ -1998,6 +2064,11 @@ public:
   // conditional expression.
   bool isInConditionalBranch() const { return outermostConditional != nullptr; }
 
+  mlir::OpBuilder::InsertPoint getOutermostConditionalInsertPoint() const {
+    assert(isInConditionalBranch());
+    return outermostConditional->getInsertPoint();
+  }
+
   void setBeforeOutermostConditional(mlir::Value value, Address addr) {
     assert(isInConditionalBranch());
     {
@@ -2372,6 +2443,42 @@ public:
 private:
   QualType getVarArgType(const Expr *arg);
 };
+
+inline DominatingValue<mlir::Value>::saved_type
+DominatingValue<mlir::Value>::save(CIRGenFunction &cgf, mlir::Value value) {
+  if (!value)
+    return {value, Address::invalid()};
+
+  mlir::Location loc = value.getLoc();
+  mlir::OpBuilder::InsertPoint ip =
+      cgf.isInConditionalBranch() ? cgf.getOutermostConditionalInsertPoint()
+                                  : mlir::OpBuilder::InsertPoint();
+  Address addr = cgf.createTempAllocaWithoutCast(
+      value.getType(), CharUnits::One(), loc, "cleanup.save",
+      nullptr, ip);
+  cgf.getBuilder().createStore(loc, value, addr);
+  return {mlir::Value(), addr};
+}
+
+inline mlir::Value
+DominatingValue<mlir::Value>::restore(CIRGenFunction &cgf, saved_type saved) {
+  if (!saved.addr.isValid())
+    return saved.value;
+  return cgf.getBuilder().createLoad(saved.addr.getPointer().getLoc(),
+                                     saved.addr);
+}
+
+inline DominatingValue<Address>::saved_type
+DominatingValue<Address>::save(CIRGenFunction &cgf, Address addr) {
+  return {DominatingValue<mlir::Value>::save(cgf, addr.getPointer()),
+          addr.getElementType(), addr.getAlignment()};
+}
+
+inline Address DominatingValue<Address>::restore(CIRGenFunction &cgf,
+                                                 saved_type saved) {
+  return Address(DominatingValue<mlir::Value>::restore(cgf, saved.pointer),
+                 saved.elementType, saved.alignment);
+}
 
 } // namespace clang::CIRGen
 

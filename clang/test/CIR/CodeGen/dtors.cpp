@@ -40,6 +40,9 @@ bool test_temp_or() { return make_temp(1) || make_temp(2); }
 // CIR:     %[[ONE:.*]] = cir.const #cir.int<1>
 // CIR:     cir.call @_ZN1BC2Ei(%[[REF_TMP0]], %[[ONE]])
 // CIR:     %[[MAKE_TEMP0:.*]] = cir.call @_Z9make_tempRK1B(%[[REF_TMP0]])
+// CIR:     %[[CLEANUP_COND:.*]] = cir.alloca !cir.bool, !cir.ptr<!cir.bool>, ["cleanup.cond"]
+// CIR:     cir.store{{.*}} %{{.*}}, %[[CLEANUP_COND]]
+// CIR:     %[[CLEANUP_SAVE:.*]] = cir.alloca !cir.ptr<!rec_B>, !cir.ptr<!cir.ptr<!rec_B>>, ["cleanup.save"]
 // CIR:     %[[TERNARY:.*]] = cir.ternary(%[[MAKE_TEMP0]], true {
 // CIR:       %[[TRUE:.*]] = cir.const #true
 // CIR:       cir.yield %[[TRUE]] : !cir.bool
@@ -47,8 +50,13 @@ bool test_temp_or() { return make_temp(1) || make_temp(2); }
 // CIR:       %[[REF_TMP1:.*]] = cir.alloca !rec_B, !cir.ptr<!rec_B>, ["ref.tmp1"]
 // CIR:       %[[TWO:.*]] = cir.const #cir.int<2>
 // CIR:       cir.call @_ZN1BC2Ei(%[[REF_TMP1]], %[[TWO]])
+// CIR:       cir.store{{.*}} %[[REF_TMP1]], %[[CLEANUP_SAVE]]
 // CIR:       %[[MAKE_TEMP1:.*]] = cir.call @_Z9make_tempRK1B(%[[REF_TMP1]])
-// CIR:       cir.call @_ZN1BD2Ev(%[[REF_TMP1]])
+// CIR:       %[[ACTIVE:.*]] = cir.load{{.*}} %[[CLEANUP_COND]]
+// CIR:       cir.if %[[ACTIVE]] {
+// CIR:         %[[SAVED_TMP:.*]] = cir.load{{.*}} %[[CLEANUP_SAVE]]
+// CIR:         cir.call @_ZN1BD2Ev(%[[SAVED_TMP]]) nothrow
+// CIR:       }
 // CIR:       cir.yield %[[MAKE_TEMP1]] : !cir.bool
 // CIR:     })
 // CIR:     cir.store{{.*}} %[[TERNARY]], %[[RETVAL:.*]]
@@ -57,21 +65,33 @@ bool test_temp_or() { return make_temp(1) || make_temp(2); }
 
 // LLVM: define{{.*}} i1 @_Z12test_temp_orv(){{.*}} {
 // LLVM:   %[[REF_TMP0:.*]] = alloca %struct.B
+// LLVM:   %[[CLEANUP_COND:.*]] = alloca i8
+// LLVM:   %[[CLEANUP_SAVE:.*]] = alloca ptr
 // LLVM:   %[[REF_TMP1:.*]] = alloca %struct.B
 // LLVM:   br label %[[LOR_BEGIN:.*]]
 // LLVM: [[LOR_BEGIN]]:
 // LLVM:   call void @_ZN1BC2Ei(ptr %[[REF_TMP0]], i32 1)
 // LLVM:   %[[MAKE_TEMP0:.*]] = call i1 @_Z9make_tempRK1B(ptr %[[REF_TMP0]])
+// LLVM:   store i8 0, ptr %[[CLEANUP_COND]]
 // LLVM:   br i1 %[[MAKE_TEMP0]], label %[[LHS_TRUE_BLOCK:.*]], label %[[LHS_FALSE_BLOCK:.*]]
 // LLVM: [[LHS_TRUE_BLOCK]]:
 // LLVM:   br label %[[RESULT_BLOCK:.*]]
 // LLVM: [[LHS_FALSE_BLOCK]]:
 // LLVM:   call void @_ZN1BC2Ei(ptr %[[REF_TMP1]], i32 2)
+// LLVM:   store i8 1, ptr %[[CLEANUP_COND]]
+// LLVM:   store ptr %[[REF_TMP1]], ptr %[[CLEANUP_SAVE]]
 // LLVM:   %[[MAKE_TEMP1:.*]] = call i1 @_Z9make_tempRK1B(ptr %[[REF_TMP1]])
-// LLVM:   call void @_ZN1BD2Ev(ptr %[[REF_TMP1]])
+// LLVM:   %[[ACTIVE_RAW:.*]] = load i8, ptr %[[CLEANUP_COND]]
+// LLVM:   %[[ACTIVE:.*]] = trunc i8 %[[ACTIVE_RAW]] to i1
+// LLVM:   br i1 %[[ACTIVE]], label %[[CLEANUP_ACTION:.*]], label %[[CLEANUP_DONE:.*]]
+// LLVM: [[CLEANUP_ACTION]]:
+// LLVM:   %[[SAVED_TMP:.*]] = load ptr, ptr %[[CLEANUP_SAVE]]
+// LLVM:   call void @_ZN1BD2Ev(ptr %[[SAVED_TMP]])
+// LLVM:   br label %[[CLEANUP_DONE]]
+// LLVM: [[CLEANUP_DONE]]:
 // LLVM:   br label %[[RESULT_BLOCK]]
 // LLVM: [[RESULT_BLOCK]]:
-// LLVM:   %[[RESULT:.*]] = phi i1 [ %[[MAKE_TEMP1]], %[[LHS_FALSE_BLOCK]] ], [ true, %[[LHS_TRUE_BLOCK]] ]
+// LLVM:   %[[RESULT:.*]] = phi i1 [ %[[MAKE_TEMP1]], %[[CLEANUP_DONE]] ], [ true, %[[LHS_TRUE_BLOCK]] ]
 // LLVM:   br label %[[LOR_END:.*]]
 // LLVM: [[LOR_END]]:
 // LLVM:   call void @_ZN1BD2Ev(ptr %[[REF_TMP0]])
@@ -110,12 +130,20 @@ bool test_temp_and() { return make_temp(1) && make_temp(2); }
 // CIR:     %[[ONE:.*]] = cir.const #cir.int<1>
 // CIR:     cir.call @_ZN1BC2Ei(%[[REF_TMP0]], %[[ONE]])
 // CIR:     %[[MAKE_TEMP0:.*]] = cir.call @_Z9make_tempRK1B(%[[REF_TMP0]])
+// CIR:     %[[CLEANUP_COND:.*]] = cir.alloca !cir.bool, !cir.ptr<!cir.bool>, ["cleanup.cond"]
+// CIR:     cir.store{{.*}} %{{.*}}, %[[CLEANUP_COND]]
+// CIR:     %[[CLEANUP_SAVE:.*]] = cir.alloca !cir.ptr<!rec_B>, !cir.ptr<!cir.ptr<!rec_B>>, ["cleanup.save"]
 // CIR:     %[[TERNARY:.*]] = cir.ternary(%[[MAKE_TEMP0]], true {
 // CIR:       %[[REF_TMP1:.*]] = cir.alloca !rec_B, !cir.ptr<!rec_B>, ["ref.tmp1"]
 // CIR:       %[[TWO:.*]] = cir.const #cir.int<2>
 // CIR:       cir.call @_ZN1BC2Ei(%[[REF_TMP1]], %[[TWO]])
+// CIR:       cir.store{{.*}} %[[REF_TMP1]], %[[CLEANUP_SAVE]]
 // CIR:       %[[MAKE_TEMP1:.*]] = cir.call @_Z9make_tempRK1B(%[[REF_TMP1]])
-// CIR:       cir.call @_ZN1BD2Ev(%[[REF_TMP1]])
+// CIR:       %[[ACTIVE:.*]] = cir.load{{.*}} %[[CLEANUP_COND]]
+// CIR:       cir.if %[[ACTIVE]] {
+// CIR:         %[[SAVED_TMP:.*]] = cir.load{{.*}} %[[CLEANUP_SAVE]]
+// CIR:         cir.call @_ZN1BD2Ev(%[[SAVED_TMP]]) nothrow
+// CIR:       }
 // CIR:       cir.yield %[[MAKE_TEMP1]] : !cir.bool
 // CIR:     }, false {
 // CIR:       %[[FALSE:.*]] = cir.const #false
@@ -127,21 +155,33 @@ bool test_temp_and() { return make_temp(1) && make_temp(2); }
 
 // LLVM: define{{.*}} i1 @_Z13test_temp_andv(){{.*}} {
 // LLVM:   %[[REF_TMP0:.*]] = alloca %struct.B
+// LLVM:   %[[CLEANUP_COND:.*]] = alloca i8
+// LLVM:   %[[CLEANUP_SAVE:.*]] = alloca ptr
 // LLVM:   %[[REF_TMP1:.*]] = alloca %struct.B
 // LLVM:   br label %[[LAND_BEGIN:.*]]
 // LLVM: [[LAND_BEGIN]]:
 // LLVM:   call void @_ZN1BC2Ei(ptr %[[REF_TMP0]], i32 1)
 // LLVM:   %[[MAKE_TEMP0:.*]] = call i1 @_Z9make_tempRK1B(ptr %[[REF_TMP0]])
+// LLVM:   store i8 0, ptr %[[CLEANUP_COND]]
 // LLVM:   br i1 %[[MAKE_TEMP0]], label %[[LHS_TRUE_BLOCK:.*]], label %[[LHS_FALSE_BLOCK:.*]]
 // LLVM: [[LHS_TRUE_BLOCK]]:
 // LLVM:   call void @_ZN1BC2Ei(ptr %[[REF_TMP1]], i32 2)
+// LLVM:   store i8 1, ptr %[[CLEANUP_COND]]
+// LLVM:   store ptr %[[REF_TMP1]], ptr %[[CLEANUP_SAVE]]
 // LLVM:   %[[MAKE_TEMP1:.*]] = call i1 @_Z9make_tempRK1B(ptr %[[REF_TMP1]])
-// LLVM:   call void @_ZN1BD2Ev(ptr %[[REF_TMP1]])
+// LLVM:   %[[ACTIVE_RAW:.*]] = load i8, ptr %[[CLEANUP_COND]]
+// LLVM:   %[[ACTIVE:.*]] = trunc i8 %[[ACTIVE_RAW]] to i1
+// LLVM:   br i1 %[[ACTIVE]], label %[[CLEANUP_ACTION:.*]], label %[[CLEANUP_DONE:.*]]
+// LLVM: [[CLEANUP_ACTION]]:
+// LLVM:   %[[SAVED_TMP:.*]] = load ptr, ptr %[[CLEANUP_SAVE]]
+// LLVM:   call void @_ZN1BD2Ev(ptr %[[SAVED_TMP]])
+// LLVM:   br label %[[CLEANUP_DONE]]
+// LLVM: [[CLEANUP_DONE]]:
 // LLVM:   br label %[[RESULT_BLOCK:.*]]
 // LLVM: [[LHS_FALSE_BLOCK]]:
 // LLVM:   br label %[[RESULT_BLOCK]]
 // LLVM: [[RESULT_BLOCK]]:
-// LLVM:   %[[RESULT:.*]] = phi i1 [ false, %[[LHS_FALSE_BLOCK]] ], [ %[[MAKE_TEMP1]], %[[LHS_TRUE_BLOCK]] ]
+// LLVM:   %[[RESULT:.*]] = phi i1 [ false, %[[LHS_FALSE_BLOCK]] ], [ %[[MAKE_TEMP1]], %[[CLEANUP_DONE]] ]
 // LLVM:   br label %[[LAND_END:.*]]
 // LLVM: [[LAND_END]]:
 // LLVM:   call void @_ZN1BD2Ev(ptr %[[REF_TMP0]])

@@ -2387,17 +2387,22 @@ mlir::Value CIRGenFunction::emitOpOnBoolExpr(mlir::Location loc,
     Expr *trueExpr = condOp->getTrueExpr();
     Expr *falseExpr = condOp->getFalseExpr();
     mlir::Value condV = emitOpOnBoolExpr(loc, condOp->getCond());
+    ConditionalEvaluation eval(*this);
 
     mlir::Value ternaryOpRes =
         cir::TernaryOp::create(
             builder, loc, condV, /*thenBuilder=*/
-            [this, trueExpr](mlir::OpBuilder &b, mlir::Location loc) {
+            [this, &eval, trueExpr](mlir::OpBuilder &b, mlir::Location loc) {
+              eval.beginEvaluation();
               mlir::Value lhs = emitScalarExpr(trueExpr);
+              eval.endEvaluation();
               cir::YieldOp::create(b, loc, lhs);
             },
             /*elseBuilder=*/
-            [this, falseExpr](mlir::OpBuilder &b, mlir::Location loc) {
+            [this, &eval, falseExpr](mlir::OpBuilder &b, mlir::Location loc) {
+              eval.beginEvaluation();
               mlir::Value rhs = emitScalarExpr(falseExpr);
+              eval.endEvaluation();
               cir::YieldOp::create(b, loc, rhs);
             })
             .getResult();
@@ -2807,6 +2812,8 @@ CIRGenFunction::emitConditionalBlocks(const AbstractConditionalOperator *e,
     resultLV = branchGenFunc(*this, expr);
     mlir::Value resultPtr = resultLV ? resultLV->getPointer() : mlir::Value();
     eval.endEvaluation();
+    if (haveInsertPoint())
+      lexScope.forceCleanup();
 
     if (resultPtr) {
       yieldTy = resultPtr.getType();

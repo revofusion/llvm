@@ -500,6 +500,22 @@ void CIRGenFunction::emitFunctionProlog(const FunctionArgList &args,
     // the function body.
     mlir::Location fnBodyBegin = getLoc(bodyBeginLoc);
     builder.CIRBaseBuilderTy::createStore(fnBodyBegin, paramVal, addrVal);
+
+    if (const auto *parm = dyn_cast<ParmVarDecl>(paramVar)) {
+      QualType ty = paramVar->getType();
+      if (ty->isRecordType() && !curFuncIsThunk &&
+          ty->castAsRecordDecl()->isParamDestroyedInCallee()) {
+        QualType::DestructionKind dtorKind =
+            paramVar->needsDestruction(getContext());
+        if (dtorKind == QualType::DK_cxx_destructor) {
+          pushDestroy(dtorKind, Address(addrVal, alignment), ty);
+          calleeDestructedParamCleanups[parm] = ehStack.stable_begin();
+        } else if (dtorKind) {
+          cgm.errorNYI(paramVar->getSourceRange(),
+                       "callee-destructed parameter cleanup kind");
+        }
+      }
+    }
   }
   assert(builder.getInsertionBlock() && "Should be valid");
 }
@@ -512,6 +528,7 @@ void CIRGenFunction::startFunction(GlobalDecl gd, QualType returnType,
          "CIRGenFunction can only be used for one function at a time");
 
   curFn = fn;
+  calleeDestructedParamCleanups.clear();
 
   const Decl *d = gd.getDecl();
 

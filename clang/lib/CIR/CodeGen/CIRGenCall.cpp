@@ -16,6 +16,7 @@
 #include "CIRGenFunction.h"
 #include "CIRGenFunctionInfo.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "llvm/ADT/STLExtras.h"
 
 using namespace clang;
 using namespace clang::CIRGen;
@@ -289,13 +290,19 @@ void CIRGenFunction::emitDelegateCallArg(CallArgList &args,
     args.add(convertTempToRValue(local, type, loc), type);
   }
 
-  // Deactivate the cleanup for the callee-destructed param that was pushed.
-  assert(!cir::MissingFeatures::thunks());
-  if (type->isRecordType() &&
+  if (type->isRecordType() && !curFuncIsThunk &&
       type->castAsRecordDecl()->isParamDestroyedInCallee() &&
       param->needsDestruction(getContext())) {
-    cgm.errorNYI(param->getSourceRange(),
-                 "emitDelegateCallArg: callee-destructed param");
+    const auto *parm = dyn_cast<ParmVarDecl>(param);
+    EHScopeStack::stable_iterator cleanup =
+        parm ? calleeDestructedParamCleanups.lookup(parm)
+             : EHScopeStack::stable_iterator::invalid();
+    if (!cleanup.isValid()) {
+      cgm.errorNYI(param->getSourceRange(),
+                   "emitDelegateCallArg: callee-destructed param cleanup");
+      return;
+    }
+    args.addArgCleanupDeactivation(cleanup, builder.saveInsertionPoint());
   }
 }
 
@@ -548,6 +555,12 @@ emitCallLikeOp(CIRGenFunction &cgf, mlir::Location callLoc,
   return op;
 }
 
+static void deactivateArgCleanupsBeforeCall(CIRGenFunction &cgf,
+                                            const CallArgList &args) {
+  for (const auto &cleanup : llvm::reverse(args.getCleanupsToDeactivate()))
+    cgf.DeactivateCleanupBlock(cleanup.cleanup, cleanup.isActiveIP);
+}
+
 const CIRGenFunctionInfo &
 CIRGenTypes::arrangeFreeFunctionType(CanQual<FunctionProtoType> fpt) {
   SmallVector<CanQualType, 16> argTypes;
@@ -700,6 +713,8 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
   assert(!cir::MissingFeatures::msvcCXXPersonality());
   assert(!cir::MissingFeatures::functionUsesSEHTry());
   assert(!cir::MissingFeatures::nothrowAttr());
+
+  deactivateArgCleanupsBeforeCall(*this, args);
 
   bool cannotThrow = attrs.getNamed("nothrow").has_value();
   bool isInvoke = !cannotThrow && isCatchOrCleanupRequired();

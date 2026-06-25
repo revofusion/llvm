@@ -200,6 +200,8 @@ class alignas(EHScopeStack::ScopeStackAlignment) EHCleanupScope
   /// from this index onwards belong to this scope.
   unsigned fixupDepth = 0;
 
+  Address activeFlag = Address::invalid();
+
 public:
   /// Gets the size required for a lazy cleanup scope with the given
   /// cleanup-data requirements.
@@ -241,6 +243,25 @@ public:
 
   bool isActive() const { return cleanupBits.isActive; }
   void setActive(bool isActive) { cleanupBits.isActive = isActive; }
+
+  bool hasActiveFlag() const { return activeFlag.isValid(); }
+  Address getActiveFlag() const { return activeFlag; }
+  void setActiveFlag(Address flag) {
+    assert(flag.isValid() && "active flag must be valid");
+    activeFlag = flag;
+  }
+
+  bool shouldTestFlagInNormalCleanup() const {
+    return cleanupBits.testFlagInNormalCleanup;
+  }
+  void setTestFlagInNormalCleanup() {
+    cleanupBits.testFlagInNormalCleanup = true;
+  }
+
+  bool shouldTestFlagInEHCleanup() const {
+    return cleanupBits.testFlagInEHCleanup;
+  }
+  void setTestFlagInEHCleanup() { cleanupBits.testFlagInEHCleanup = true; }
 
   bool isLifetimeMarker() const { return cleanupBits.isLifetimeMarker; }
 

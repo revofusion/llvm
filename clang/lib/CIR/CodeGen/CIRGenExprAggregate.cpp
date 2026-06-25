@@ -592,6 +592,8 @@ void AggExprEmitter::VisitAbstractConditionalOperator(
     eval.beginEvaluation();
     Visit(expr);
     eval.endEvaluation();
+    if (cgf.haveInsertPoint())
+      lexScope.forceCleanup();
 
     mlir::Block *block = b.getInsertionBlock();
     if (block && (block->empty() ||
