@@ -623,8 +623,19 @@ mlir::Value CIRGenFunction::emitLoadOfScalar(Address addr, bool isVolatile,
   assert(!cir::MissingFeatures::opLoadEmitScalarRangeCheck());
 
   mlir::Value loadOp = builder.createLoad(getLoc(loc), addr, isVolatile);
-  if (!ty->isBooleanType() && ty->hasBooleanRepresentation())
-    cgm.errorNYI("emitLoadOfScalar: boolean type with boolean representation");
+
+  // Convert the in-memory representation to the in-register value.  In
+  // classic LLVM codegen a type with boolean representation (but which is not
+  // the builtin `bool` type, e.g. an enumeration with a fixed boolean
+  // underlying type) is stored as a wider integer in memory and truncated to
+  // its i1 value on load.  In ClangIR, `bool` is modeled directly as
+  // `cir.bool` and its memory and value representations are identical, so no
+  // truncation is required here -- the loaded value already has the correct
+  // value type.  See emitToMemory for the symmetric store-side handling.
+  if (!ty->isBooleanType() && ty->hasBooleanRepresentation()) {
+    assert(loadOp.getType() == convertType(ty) &&
+           "boolean-representation load type mismatch");
+  }
 
   return loadOp;
 }

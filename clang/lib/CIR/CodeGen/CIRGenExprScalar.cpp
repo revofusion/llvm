@@ -440,6 +440,14 @@ public:
   }
 
   mlir::Value emitIntToBoolConversion(mlir::Value srcVal, mlir::Location loc) {
+    // The source may already have boolean representation -- e.g. an
+    // enumeration with a fixed `bool` underlying type, which CIR models
+    // directly as a `cir.bool` value.  In that case there is nothing to
+    // convert; emitting an int_to_bool cast would create an op whose source
+    // is not an integer and fail verification.
+    if (mlir::isa<cir::BoolType>(srcVal.getType()))
+      return srcVal;
+
     // Because of the type rules of C, we often end up computing a
     // logical value, then zero extending it to int, then wanting it
     // as a logical value again.
@@ -455,6 +463,14 @@ public:
   mlir::Value emitConversionToBool(mlir::Value src, QualType srcType,
                                    mlir::Location loc) {
     assert(srcType.isCanonical() && "EmitScalarConversion strips typedefs");
+
+    // If the source already has boolean representation (e.g. an enumeration
+    // with a fixed boolean underlying type), it is already modeled as a
+    // `cir.bool` value, so converting it to bool is a no-op.  Guard against
+    // this before the integer path below, which would otherwise emit an
+    // int_to_bool cast with a non-integer (cir.bool) source.
+    if (mlir::isa<cir::BoolType>(src.getType()))
+      return src;
 
     if (srcType->isRealFloatingType())
       return emitFloatToBoolConversion(src, loc);

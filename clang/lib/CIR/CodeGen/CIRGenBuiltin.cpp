@@ -353,6 +353,45 @@ static RValue errorBuiltinNYI(CIRGenFunction &cgf, const CallExpr *e,
   return cgf.getUndefRValue(e->getType());
 }
 
+/// Emit `__builtin_is_aligned(value, alignment)`, which evaluates to whether
+/// `value` is a multiple of `alignment` (a power of two), i.e.
+/// `(value & (alignment - 1)) == 0`.  The first argument may be either an
+/// integer or a pointer; pointers are first converted to an integer of the
+/// pointer's width.  Mirrors classic CodeGen's EmitBuiltinIsAligned.
+static RValue emitBuiltinIsAligned(CIRGenFunction &cgf, const CallExpr *e) {
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
+
+  mlir::Value src = cgf.emitScalarExpr(e->getArg(0));
+  mlir::Value alignment = cgf.emitScalarExpr(e->getArg(1));
+
+  // Determine the integer type to perform the masking in.  For pointers this
+  // is an integer of the pointer's width; for integers it is the integer type
+  // itself.
+  mlir::Type srcTy = src.getType();
+  cir::IntType intTy;
+  mlir::Value srcAddr = src;
+  if (mlir::isa<cir::PointerType>(srcTy)) {
+    intTy = mlir::cast<cir::IntType>(cgf.cgm.getDataLayout().getIntPtrType(srcTy));
+    srcAddr = builder.createPtrToInt(src, intTy);
+  } else {
+    intTy = mlir::cast<cir::IntType>(srcTy);
+  }
+
+  // alignment = (IntType)alignment; mask = alignment - 1;
+  alignment = builder.createIntCast(alignment, intTy);
+  mlir::Value one = builder.getConstInt(loc, intTy, 1);
+  mlir::Value mask =
+      builder.createSub(loc, alignment, one, cir::OverflowBehavior::NoUnsignedWrap);
+
+  // is_aligned = (srcAddr & mask) == 0;
+  mlir::Value setBits = builder.createAnd(loc, srcAddr, mask);
+  mlir::Value zero = builder.getConstInt(loc, intTy, 0);
+  mlir::Value isAligned =
+      builder.createCompare(loc, cir::CmpOpKind::eq, setBits, zero);
+  return RValue::get(isAligned);
+}
+
 static RValue emitBuiltinAlloca(CIRGenFunction &cgf, const CallExpr *e,
                                 unsigned builtinID) {
   assert(builtinID == Builtin::BI__builtin_alloca ||
@@ -1459,7 +1498,6 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BImempcpy:
   case Builtin::BI__builtin_mempcpy:
   case Builtin::BI__builtin_memcpy_inline:
-  case Builtin::BI__builtin_char_memchr:
   case Builtin::BI__builtin___memcpy_chk:
   case Builtin::BI__builtin_objc_memmove_collectable:
   case Builtin::BI__builtin___memmove_chk:
@@ -1473,6 +1511,12 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_wmemchr:
   case Builtin::BI__builtin_wmemcmp:
     break; // Handled as library calls below.
+  case Builtin::BI__builtin_char_memchr:
+    // char_memchr is just like memchr but returns a `char *` instead of a
+    // `void *`.  Re-map it to memchr and let the library-call path below emit
+    // the call; the result is implicitly converted to the expected type.
+    builtinID = Builtin::BI__builtin_memchr;
+    break;
   case Builtin::BI__builtin_dwarf_cfa:
     return errorBuiltinNYI(*this, e, builtinID);
   case Builtin::BI__builtin_return_address: {
@@ -1857,6 +1901,7 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
         e->getCallee()->getType()->castAs<FunctionProtoType>(), e, OO_Delete);
     return RValue::get(nullptr);
   case Builtin::BI__builtin_is_aligned:
+    return emitBuiltinIsAligned(*this, e);
   case Builtin::BI__builtin_align_up:
   case Builtin::BI__builtin_align_down:
   case Builtin::BI__noop:

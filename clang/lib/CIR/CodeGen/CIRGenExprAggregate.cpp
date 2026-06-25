@@ -15,6 +15,7 @@
 #include "CIRGenValue.h"
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
 
+#include "clang/AST/ComparisonCategories.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/StmtVisitor.h"
@@ -301,7 +302,77 @@ public:
     Visit(e->getRHS());
   }
   void VisitBinCmp(const BinaryOperator *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(), "AggExprEmitter: VisitBinCmp");
+    assert(cgf.getContext().hasSameType(e->getLHS()->getType(),
+                                        e->getRHS()->getType()));
+    const ComparisonCategoryInfo &cmpInfo =
+        cgf.getContext().CompCategories.getInfoForType(e->getType());
+    assert(cmpInfo.Record->isTriviallyCopyable() &&
+           "cannot copy non-trivially copyable aggregate");
+
+    QualType argTy = e->getLHS()->getType();
+
+    // Only the scalar argument types handled below are supported. Complex and
+    // member-pointer three-way comparisons require additional machinery that is
+    // not yet implemented in CIRGen.
+    if (!argTy->isIntegralOrEnumerationType() && !argTy->isRealFloatingType() &&
+        !argTy->isNullPtrType() && !argTy->isPointerType()) {
+      cgf.cgm.errorNYI(e->getSourceRange(),
+                       "AggExprEmitter: VisitBinCmp unsupported operand type");
+      return;
+    }
+
+    CIRGenBuilderTy &builder = cgf.getBuilder();
+    mlir::Location loc = cgf.getLoc(e->getSourceRange());
+
+    mlir::Value lhs = cgf.emitScalarExpr(e->getLHS());
+    mlir::Value rhs = cgf.emitScalarExpr(e->getRHS());
+
+    auto emitCmp = [&](cir::CmpOpKind kind) -> mlir::Value {
+      return builder.createCompare(loc, kind, lhs, rhs);
+    };
+
+    // The single field of a comparison-category type is a signed integer; emit
+    // the selected category value as a constant of that field's type.
+    const FieldDecl *resultField = *cmpInfo.Record->field_begin();
+    mlir::Type resultTy = cgf.convertType(resultField->getType());
+    auto emitCmpRes =
+        [&](const ComparisonCategoryInfo::ValueInfo *valueInfo) -> mlir::Value {
+      return builder.getConstInt(loc, resultTy,
+                                 valueInfo->getIntValue().getExtValue());
+    };
+
+    mlir::Value select;
+    if (argTy->isNullPtrType()) {
+      // Two null pointers always compare equal.
+      select = emitCmpRes(cmpInfo.getEqualOrEquiv());
+    } else if (!cmpInfo.isPartial()) {
+      mlir::Value selectOne =
+          builder.createSelect(loc, emitCmp(cir::CmpOpKind::lt),
+                               emitCmpRes(cmpInfo.getLess()),
+                               emitCmpRes(cmpInfo.getGreater()));
+      select = builder.createSelect(loc, emitCmp(cir::CmpOpKind::eq),
+                                    emitCmpRes(cmpInfo.getEqualOrEquiv()),
+                                    selectOne);
+    } else {
+      mlir::Value selectEq =
+          builder.createSelect(loc, emitCmp(cir::CmpOpKind::eq),
+                               emitCmpRes(cmpInfo.getEqualOrEquiv()),
+                               emitCmpRes(cmpInfo.getUnordered()));
+      mlir::Value selectGt = builder.createSelect(
+          loc, emitCmp(cir::CmpOpKind::gt), emitCmpRes(cmpInfo.getGreater()),
+          selectEq);
+      select = builder.createSelect(loc, emitCmp(cir::CmpOpKind::lt),
+                                    emitCmpRes(cmpInfo.getLess()), selectGt);
+    }
+
+    // Create the return value in the destination slot and store the selected
+    // category value into the comparison category's single field.
+    ensureDest(loc, e->getType());
+    LValue destLV = cgf.makeAddrLValue(dest.getAddress(), e->getType());
+    LValue fieldLV =
+        cgf.emitLValueForFieldInitialization(destLV, resultField,
+                                             resultField->getName());
+    cgf.emitStoreThroughLValue(RValue::get(select), fieldLV, /*isInit=*/true);
   }
   void VisitCXXRewrittenBinaryOperator(CXXRewrittenBinaryOperator *e) {
     cgf.cgm.errorNYI(e->getSourceRange(),

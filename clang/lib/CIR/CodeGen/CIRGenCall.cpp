@@ -521,7 +521,28 @@ emitCallLikeOp(CIRGenFunction &cgf, mlir::Location callLoc,
       directFuncOp.setFunctionType(cir::FuncType::get(
           directTy.getInputs(), directTy.getReturnType(), /*isVarArg=*/true));
     }
-    op = builder.createCallOp(callLoc, directFuncOp, cirCallArgs, attrs);
+
+    // The callee symbol may have been created with a slightly different
+    // signature than the one derived for this call -- for example when a
+    // builtin is remapped to a library function (__builtin_char_memchr ->
+    // memchr) whose first declaration in this translation unit fixed a
+    // differing-but-compatible pointee type.  In classic LLVM codegen this is
+    // invisible because all object pointers share one `ptr` type, but CIR's
+    // pointers are typed, so coerce any pointer argument whose type differs
+    // from the callee's declared parameter type with an explicit bitcast.
+    directTy = directFuncOp.getFunctionType();
+    SmallVector<mlir::Value, 16> coercedArgs(cirCallArgs.begin(),
+                                             cirCallArgs.end());
+    for (unsigned i = 0, e = directTy.getNumInputs(); i != e && i < coercedArgs.size();
+         ++i) {
+      mlir::Type paramTy = directTy.getInput(i);
+      mlir::Value arg = coercedArgs[i];
+      if (arg.getType() != paramTy &&
+          mlir::isa<cir::PointerType>(arg.getType()) &&
+          mlir::isa<cir::PointerType>(paramTy))
+        coercedArgs[i] = builder.createBitcast(arg, paramTy);
+    }
+    op = builder.createCallOp(callLoc, directFuncOp, coercedArgs, attrs);
   }
 
   return op;
@@ -715,16 +736,29 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
     mlir::ResultRange results = theCall->getOpResults();
     assert(results.size() == 1 && "unexpected number of returns");
 
-    // If the argument doesn't match, perform a bitcast to coerce it. This
-    // can happen due to trivial type mismatches.
-    if (results[0].getType() != retCIRTy)
-      cgm.errorNYI(loc, "bitcast on function return value");
+    // If the result type doesn't match, perform a bitcast to coerce it. This
+    // can happen due to trivial type mismatches, e.g. when a builtin is
+    // remapped to a library function whose declared return type differs only
+    // in pointee type (as for __builtin_char_memchr -> memchr, which returns
+    // `char *` rather than `void *`).  Unlike classic LLVM codegen, where all
+    // object pointers share a single `ptr` type, CIR distinguishes pointee
+    // types, so the coercion must be made explicit here.  Only pointer-to-
+    // pointer coercions are safe to bitcast; other scalar mismatches remain
+    // unhandled.
+    mlir::Value callResult = results[0];
+    if (callResult.getType() != retCIRTy) {
+      if (mlir::isa<cir::PointerType>(callResult.getType()) &&
+          mlir::isa<cir::PointerType>(retCIRTy))
+        callResult = builder.createBitcast(callResult, retCIRTy);
+      else
+        cgm.errorNYI(loc, "bitcast on function return value");
+    }
 
     mlir::Region *region = builder.getBlock()->getParent();
     if (region != theCall->getParentRegion())
       cgm.errorNYI(loc, "function calls with cleanup");
 
-    return RValue::get(results[0]);
+    return RValue::get(callResult);
   }
   case cir::TEK_Complex: {
     mlir::ResultRange results = theCall->getOpResults();

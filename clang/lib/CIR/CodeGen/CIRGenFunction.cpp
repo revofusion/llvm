@@ -1306,6 +1306,7 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
   case Expr::CStyleCastExprClass:
   case Expr::CXXStaticCastExprClass:
   case Expr::CXXDynamicCastExprClass:
+  case Expr::CXXConstCastExprClass:
   case Expr::ImplicitCastExprClass:
     return emitCastLValue(cast<CastExpr>(e));
   case Expr::MaterializeTemporaryExprClass:
