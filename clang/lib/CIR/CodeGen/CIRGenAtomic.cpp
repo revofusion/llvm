@@ -351,6 +351,48 @@ static void emitAtomicCmpXchg(CIRGenFunction &cgf, AtomicExpr *e, bool isWeak,
                         /*isInit=*/false);
 }
 
+static void emitAtomicCmpXchgFailureSwitch(CIRGenFunction &cgf, AtomicExpr *e,
+                                           bool isWeak, Address dest,
+                                           Address ptr, Address val1,
+                                           Address val2, Expr *failureOrderExpr,
+                                           uint64_t size,
+                                           cir::MemOrder successOrder) {
+  mlir::Value order = cgf.emitScalarExpr(failureOrderExpr);
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+
+  cir::SwitchOp::create(
+      builder, order.getLoc(), order,
+      [&](mlir::OpBuilder &, mlir::Location loc, mlir::OperationState &) {
+        mlir::Block *switchBlock = builder.getBlock();
+
+        auto emitFailureOrderCase =
+            [&](llvm::ArrayRef<cir::MemOrder> caseOrders,
+                cir::MemOrder failureOrder) {
+              if (caseOrders.empty())
+                emitMemOrderDefaultCaseLabel(builder, loc);
+              else
+                emitMemOrderCaseLabel(builder, loc, order.getType(),
+                                      caseOrders);
+
+              emitAtomicCmpXchg(cgf, e, isWeak, dest, ptr, val1, val2, size,
+                                successOrder, failureOrder);
+              builder.createBreak(loc);
+              builder.setInsertionPointToEnd(switchBlock);
+            };
+
+        emitFailureOrderCase({}, cir::MemOrder::Relaxed);
+        emitFailureOrderCase({cir::MemOrder::Relaxed, cir::MemOrder::Release,
+                              cir::MemOrder::AcquireRelease},
+                             cir::MemOrder::Relaxed);
+        emitFailureOrderCase({cir::MemOrder::Consume, cir::MemOrder::Acquire},
+                             cir::MemOrder::Acquire);
+        emitFailureOrderCase({cir::MemOrder::SequentiallyConsistent},
+                             cir::MemOrder::SequentiallyConsistent);
+
+        builder.createYield(loc);
+      });
+}
+
 static void emitAtomicCmpXchgFailureSet(CIRGenFunction &cgf, AtomicExpr *e,
                                         bool isWeak, Address dest, Address ptr,
                                         Address val1, Address val2,
@@ -391,9 +433,8 @@ static void emitAtomicCmpXchgFailureSet(CIRGenFunction &cgf, AtomicExpr *e,
     return;
   }
 
-  assert(!cir::MissingFeatures::atomicExpr());
-  cgf.cgm.errorNYI(e->getSourceRange(),
-                   "emitAtomicCmpXchgFailureSet: non-constant failure order");
+  emitAtomicCmpXchgFailureSwitch(cgf, e, isWeak, dest, ptr, val1, val2,
+                                 failureOrderExpr, size, successOrder);
 }
 
 static void emitAtomicOp(CIRGenFunction &cgf, AtomicExpr *expr, Address dest,

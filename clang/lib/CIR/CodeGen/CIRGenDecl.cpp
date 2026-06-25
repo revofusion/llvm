@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CIRGenConstantEmitter.h"
+#include "CIRGenCXXABI.h"
 #include "CIRGenFunction.h"
 #include "mlir/IR/Location.h"
 #include "clang/AST/Attr.h"
@@ -618,7 +619,16 @@ cir::GlobalOp CIRGenFunction::addInitializerToStaticVarDecl(
   // If constant emission failed, then this should be a C++ static
   // initializer.
   if (!init) {
-    cgm.errorNYI(d.getSourceRange(), "static var without initializer");
+    if (!getLangOpts().CPlusPlus) {
+      cgm.errorNYI(d.getSourceRange(), "constant l-value expression");
+      return gv;
+    }
+    if (d.hasFlexibleArrayInit(getContext())) {
+      cgm.errorNYI(d.getSourceRange(), "flexible array initializer");
+      return gv;
+    }
+    gv.setConstant(false);
+    cgm.getCXXABI().emitGuardedInit(*this, d, gv, true);
     return gv;
   }
 
@@ -647,7 +657,7 @@ cir::GlobalOp CIRGenFunction::addInitializerToStaticVarDecl(
     // We have a constant initializer, but a nontrivial destructor. We still
     // need to perform a guarded "initialization" in order to register the
     // destructor.
-    cgm.errorNYI(d.getSourceRange(), "C++ guarded init");
+    cgm.getCXXABI().emitGuardedInit(*this, d, gv, false);
   }
 
   return gv;

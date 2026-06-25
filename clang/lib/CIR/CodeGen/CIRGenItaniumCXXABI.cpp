@@ -31,6 +31,47 @@ using namespace clang::CIRGen;
 
 namespace {
 
+static bool functionMayThrow(const FunctionDecl *fd) {
+  if (!fd)
+    return true;
+
+  const auto *fpt = fd->getType()->getAs<FunctionProtoType>();
+  return !fpt || fpt->canThrow() != CT_Cannot;
+}
+
+static bool guardedInitMayThrow(const Stmt *s) {
+  if (!s)
+    return false;
+
+  if (isa<CXXThrowExpr>(s))
+    return true;
+
+  if (const auto *e = dyn_cast<CallExpr>(s))
+    if (functionMayThrow(e->getDirectCallee()))
+      return true;
+
+  if (const auto *e = dyn_cast<CXXConstructExpr>(s))
+    if (functionMayThrow(e->getConstructor()))
+      return true;
+
+  if (const auto *e = dyn_cast<CXXNewExpr>(s))
+    if (functionMayThrow(e->getOperatorNew()))
+      return true;
+
+  if (const auto *e = dyn_cast<CXXDynamicCastExpr>(s))
+    if (e->getType()->isReferenceType())
+      return true;
+
+  if (isa<CXXTypeidExpr>(s))
+    return true;
+
+  for (const Stmt *child : s->children())
+    if (guardedInitMayThrow(child))
+      return true;
+
+  return false;
+}
+
 class CIRGenItaniumCXXABI : public CIRGenCXXABI {
 protected:
   /// All the vtables which have been defined.
@@ -74,6 +115,8 @@ public:
                           QualType thisTy) override;
   void registerGlobalDtor(const VarDecl *vd, cir::FuncOp dtor,
                           mlir::Value addr) override;
+  void emitGuardedInit(CIRGenFunction &cgf, const VarDecl &d,
+                       cir::GlobalOp var, bool shouldPerformInit) override;
   void emitVirtualObjectDelete(CIRGenFunction &cgf, const CXXDeleteExpr *de,
                                Address ptr, QualType elementType,
                                const CXXDestructorDecl *dtor) override;
@@ -1596,6 +1639,102 @@ void CIRGenItaniumCXXABI::registerGlobalDtor(const VarDecl *vd,
   // prepare. Nothing to be done for CIR here.
 }
 
+void CIRGenItaniumCXXABI::emitGuardedInit(CIRGenFunction &cgf,
+                                          const VarDecl &d, cir::GlobalOp var,
+                                          bool shouldPerformInit) {
+  mlir::Location loc = cgf.getLoc(d.getSourceRange());
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+
+  if (d.getTLSKind()) {
+    cgm.errorNYI(d.getSourceRange(), "emitGuardedInit: TLS");
+    return;
+  }
+
+  if (d.needsDestruction(cgm.getASTContext()) == QualType::DK_cxx_destructor) {
+    cgm.errorNYI(d.getSourceRange(), "emitGuardedInit: destructor");
+    return;
+  }
+
+  if (cgm.getLangOpts().Exceptions && shouldPerformInit &&
+      guardedInitMayThrow(d.getInit())) {
+    cgm.errorNYI(d.getSourceRange(), "emitGuardedInit: throwing initializer");
+    return;
+  }
+
+  bool threadsafe =
+      cgm.getLangOpts().ThreadsafeStatics && d.isLocalVarDecl();
+  bool useInt8Guard = !threadsafe && var.hasInternalLinkage();
+  mlir::Type guardTy = useInt8Guard ? cgm.uInt8Ty : cgm.sInt64Ty;
+  CharUnits guardAlignment =
+      useInt8Guard ? CharUnits::One() : CharUnits::fromQuantity(8);
+
+  SmallString<256> guardName;
+  llvm::raw_svector_ostream guardOut(guardName);
+  getMangleContext().mangleStaticGuardVariable(&d, guardOut);
+
+  cir::GlobalOp guard = cgm.createOrReplaceCXXRuntimeVariable(
+      loc, guardName, guardTy, var.getLinkage(), guardAlignment);
+  guard.setInitialValueAttr(builder.getZeroInitAttr(guardTy));
+
+  mlir::Value guardPtr = builder.createGetGlobal(loc, guard);
+  mlir::Value guardBytePtr = builder.createPtrBitcast(guardPtr, cgm.uInt8Ty);
+  Address guardByteAddr(guardBytePtr, cgm.uInt8Ty, CharUnits::One());
+  cir::LoadOp guardByte = builder.createLoad(loc, guardByteAddr);
+  if (threadsafe)
+    guardByte.setMemOrder(cir::MemOrder::Acquire);
+  mlir::Value zeroByte = builder.getConstantInt(loc, cgm.uInt8Ty, 0);
+  mlir::Value needsInit = builder.createCompare(
+      loc, cir::CmpOpKind::eq, guardByte.getResult(), zeroByte);
+
+  auto emitInit = [&] {
+    if (!shouldPerformInit)
+      return;
+
+    mlir::Value varPtr =
+        builder.createGetGlobal(loc, var, d.getTLSKind() != VarDecl::TLS_None);
+    Address varAddr(varPtr, cgf.convertTypeForMem(d.getType()),
+                    cgf.getContext().getDeclAlign(&d));
+    cgf.emitAnyExprToMem(d.getInit(), varAddr, d.getType().getQualifiers(),
+                         true);
+  };
+
+  auto emitGuardRelease = [&] {
+    cir::FuncType releaseTy =
+        builder.getFuncType({guardPtr.getType()}, builder.getVoidTy());
+    cir::FuncOp releaseFn =
+        cgm.createRuntimeFunction(releaseTy, "__cxa_guard_release");
+    cgf.emitRuntimeCall(loc, releaseFn, {guardPtr});
+  };
+
+  cir::IfOp::create(builder, loc, needsInit, false,
+                    [&](mlir::OpBuilder &, mlir::Location) {
+                      if (threadsafe) {
+                        cir::FuncType acquireTy = builder.getFuncType(
+                            {guardPtr.getType()}, builder.getSInt32Ty());
+                        cir::FuncOp acquireFn = cgm.createRuntimeFunction(
+                            acquireTy, "__cxa_guard_acquire");
+                        mlir::Value acquired =
+                            cgf.emitRuntimeCall(loc, acquireFn, {guardPtr});
+                        mlir::Value zero = builder.getSInt32(0, loc);
+                        mlir::Value shouldRunInit = builder.createCompare(
+                            loc, cir::CmpOpKind::ne, acquired, zero);
+                        cir::IfOp::create(
+                            builder, loc, shouldRunInit, false,
+                            [&](mlir::OpBuilder &, mlir::Location) {
+                              emitInit();
+                              emitGuardRelease();
+                              builder.createYield(loc);
+                            });
+                      } else {
+                        emitInit();
+                        mlir::Value one =
+                            builder.getConstantInt(loc, cgm.uInt8Ty, 1);
+                        builder.createStore(loc, one, guardByteAddr);
+                      }
+                      builder.createYield(loc);
+                    });
+}
+
 mlir::Value CIRGenItaniumCXXABI::getCXXDestructorImplicitParam(
     CIRGenFunction &cgf, const CXXDestructorDecl *dd, CXXDtorType type,
     bool forVirtualBase, bool delegating) {
@@ -1779,8 +1918,21 @@ CIRGenCallee CIRGenItaniumCXXABI::getVirtualFunctionPointer(
 
     mlir::Value vfuncLoad;
     if (cgm.getItaniumVTableContext().isRelativeLayout()) {
-      assert(!cir::MissingFeatures::vtableRelativeLayout());
-      cgm.errorNYI(loc, "getVirtualFunctionPointer: isRelativeLayout");
+      uint64_t byteOffset = vtableIndex * 4;
+      mlir::Value vtableBytePtr = builder.createBitcast(vtable, cgm.uInt8PtrTy);
+      mlir::Value offsetVal = builder.getSInt64(byteOffset, loc);
+      mlir::Value slotBytePtr =
+          cir::PtrStrideOp::create(builder, loc, cgm.uInt8PtrTy, vtableBytePtr,
+                                   offsetVal);
+      mlir::Type componentTy = builder.getSInt32Ty();
+      mlir::Value typedSlotPtr =
+          builder.createBitcast(slotBytePtr, builder.getPointerTo(componentTy));
+      mlir::Value relativeOffset =
+          builder.createAlignedLoad(loc, componentTy, typedSlotPtr,
+                                    CharUnits::fromQuantity(4));
+      mlir::Value vfuncBytePtr = cir::PtrStrideOp::create(
+          builder, loc, cgm.uInt8PtrTy, vtableBytePtr, relativeOffset);
+      vfuncLoad = builder.createBitcast(vfuncBytePtr, tyPtr);
     } else {
       auto vtableSlotPtr = cir::VTableGetVirtualFnAddrOp::create(
           builder, loc, builder.getPointerTo(tyPtr), vtable, vtableIndex);
@@ -1885,8 +2037,11 @@ mlir::Value CIRGenItaniumCXXABI::getVirtualBaseClassOffset(
 
   mlir::Value vbaseOffset;
   if (cgm.getItaniumVTableContext().isRelativeLayout()) {
-    assert(!cir::MissingFeatures::vtableRelativeLayout());
-    cgm.errorNYI(loc, "getVirtualBaseClassOffset: relative layout");
+    mlir::Type componentTy = builder.getSInt32Ty();
+    mlir::Value offsetPtr = builder.createBitcast(
+        vbaseOffsetPtr, builder.getPointerTo(componentTy));
+    vbaseOffset = builder.createAlignedLoad(loc, componentTy, offsetPtr,
+                                            CharUnits::fromQuantity(4));
   } else {
     mlir::Value offsetPtr = builder.createBitcast(
         vbaseOffsetPtr, builder.getPointerTo(cgm.ptrDiffTy));
@@ -1934,15 +2089,18 @@ static mlir::Value performTypeAdjustment(CIRGenFunction &cgf, Address initialPtr
 
     mlir::Value offset;
     if (cgm.getItaniumVTableContext().isRelativeLayout()) {
-      assert(!cir::MissingFeatures::vtableRelativeLayout());
-      cgm.errorNYI(loc, "performTypeAdjustment: relative layout");
-      return initialPtr.getPointer();
+      mlir::Type componentTy = builder.getSInt32Ty();
+      mlir::Value typedOffsetPtr =
+          builder.createBitcast(offsetPtr, builder.getPointerTo(componentTy));
+      offset = builder.createAlignedLoad(loc, componentTy, typedOffsetPtr,
+                                         CharUnits::fromQuantity(4));
+    } else {
+      // Load the adjustment offset from the vtable.
+      mlir::Value typedOffsetPtr =
+          builder.createBitcast(offsetPtr, builder.getPointerTo(cgm.ptrDiffTy));
+      offset = builder.createLoad(
+          loc, Address(typedOffsetPtr, cgm.ptrDiffTy, cgf.getPointerAlign()));
     }
-    // Load the adjustment offset from the vtable.
-    mlir::Value typedOffsetPtr =
-        builder.createBitcast(offsetPtr, builder.getPointerTo(cgm.ptrDiffTy));
-    offset = builder.createLoad(
-        loc, Address(typedOffsetPtr, cgm.ptrDiffTy, cgf.getPointerAlign()));
 
     // Adjust our pointer by the (signed) loaded offset.
     resultPtr =
