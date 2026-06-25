@@ -2219,7 +2219,8 @@ def CIR_GlobalOp : CIR_Op<"global", [
                        UnitAttr:$comdat,
                        UnitAttr:$constant,
                        UnitAttr:$dso_local,
-                       OptionalAttr<I64Attr>:$alignment);
+                       OptionalAttr<I64Attr>:$alignment,
+                       OptionalAttr<ArrayAttr>:$annotations);
 
   let regions = (region MaxSizedRegion<1>:$ctorRegion,
                         MaxSizedRegion<1>:$dtorRegion);
@@ -2235,6 +2236,7 @@ def CIR_GlobalOp : CIR_Op<"global", [
     $sym_name
     custom<GlobalOpTypeAndInitialValue>($sym_type, $initial_value,
                                         $ctorRegion, $dtorRegion)
+    ($annotations^)?
     attr-dict
   }];
 
@@ -2954,7 +2956,8 @@ def CIR_FuncOp : CIR_Op<"func", [
     OptionalAttr<FlatSymbolRefAttr>:$personality,
     CIR_OptionalPriorityAttr:$global_ctor_priority,
     CIR_OptionalPriorityAttr:$global_dtor_priority,
-    OptionalAttr<CIR_CXXSpecialMemberAttr>:$cxx_special_member
+    OptionalAttr<CIR_CXXSpecialMemberAttr>:$cxx_special_member,
+    OptionalAttr<ArrayAttr>:$annotations
   );
 
   let regions = (region AnyRegion:$body);

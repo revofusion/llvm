@@ -2030,6 +2030,24 @@ ParseResult cir::FuncOp::parse(OpAsmParser &parser, OperationState &state) {
       }).failed())
     return failure();
 
+  // Parse the optional annotations attribute (an array of #cir.annotation).
+  if (mlir::succeeded(parser.parseOptionalLSquare())) {
+    mlir::ArrayAttr annotations;
+    llvm::SmallVector<mlir::Attribute, 4> annotationElts;
+    if (parser.parseOptionalRSquare()) {
+      do {
+        mlir::Attribute elt;
+        if (parser.parseAttribute(elt))
+          return failure();
+        annotationElts.push_back(elt);
+      } while (mlir::succeeded(parser.parseOptionalComma()));
+      if (parser.parseRSquare())
+        return failure();
+    }
+    annotations = builder.getArrayAttr(annotationElts);
+    state.addAttribute(getAnnotationsAttrName(state.name), annotations);
+  }
+
   // Parse the rest of the attributes.
   NamedAttrList parsedAttrs;
   if (parser.parseOptionalAttrDictWithKeyword(parsedAttrs))
@@ -2199,6 +2217,11 @@ void cir::FuncOp::print(OpAsmPrinter &p) {
     p << " global_dtor";
     if (globalDtorPriority.value() != 65535)
       p << "(" << globalDtorPriority.value() << ")";
+  }
+
+  if (mlir::ArrayAttr annotations = getAnnotationsAttr()) {
+    p << ' ';
+    p.printAttribute(annotations);
   }
 
   function_interface_impl::printFunctionAttributes(

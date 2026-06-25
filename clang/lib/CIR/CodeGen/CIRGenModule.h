@@ -97,6 +97,22 @@ private:
 
   llvm::SmallVector<mlir::Attribute> globalScopeAsm;
 
+  /// -------
+  /// Annotations
+  /// -------
+
+  /// We do not store global annotations in the module here, instead, we store
+  /// each annotation as attribute of GlobalOp and FuncOp.
+  /// We defer creation of global annotation variable to LoweringPrepare
+  /// as CIR passes do not need to have a global view of all annotations.
+
+  /// Used for uniquing of annotation arguments.
+  llvm::DenseMap<unsigned, mlir::ArrayAttr> annotationArgs;
+
+  /// Store deferred function annotations so they can be emitted at the end with
+  /// most up to date ValueDecl that will have all the inherited annotations.
+  llvm::DenseMap<llvm::StringRef, const ValueDecl *> deferredAnnotations;
+
   bool selectedDeclRootMode = false;
   llvm::StringSet<> selectedDeclRoots;
 
@@ -611,6 +627,28 @@ public:
 
   // Finalize CIR code generation.
   void release();
+
+  /// -------
+  /// Annotations
+  /// -------
+
+  /// Add an annotation value array for a global value. Note that the
+  /// annotation is stored as an attribute of the corresponding GlobalOp or
+  /// FuncOp, not in a module-wide list. The module-wide aggregation happens
+  /// later, in the LoweringPrepare pass.
+  void addGlobalAnnotations(const ValueDecl *d, mlir::Operation *gv);
+
+  /// Create a cir::AnnotationAttr which contains the annotation information for
+  /// a given clang::AnnotateAttr.
+  cir::AnnotationAttr emitAnnotateAttr(const clang::AnnotateAttr *aa);
+
+  /// Add global annotations that are set on D, for the global GV (which may be
+  /// either a GlobalOp or a FuncOp).
+  mlir::ArrayAttr emitAnnotationArgs(const clang::AnnotateAttr *attr);
+
+  /// Emit additional global annotations that were deferred to the end of code
+  /// generation (e.g. function annotations).
+  void emitGlobalAnnotations();
 
   /// -------
   /// Visibility and Linkage

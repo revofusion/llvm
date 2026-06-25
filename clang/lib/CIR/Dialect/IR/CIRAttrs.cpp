@@ -530,6 +530,43 @@ LogicalResult DynamicCastInfoAttr::verify(
 }
 
 //===----------------------------------------------------------------------===//
+// GlobalAnnotationValuesAttr definitions
+//===----------------------------------------------------------------------===//
+
+LogicalResult
+GlobalAnnotationValuesAttr::verify(function_ref<InFlightDiagnostic()> emitError,
+                                   mlir::ArrayAttr annotations) {
+  if (annotations.empty())
+    return emitError() << "GlobalAnnotationValuesAttr should at least have "
+                          "one annotation";
+
+  for (auto &entry : annotations) {
+    auto annoEntry = ::mlir::dyn_cast<mlir::ArrayAttr>(entry);
+    if (!annoEntry)
+      return emitError()
+             << "Element of GlobalAnnotationValuesAttr annotations array"
+                " must be an array";
+
+    if (annoEntry.size() != 2)
+      return emitError()
+             << "Element of GlobalAnnotationValuesAttr annotations array"
+             << " must be a 2-element array and you have " << annoEntry.size();
+
+    if (!mlir::isa<mlir::StringAttr>(annoEntry[0]))
+      return emitError()
+             << "Element of GlobalAnnotationValuesAttr annotations"
+                "array must start with a string, which is the name of "
+                "global op or func it annotates";
+
+    if (!mlir::isa<cir::AnnotationAttr>(annoEntry[1]))
+      return emitError() << "The second element of GlobalAnnotationValuesAttr"
+                            "annotations array element must be of "
+                            "type AnnotationValueAttr";
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // CIR Dialect
 //===----------------------------------------------------------------------===//
 

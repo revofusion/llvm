@@ -418,8 +418,11 @@ void CIRGenModule::emitGlobal(clang::GlobalDecl gd) {
   if (const auto *fd = dyn_cast<FunctionDecl>(global)) {
     // Update deferred annotations with the latest declaration if the function
     // was already used or defined.
-    if (fd->hasAttr<AnnotateAttr>())
-      errorNYI(fd->getSourceRange(), "deferredAnnotations");
+    if (fd->hasAttr<AnnotateAttr>()) {
+      llvm::StringRef mangledName = getMangledName(gd);
+      if (getGlobalValue(mangledName))
+        deferredAnnotations[mangledName] = fd;
+    }
     if (!fd->doesThisDeclarationHaveABody()) {
       if (!fd->doesDeclarationForceExternallyVisibleDefinition())
         return;
@@ -517,8 +520,11 @@ void CIRGenModule::emitGlobalFunctionDefinition(clang::GlobalDecl gd,
   if (const DestructorAttr *da = funcDecl->getAttr<DestructorAttr>())
     addGlobalDtor(funcOp, getPriority(da));
 
+  // Defer annotation emission for this function until the end of module
+  // codegen, when the most up-to-date declaration (with all inherited
+  // annotations) is available.
   if (funcDecl->getAttr<AnnotateAttr>())
-    errorNYI(funcDecl->getSourceRange(), "deferredAnnotations");
+    deferredAnnotations[getMangledName(gd)] = cast<ValueDecl>(funcDecl);
 }
 
 /// Track functions to be called before main() runs.
@@ -941,9 +947,8 @@ void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
 
   assert(!cir::MissingFeatures::maybeHandleStaticInExternC());
 
-  if (vd->hasAttr<AnnotateAttr>()) {
-    errorNYI(vd->getSourceRange(), "annotate global variable");
-  }
+  if (vd->hasAttr<AnnotateAttr>())
+    addGlobalAnnotations(vd, gv);
 
   if (langOpts.CUDA) {
     errorNYI(vd->getSourceRange(), "CUDA global variable");
@@ -2506,6 +2511,11 @@ cir::FuncOp CIRGenModule::getOrCreateCIRFunction(
   if (d)
     setFunctionAttributes(gd, funcOp, /*isIncompleteFunction=*/false, isThunk);
 
+  // If this function has an annotate attribute, defer its emission until the
+  // end of code generation so the most up-to-date declaration is used.
+  if (d && d->hasAttr<AnnotateAttr>())
+    deferredAnnotations[mangledName] = cast<ValueDecl>(d);
+
   // 'dontDefer' actually means don't move this to the deferredDeclsToEmit list.
   if (dontDefer) {
     // TODO(cir): This assertion will need an additional condition when we
@@ -2767,12 +2777,98 @@ CIRGenModule::getGlobalVisibilityAttrFromDecl(const Decl *decl) {
   return cirVisibility;
 }
 
+mlir::ArrayAttr CIRGenModule::emitAnnotationArgs(const AnnotateAttr *attr) {
+  ArrayRef<Expr *> exprs = {attr->args_begin(), attr->args_size()};
+  if (exprs.empty())
+    return mlir::ArrayAttr::get(&getMLIRContext(), {});
+
+  llvm::FoldingSetNodeID id;
+  for (Expr *e : exprs)
+    id.Add(cast<clang::ConstantExpr>(e)->getAPValueResult());
+
+  mlir::ArrayAttr &lookup = annotationArgs[id.ComputeHash()];
+  if (lookup)
+    return lookup;
+
+  llvm::SmallVector<mlir::Attribute, 4> args;
+  args.reserve(exprs.size());
+  for (Expr *e : exprs) {
+    auto &ce = *cast<clang::ConstantExpr>(e);
+    if (auto *const strE =
+            clang::dyn_cast<clang::StringLiteral>(ce.IgnoreParenCasts())) {
+      // Add the string literal as a StringAttr.
+      args.push_back(builder.getStringAttr(strE->getString()));
+    } else if (ce.hasAPValueResult()) {
+      // Handle cases which can be evaluated to integers, not only literals.
+      // The integer is stored as a plain MLIR IntegerAttr so that the
+      // CIR-to-LLVM lowering can use its type directly when building the
+      // annotation args struct.
+      const auto &ap = ce.getAPValueResult();
+      if (ap.isInt()) {
+        const llvm::APSInt &intVal = ap.getInt();
+        // Use a signless MLIR IntegerType so that the type can be used directly
+        // as an LLVM dialect struct field type during lowering.
+        mlir::IntegerType ty =
+            mlir::IntegerType::get(&getMLIRContext(), intVal.getBitWidth());
+        args.push_back(mlir::IntegerAttr::get(
+            ty, llvm::APInt(intVal.getBitWidth(), intVal.getZExtValue())));
+      } else {
+        errorNYI(e->getSourceRange(),
+                 "annotation argument: non-int APValue (float, fixed-point, "
+                 "array, ...)");
+        return mlir::ArrayAttr::get(&getMLIRContext(), {});
+      }
+    } else {
+      errorNYI(e->getSourceRange(),
+               "annotation argument: non-constant expression");
+      return mlir::ArrayAttr::get(&getMLIRContext(), {});
+    }
+  }
+
+  lookup = builder.getArrayAttr(args);
+  return lookup;
+}
+
+cir::AnnotationAttr
+CIRGenModule::emitAnnotateAttr(const clang::AnnotateAttr *aa) {
+  mlir::StringAttr annoGV = builder.getStringAttr(aa->getAnnotation());
+  mlir::ArrayAttr args = emitAnnotationArgs(aa);
+  return cir::AnnotationAttr::get(annoGV, args);
+}
+
+void CIRGenModule::addGlobalAnnotations(const ValueDecl *d,
+                                        mlir::Operation *gv) {
+  assert(d->hasAttr<AnnotateAttr>() && "no annotate attribute");
+  assert((isa<cir::GlobalOp>(gv) || isa<cir::FuncOp>(gv)) &&
+         "annotation only on globals");
+  llvm::SmallVector<mlir::Attribute, 4> annotations;
+  for (auto *i : d->specific_attrs<AnnotateAttr>())
+    annotations.push_back(emitAnnotateAttr(i));
+  if (auto global = dyn_cast<cir::GlobalOp>(gv))
+    global.setAnnotationsAttr(builder.getArrayAttr(annotations));
+  else if (auto func = dyn_cast<cir::FuncOp>(gv))
+    func.setAnnotationsAttr(builder.getArrayAttr(annotations));
+}
+
+void CIRGenModule::emitGlobalAnnotations() {
+  for (const auto &[mangledName, vd] : deferredAnnotations) {
+    mlir::Operation *gv = getGlobalValue(mangledName);
+    if (gv)
+      addGlobalAnnotations(vd, gv);
+  }
+  deferredAnnotations.clear();
+}
+
 void CIRGenModule::release() {
   emitDeferred();
   applyReplacements();
 
   theModule->setAttr(cir::CIRDialect::getModuleLevelAsmAttrName(),
                      builder.getArrayAttr(globalScopeAsm));
+
+  // Emit any deferred annotations (e.g. function annotations) now that all
+  // global values have been created.
+  emitGlobalAnnotations();
 
   // There's a lot of code that is not implemented yet.
   assert(!cir::MissingFeatures::cgmRelease());
