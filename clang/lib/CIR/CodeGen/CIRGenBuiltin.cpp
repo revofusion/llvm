@@ -31,6 +31,17 @@ using namespace clang;
 using namespace clang::CIRGen;
 using namespace llvm;
 
+template <typename... Operands>
+static mlir::Value emitIntrinsicCallOp(CIRGenBuilderTy &builder,
+                                       mlir::Location loc, const StringRef str,
+                                       const mlir::Type &resTy,
+                                       Operands &&...op) {
+  return cir::LLVMIntrinsicCallOp::create(builder, loc,
+                                          builder.getStringAttr(str), resTy,
+                                          std::forward<Operands>(op)...)
+      .getResult();
+}
+
 static RValue emitLibraryCall(CIRGenFunction &cgf, const FunctionDecl *fd,
                               const CallExpr *e, mlir::Operation *calleeValue) {
   CIRGenCallee callee = CIRGenCallee::forDirect(calleeValue, GlobalDecl(fd));
@@ -805,8 +816,15 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   Expr::EvalResult result;
   if (e->isPRValue() && e->EvaluateAsRValue(result, cgm.getASTContext()) &&
       !result.hasSideEffects()) {
-    if (result.Val.isInt())
+    if (result.Val.isInt()) {
+      // A builtin returning a boolean (e.g. __builtin_is_constant_evaluated)
+      // must produce a cir.bool constant, not a 1-bit cir.int; the two are
+      // distinct types in CIR and an int would mismatch the bool storage.
+      if (e->getType()->isBooleanType())
+        return RValue::get(
+            builder.getBool(result.Val.getInt().getBoolValue(), loc));
       return RValue::get(builder.getConstInt(loc, result.Val.getInt()));
+    }
     if (result.Val.isFloat()) {
       // Note: we are using result type of CallExpr to determine the type of
       // the constant. Classic codegen uses the result value to determine the
@@ -1317,9 +1335,10 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     result = builder.createSelect(loc, negativeInfinity, negativeOne, result);
     return RValue::get(result);
   }
-  case Builtin::BI__builtin_nondeterministic_value:
   case Builtin::BI__builtin_elementwise_abs:
     return errorBuiltinNYI(*this, e, builtinID);
+  case Builtin::BI__builtin_nondeterministic_value:
+    return getUndefRValue(e->getType());
   case Builtin::BI__builtin_elementwise_acos:
     return emitUnaryFPBuiltin<cir::ACosOp>(*this, *e);
   case Builtin::BI__builtin_elementwise_asin:
@@ -1355,12 +1374,7 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_elementwise_canonicalize:
   case Builtin::BI__builtin_elementwise_copysign:
   case Builtin::BI__builtin_elementwise_fma:
-  case Builtin::BI__builtin_elementwise_fshl:
-  case Builtin::BI__builtin_elementwise_fshr:
-  case Builtin::BI__builtin_elementwise_add_sat:
-  case Builtin::BI__builtin_elementwise_sub_sat:
   case Builtin::BI__builtin_elementwise_max:
-  case Builtin::BI__builtin_elementwise_min:
   case Builtin::BI__builtin_elementwise_maxnum:
   case Builtin::BI__builtin_elementwise_minnum:
   case Builtin::BI__builtin_elementwise_maximum:
@@ -1388,6 +1402,45 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_flt_rounds:
   case Builtin::BI__builtin_set_flt_rounds:
     return errorBuiltinNYI(*this, e, builtinID);
+  case Builtin::BI__builtin_elementwise_min: {
+    mlir::Value lhs = emitScalarExpr(e->getArg(0));
+    mlir::Value rhs = emitScalarExpr(e->getArg(1));
+    QualType ty = e->getArg(0)->getType();
+    if (auto *vecTy = ty->getAs<VectorType>())
+      ty = vecTy->getElementType();
+    const char *intrinsic = ty->isSignedIntegerType() ? "smin" : "umin";
+    return RValue::get(emitIntrinsicCallOp(
+        builder, loc, intrinsic, lhs.getType(), mlir::ValueRange{lhs, rhs}));
+  }
+  case Builtin::BI__builtin_elementwise_fshl:
+  case Builtin::BI__builtin_elementwise_fshr: {
+    mlir::Value lhs = emitScalarExpr(e->getArg(0));
+    mlir::Value rhs = emitScalarExpr(e->getArg(1));
+    mlir::Value amt = emitScalarExpr(e->getArg(2));
+    const char *intrinsic =
+        builtinIDIfNoAsmLabel == Builtin::BI__builtin_elementwise_fshl
+            ? "fshl"
+            : "fshr";
+    return RValue::get(emitIntrinsicCallOp(
+        builder, loc, intrinsic, lhs.getType(),
+        mlir::ValueRange{lhs, rhs, amt}));
+  }
+  case Builtin::BI__builtin_elementwise_add_sat:
+  case Builtin::BI__builtin_elementwise_sub_sat: {
+    mlir::Value lhs = emitScalarExpr(e->getArg(0));
+    mlir::Value rhs = emitScalarExpr(e->getArg(1));
+    QualType ty = e->getArg(0)->getType();
+    if (auto *vecTy = ty->getAs<VectorType>())
+      ty = vecTy->getElementType();
+    bool isSigned = ty->isSignedIntegerType();
+    const char *intrinsic = nullptr;
+    if (builtinIDIfNoAsmLabel == Builtin::BI__builtin_elementwise_add_sat)
+      intrinsic = isSigned ? "sadd.sat" : "uadd.sat";
+    else
+      intrinsic = isSigned ? "ssub.sat" : "usub.sat";
+    return RValue::get(emitIntrinsicCallOp(
+        builder, loc, intrinsic, lhs.getType(), mlir::ValueRange{lhs, rhs}));
+  }
   case Builtin::BIalloca:
   case Builtin::BI_alloca:
   case Builtin::BI__builtin_alloca_uninitialized:
@@ -1791,6 +1844,9 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BIaddressof:
   case Builtin::BI__addressof:
   case Builtin::BI__builtin_addressof:
+    // addressof(x) yields &x: emit the argument's l-value and return its
+    // address. Mirrors classic CodeGen.
+    return RValue::get(emitLValue(e->getArg(0)).getPointer());
   case Builtin::BI__builtin_function_start:
     return errorBuiltinNYI(*this, e, builtinID);
   case Builtin::BI__builtin_operator_new:

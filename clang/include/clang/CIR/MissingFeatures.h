@@ -239,6 +239,7 @@ struct MissingFeatures {
   static bool cleanupIndexAndBIAdjustment() { return false; }
   static bool cleanupWithPreservedValues() { return false; }
   static bool cleanupsToDeactivate() { return false; }
+  static bool lifetimeExtendedCleanup() { return false; }
   static bool constEmitterAggILE() { return false; }
   static bool constEmitterArrayILE() { return false; }
   static bool constEmitterVectorILE() { return false; }

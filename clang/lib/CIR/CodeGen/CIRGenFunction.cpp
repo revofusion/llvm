@@ -19,6 +19,7 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/GlobalDecl.h"
+#include "clang/Basic/Thunk.h"
 #include "clang/CIR/MissingFeatures.h"
 
 #include <cassert>
@@ -326,7 +327,13 @@ void CIRGenFunction::LexicalScope::cleanup() {
   // not a real fallthrough edge and must not trigger lexical cleanups again.
   if (curBlock && !curBlock->isEntryBlock() && curBlock->empty() &&
       curBlock->hasNoPredecessors()) {
-    discardCleanups();
+    // The scope's cleanups may already have been emitted -- e.g. a break,
+    // continue, or return nested inside this scope forces the cleanup inline
+    // before leaving. In that case there is nothing left to discard; only drop
+    // the now-dead continuation/return blocks. Calling discardCleanups() again
+    // would trip its "already forced cleanup" invariant.
+    if (performCleanup)
+      discardCleanups();
     curBlock->erase();
     for (mlir::Block *retBlock : retBlocks) {
       if (retBlock->getUses().empty())
@@ -511,7 +518,9 @@ void CIRGenFunction::startFunction(GlobalDecl gd, QualType returnType,
   didCallStackSave = false;
   curCodeDecl = d;
   const auto *fd = dyn_cast_or_null<FunctionDecl>(d);
-  curFuncDecl = d->getNonClosureContext();
+  // For thunks, startFunction is called with an empty GlobalDecl (the method
+  // decls are set up afterwards by startThunk), so guard against a null decl.
+  curFuncDecl = d ? d->getNonClosureContext() : nullptr;
 
   prologueCleanupDepth = ehStack.stable_begin();
 
@@ -846,6 +855,167 @@ cir::FuncOp CIRGenFunction::generateCode(clang::GlobalDecl gd, cir::FuncOp fn,
   return fn;
 }
 
+void CIRGenFunction::startThunk(cir::FuncOp fn, GlobalDecl gd,
+                                const CIRGenFunctionInfo &fnInfo,
+                                FunctionArgList &functionArgs) {
+  assert(!curGD.getDecl() && "curGD was already set!");
+  curGD = gd;
+  curFuncIsThunk = true;
+
+  const auto *md = cast<CXXMethodDecl>(gd.getDecl());
+
+  // Compute the result type, mirroring the ABI contract for 'this'-returns and
+  // most-derived returns.
+  QualType thisType = md->getThisType();
+  QualType resultType;
+  if (cgm.getCXXABI().hasThisReturn(gd))
+    resultType = thisType;
+  else if (cgm.getCXXABI().hasMostDerivedReturn(gd))
+    resultType = getContext().VoidPtrTy;
+  else
+    resultType = md->getType()->castAs<FunctionProtoType>()->getReturnType();
+
+  // Create the implicit 'this' parameter declaration.
+  cgm.getCXXABI().buildThisParam(*this, functionArgs);
+
+  // Add the rest of the parameters.
+  functionArgs.append(md->param_begin(), md->param_end());
+
+  if (isa<CXXDestructorDecl>(md))
+    cgm.getCXXABI().addImplicitStructorParams(*this, resultType, functionArgs);
+
+  // Start defining the function.
+  cir::FuncType funcType = cgm.getTypes().getFunctionType(fnInfo);
+  startFunction(GlobalDecl(), resultType, fn, funcType, functionArgs,
+                md->getLocation(), md->getLocation());
+
+  // startFunction only sets up the implicit 'this' prolog when it recognizes a
+  // CXXMethodDecl GlobalDecl. We deliberately passed an empty GlobalDecl above
+  // (matching classic CodeGen), so drive the instance-function prolog and
+  // restore the method-related decls ourselves.
+  cgm.getCXXABI().emitInstanceFunctionProlog(md->getLocation(), *this);
+  cxxThisValue = cxxabiThisValue;
+  curCodeDecl = md;
+  curFuncDecl = md;
+}
+
+void CIRGenFunction::finishThunk() {
+  // Clear these to restore the invariants expected by
+  // startFunction/finishFunction.
+  curCodeDecl = nullptr;
+  curFuncDecl = nullptr;
+
+  finishFunction(SourceLocation());
+}
+
+void CIRGenFunction::emitCallAndReturnForThunk(cir::FuncOp callee,
+                                               const ThunkInfo *thunk) {
+  assert(isa<CXXMethodDecl>(curGD.getDecl()) &&
+         "Please use a new CIRGenFunction for this thunk");
+  const auto *md = cast<CXXMethodDecl>(curGD.getDecl());
+
+  // Adjust the 'this' pointer if necessary.
+  const CXXRecordDecl *thisValueClass =
+      md->getThisType()->getPointeeCXXRecordDecl();
+  if (thunk)
+    thisValueClass = thunk->ThisType->getPointeeCXXRecordDecl();
+
+  mlir::Value adjustedThisPtr =
+      thunk ? cgm.getCXXABI().performThisAdjustment(
+                  *this, loadCXXThisAddress(), thisValueClass, *thunk)
+            : loadCXXThis();
+
+  // Start building the call args.
+  CallArgList callArgs;
+  QualType thisType = md->getThisType();
+  // performThisAdjustment yields an i8* (byte) pointer; the callee expects the
+  // method's actual 'this' type, so cast it back.
+  mlir::Type thisCIRType = convertType(thisType);
+  if (adjustedThisPtr.getType() != thisCIRType)
+    adjustedThisPtr = builder.createBitcast(adjustedThisPtr, thisCIRType);
+  callArgs.add(RValue::get(adjustedThisPtr), thisType);
+
+  if (isa<CXXDestructorDecl>(md))
+    cgm.getCXXABI().adjustCallArgsForDestructorThunk(*this, curGD, callArgs);
+
+  // Add the rest of the arguments.
+  for (const ParmVarDecl *pd : md->parameters())
+    emitDelegateCallArg(callArgs, pd, SourceLocation());
+
+  const auto *fpt = md->getType()->castAs<FunctionProtoType>();
+
+  // Determine the result type, matching startThunk.
+  QualType resultType = cgm.getCXXABI().hasThisReturn(curGD) ? thisType
+                        : cgm.getCXXABI().hasMostDerivedReturn(curGD)
+                            ? getContext().VoidPtrTy
+                            : fpt->getReturnType();
+
+  // Emit the forwarding call.
+  const CIRGenFunctionInfo &callFnInfo =
+      cgm.getTypes().arrangeGlobalDeclaration(curGD);
+  CIRGenCallee cirCallee = CIRGenCallee::forDirect(callee, curGD);
+  RValue rv = emitCall(callFnInfo, cirCallee, ReturnValueSlot(), callArgs);
+
+  // Apply return adjustment if necessary.
+  if (thunk && !thunk->Return.isEmpty()) {
+    if (!rv.isScalar()) {
+      cgm.errorNYI(md->getSourceRange(),
+                   "return-adjusting thunk with non-scalar return");
+    } else {
+      Address retAddr = makeNaturalAddressForPointer(rv.getValue(), resultType,
+                                                     CharUnits::Zero());
+      mlir::Value adjusted = cgm.getCXXABI().performReturnAdjustment(
+          *this, retAddr, thisValueClass, thunk->Return);
+      rv = RValue::get(adjusted);
+    }
+  }
+
+  // Emit the return.
+  if (!resultType->isVoidType())
+    cgm.getCXXABI().emitReturnFromThunk(*this, rv, resultType);
+
+  finishThunk();
+}
+
+void CIRGenFunction::generateThunk(cir::FuncOp fn,
+                                   const CIRGenFunctionInfo &fnInfo,
+                                   GlobalDecl gd, const ThunkInfo &thunk) {
+  const auto *md = cast<CXXMethodDecl>(gd.getDecl());
+  SourceLocation loc = md->getLocation();
+  mlir::Location mlirLoc =
+      loc.isValid() ? getLoc(loc) : builder.getUnknownLoc();
+  SourceLocRAIIObject fnLoc{*this, mlirLoc};
+
+  // Set up the entry block (mirrors generateCode).
+  mlir::Block *entryBB = fn.addEntryBlock();
+
+  FunctionArgList functionArgs;
+  // Create a scope in the symbol table to hold variable declarations.
+  SymTableScopeTy varScope(symbolTable);
+  {
+    LexicalScope lexScope(*this, mlirLoc, entryBB);
+
+    startThunk(fn, gd, fnInfo, functionArgs);
+
+    // Get our callee: the real (unadjusted) method. Use dontDefer so that
+    // referencing the method from within its own thunk (emitted during the
+    // method's own definition) does not re-queue the method for emission, which
+    // would re-run emitThunks and recurse infinitely.
+    cir::FuncType ty = cgm.getTypes().getFunctionType(fnInfo);
+    cir::FuncOp callee = cgm.getAddrOfFunction(gd, ty, /*forVTable=*/true,
+                                               /*dontDefer=*/true);
+
+    // Make the adjusted, forwarding call and return the result.
+    emitCallAndReturnForThunk(callee, &thunk);
+  }
+
+  terminateUnterminatedBlocks(fn, builder, mlirLoc);
+  eraseEmptyAndUnusedBlocks(fn);
+
+  if (mlir::failed(fn.verifyBody()))
+    cgm.errorNYI(md->getSourceRange(), "generateThunk: invalid thunk body");
+}
+
 void CIRGenFunction::emitConstructorBody(FunctionArgList &args) {
   assert(!cir::MissingFeatures::sanitizers());
   const auto *ctor = cast<CXXConstructorDecl>(curGD.getDecl());
@@ -903,7 +1073,11 @@ void CIRGenFunction::emitDestructorBody(FunctionArgList &args) {
   // in fact emit references to them from other compilations, so emit them
   // as functions containing a trap instruction.
   if (dtorType != Dtor_Base && dtor->getParent()->isAbstract()) {
-    cgm.errorNYI(dtor->getSourceRange(), "abstract base class destructors");
+    // Emit a trap instruction. cir.trap is a terminator that lowers to a
+    // trap intrinsic followed by unreachable, matching classic CodeGen which
+    // emits `llvm.trap()` + `unreachable` here. createNewBlock keeps a valid
+    // insertion point for any trailing function epilogue emission.
+    emitTrap(getLoc(dtor->getSourceRange()), /*createNewBlock=*/true);
     return;
   }
 
@@ -1035,13 +1209,20 @@ clang::QualType CIRGenFunction::buildFunctionArgList(clang::GlobalDecl gd,
     cgm.getCXXABI().buildThisParam(*this, args);
   }
 
+  // The base version of an inheriting constructor whose constructed base is a
+  // virtual base is not passed any arguments (because it doesn't actually call
+  // the inherited constructor).
+  bool passedParams = true;
   if (const auto *cd = dyn_cast<CXXConstructorDecl>(fd))
-    if (cd->getInheritedConstructor())
-      cgm.errorNYI(fd->getSourceRange(),
-                   "buildFunctionArgList: inherited constructor");
+    if (auto inherited = cd->getInheritedConstructor())
+      passedParams =
+          cgm.getTypes().inheritingCtorHasParams(inherited, gd.getCtorType());
 
-  for (auto *param : fd->parameters())
-    args.push_back(param);
+  if (passedParams) {
+    // TODO(cir): handle the PassObjectSizeAttr implicit size parameters.
+    for (auto *param : fd->parameters())
+      args.push_back(param);
+  }
 
   if (md && (isa<CXXConstructorDecl>(md) || isa<CXXDestructorDecl>(md)))
     cgm.getCXXABI().addImplicitStructorParams(*this, retTy, args);
@@ -1109,6 +1290,13 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
     CXXDefaultArgExprScope scope(*this, dae);
     return emitLValue(dae->getExpr());
   }
+  case Expr::CXXDefaultInitExprClass: {
+    auto *die = cast<CXXDefaultInitExpr>(e);
+    CXXDefaultInitExprScope scope(*this, die);
+    return emitLValue(die->getExpr());
+  }
+  case Expr::InitListExprClass:
+    return emitInitListLValue(cast<InitListExpr>(e));
   case Expr::ParenExprClass:
     return emitLValue(cast<ParenExpr>(e)->getSubExpr());
   case Expr::GenericSelectionExprClass:

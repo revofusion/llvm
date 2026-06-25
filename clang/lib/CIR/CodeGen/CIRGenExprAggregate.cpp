@@ -273,7 +273,11 @@ public:
                      "AggExprEmitter: VisitSubstNonTypeTemplateParmExpr");
   }
   void VisitConstantExpr(ConstantExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(), "AggExprEmitter: VisitConstantExpr");
+    // TODO(cir): classic CodeGen first tries to emit the wrapped constant
+    // directly into the destination slot (ConstantEmitter::tryEmitConstantExpr
+    // + a coerced store). That is an optimization; emitting the underlying
+    // expression is always semantically correct and is what we do here.
+    Visit(e->getSubExpr());
   }
   void VisitMemberExpr(MemberExpr *e) { emitAggLoadOfLValue(e); }
   void VisitUnaryDeref(UnaryOperator *e) { emitAggLoadOfLValue(e); }
@@ -343,8 +347,10 @@ public:
     Visit(dae->getExpr());
   }
   void VisitCXXInheritedCtorInitExpr(const CXXInheritedCtorInitExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "AggExprEmitter: VisitCXXInheritedCtorInitExpr");
+    AggValueSlot slot = ensureSlot(cgf.getLoc(e->getSourceRange()), e->getType());
+    cgf.emitInheritedCXXConstructorCall(e->getConstructor(), e->constructsVBase(),
+                                        slot.getAddress(),
+                                        e->inheritedFromVBase(), e);
   }
   void VisitCXXStdInitializerListExpr(CXXStdInitializerListExpr *e) {
     ASTContext &ctx = cgf.getContext();
@@ -1071,7 +1077,20 @@ void AggExprEmitter::visitCXXParenListOrInitListExpr(
     // Push a destructor if necessary.
     // FIXME: if we have an array of structures, all explicitly
     // initialized, we can end up pushing a linear number of cleanups.
-    if (field->getType().isDestructedType()) {
+    //
+    // Classic CodeGen pushes a deferred-deactivation EH cleanup here so that an
+    // already-initialized field is destroyed if a *subsequent* field's
+    // initializer throws, then deactivates it once the whole aggregate is built
+    // (the aggregate's own cleanup then owns it). This is purely an
+    // exception-safety mechanism: with no unwind edges there is no path on which
+    // the cleanup would fire, and the fully-initialized aggregate is destroyed
+    // by the enclosing temporary/variable cleanup. CIR does not yet model
+    // deferred-deactivation cleanups, so only the exceptions-enabled case is
+    // unimplemented; mirror the array-init path, which also gates its
+    // per-element destructor cleanup on getLangOpts().Exceptions.
+    if (field->getType().isDestructedType() &&
+        cgf.cgm.getLangOpts().Exceptions) {
+      assert(!cir::MissingFeatures::cleanupsToDeactivate());
       cgf.cgm.errorNYI(e->getSourceRange(),
                        "visitCXXParenListOrInitListExpr destructor");
       return;
@@ -1200,4 +1219,14 @@ LValue CIRGenFunction::emitAggExprToLValue(const Expr *e) {
                                          AggValueSlot::IsNotAliased,
                                          AggValueSlot::DoesNotOverlap));
   return lv;
+}
+
+LValue CIRGenFunction::emitInitListLValue(const InitListExpr *e) {
+  if (!e->isGLValue())
+    // Initializing an aggregate temporary in C++11: T{...}.
+    return emitAggExprToLValue(e);
+
+  // An lvalue initializer list must be initializing a reference.
+  assert(e->isTransparent() && "non-transparent glvalue init list");
+  return emitLValue(e->getInit(0));
 }

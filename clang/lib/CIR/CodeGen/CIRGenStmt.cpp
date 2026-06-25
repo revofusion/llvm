@@ -615,8 +615,12 @@ mlir::LogicalResult CIRGenFunction::emitReturnStmt(const ReturnStmt &s) {
       // If this function returns a reference, take the address of the
       // expression rather than the value.
       RValue result = emitReferenceBindingToExpr(rv);
-      builder.CIRBaseBuilderTy::createStore(loc, result.getValue(),
-                                            *fnRetAlloca);
+      // An upstream NYI (e.g. an unsupported l-value expression) can leave the
+      // bound reference without a backing value. Don't store a null value --
+      // that would crash before the already-emitted diagnostic is reported.
+      if (result.getValue())
+        builder.CIRBaseBuilderTy::createStore(loc, result.getValue(),
+                                              *fnRetAlloca);
     } else {
       mlir::Value value = nullptr;
       switch (CIRGenFunction::getEvaluationKind(rv->getType())) {
@@ -722,8 +726,14 @@ CIRGenFunction::emitIndirectGotoStmt(const IndirectGotoStmt &s) {
 
 mlir::LogicalResult
 CIRGenFunction::emitContinueStmt(const clang::ContinueStmt &s) {
+  // A continue transfers control out of the current lexical scope to the loop's
+  // continuation. The scope's cleanups must run on this exit edge, but the
+  // scope may be left again through other edges (another continue/break, a
+  // return, or a fallthrough), so emit them inline without consuming them --
+  // forceCleanup() is one-shot and would assert on a second continue in the
+  // same scope.
   if (curLexScope)
-    curLexScope->forceCleanup();
+    emitCleanupsForBreakOrContinue(curLexScope->getCleanupStackDepth());
   builder.createContinue(getLoc(s.getKwLoc()));
 
   // Insert the new block to continue codegen after the continue statement.
@@ -765,8 +775,14 @@ mlir::LogicalResult CIRGenFunction::emitLabel(const clang::LabelDecl &d) {
 }
 
 mlir::LogicalResult CIRGenFunction::emitBreakStmt(const clang::BreakStmt &s) {
+  // A break transfers control out of the innermost loop/switch. The current
+  // lexical scope's cleanups must run on this exit edge, but the scope may be
+  // left again through other edges (another break, e.g. in a different switch
+  // case sharing this scope, a return, or a fallthrough), so emit them inline
+  // without consuming them -- forceCleanup() is one-shot and would assert on a
+  // second break in the same scope (a switch with more than one break).
   if (curLexScope)
-    curLexScope->forceCleanup();
+    emitCleanupsForBreakOrContinue(curLexScope->getCleanupStackDepth());
   builder.createBreak(getLoc(s.getKwLoc()));
 
   // Insert the new block to continue codegen after the break statement.

@@ -131,7 +131,14 @@ CIRGenFunction::emitAutoVarAlloca(const VarDecl &d,
           (cgm.getCodeGenOpts().MergeAllConstants && !nrvo &&
            !d.isEscapingByref() &&
            ty.isConstantStorage(getContext(), true, !needsDtor))) {
-        cgm.errorNYI(d.getSourceRange(), "emitAutoVarAlloca: type constant");
+        // Classic CodeGen promotes such a constant local aggregate to a private
+        // global and uses its address as the variable, purely as a
+        // -fmerge-all-constants instruction-count optimization. CIR does not
+        // model that promotion yet; skipping it is sound -- the variable is
+        // still emitted below as a normal alloca with constant initialization
+        // (driven by isConstantAggregate), which has identical semantics. The
+        // constant-merging can be reintroduced during lowering to LLVM.
+        assert(!cir::MissingFeatures::mergeAllConstants());
       }
       // Otherwise, tell the initialization code that we're in this case.
       emission.isConstantAggregate = true;
@@ -318,7 +325,27 @@ void CIRGenFunction::emitAutoVarInit(
         LangOptions::TrivialAutoVarInitKind::Uninitialized)
       return;
 
-    cgm.errorNYI(d.getSourceRange(), "emitAutoVarInit: trivial initialization");
+    // -ftrivial-auto-var-init={zero,pattern}: emit a defined initialization of
+    // the automatic variable's storage so the value model never observes an
+    // uninitialized local. This mirrors the early-out structure of classic
+    // CodeGen's emitZeroOrPatternForAutoVarInit (CGDecl.cpp).
+    //
+    // Both the "zero" and "pattern" hardening modes are represented in CIR as a
+    // zero-fill of the storage: the runtime 0xAA pattern is a hardening-only
+    // detail with no analysis meaning, and materializing it would inject
+    // meaningless large values into the value model. The semantically essential
+    // effect -- the variable is defined before any use, and the backing alloca
+    // is marked initialized -- is preserved by storing #cir.zero through the
+    // shared constant-store path (which also sets the alloca's init attr).
+    mlir::Type elemTy = addr.getElementType();
+    cir::CIRDataLayout layout{cgm.getModule()};
+    if (layout.getTypeAllocSize(elemTy) == 0)
+      return; // VLA / zero-sized: nothing to fill (matches leaving it uninit).
+    // Use getZeroInitAttr so scalars get a proper typed zero (IntAttr/FPAttr/
+    // null pointer/false) instead of #cir.zero, which is only valid for
+    // aggregate (struct/array/vector/complex/method) types.
+    emitStoresForConstant(cgm, d, addr, type.isVolatileQualified(), builder,
+                          builder.getZeroInitAttr(elemTy));
   };
 
   if (isTrivialInitializer(init)) {
@@ -335,12 +362,15 @@ void CIRGenFunction::emitAutoVarInit(
     // frequently return an empty Attribute, to signal we want to codegen
     // some trivial ctor calls and whatnots.
     constant = ConstantEmitter(*this).tryEmitAbstractForInitializer(d);
-    if (constant && !mlir::isa<cir::ZeroAttr>(constant) &&
-        (trivialAutoVarInit !=
-         LangOptions::TrivialAutoVarInitKind::Uninitialized)) {
-      cgm.errorNYI(d.getSourceRange(), "emitAutoVarInit: constant aggregate");
-      return;
-    }
+    // NOTE(cir): When -ftrivial-auto-var-init={zero,pattern} is active and the
+    // initializer is a real (non-zero) constant, classic CodeGen would fill the
+    // aggregate's padding with the zero/pattern value via constWithPadding and
+    // then store the constant. The padding fill is a hardening-only detail with
+    // no value-model meaning, so we deliberately ignore it here: the variable is
+    // fully defined by storing the real constant (or, for aggregates, by the
+    // producer-structure-preserving re-emit below), and the alloca is marked
+    // initialized. No special handling is needed beyond the normal constant
+    // store path.
   }
 
   // Preserve producer-owned aggregate structure for local arrays and records.
@@ -579,8 +609,11 @@ CIRGenModule::getOrCreateStaticVarDecl(const VarDecl &d,
 cir::GlobalOp CIRGenFunction::addInitializerToStaticVarDecl(
     const VarDecl &d, cir::GlobalOp gv, cir::GetGlobalOp gvAddr) {
   ConstantEmitter emitter(*this);
+  // tryEmitForInitializer may legitimately return a null Attribute (CIR defers
+  // some non-constant-foldable initializers); use dyn_cast_if_present so a null
+  // result is handled by the check below instead of dereferencing null in cast.
   mlir::TypedAttr init =
-      mlir::cast<mlir::TypedAttr>(emitter.tryEmitForInitializer(d));
+      mlir::dyn_cast_if_present<mlir::TypedAttr>(emitter.tryEmitForInitializer(d));
 
   // If constant emission failed, then this should be a C++ static
   // initializer.

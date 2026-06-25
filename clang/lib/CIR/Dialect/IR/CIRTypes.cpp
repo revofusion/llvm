@@ -303,8 +303,17 @@ Type RecordType::getLargestMember(const ::mlir::DataLayout &dataLayout) const {
   // If the union is padded, we need to ignore the last member,
   // which is the padding.
   auto endIt = getPadded() ? std::prev(members.end()) : members.end();
-  if (endIt == members.begin())
+  if (endIt == members.begin()) {
+    // The union has no non-padding members. This happens for empty unions
+    // (e.g. std::variant's terminal/empty `__union` template instantiation),
+    // which CIRRecordLowering::lowerUnion lays out as a single padding member.
+    // Fall back to that padding member so that both size and alignment queries
+    // get a valid type (a byte array -> alignment 1, size == padding size)
+    // instead of a null type, which would crash the data-layout machinery.
+    if (getPadded())
+      return members.back();
     return {};
+  }
   return *std::max_element(
       members.begin(), endIt, [&](Type lhs, Type rhs) {
         return dataLayout.getTypeABIAlignment(lhs) <
@@ -348,8 +357,13 @@ PointerType::getABIAlignment(const ::mlir::DataLayout &dataLayout,
 llvm::TypeSize
 RecordType::getTypeSizeInBits(const mlir::DataLayout &dataLayout,
                               mlir::DataLayoutEntryListRef params) const {
-  if (isUnion())
-    return dataLayout.getTypeSize(getLargestMember(dataLayout));
+  if (isUnion()) {
+    mlir::Type lm = getLargestMember(dataLayout);
+    // An empty union (no members at all) has a size of 0.
+    if (!lm)
+      return llvm::TypeSize::getFixed(0);
+    return dataLayout.getTypeSize(lm);
+  }
 
   auto recordSize = static_cast<uint64_t>(computeStructSize(dataLayout));
   return llvm::TypeSize::getFixed(recordSize * 8);
@@ -358,8 +372,13 @@ RecordType::getTypeSizeInBits(const mlir::DataLayout &dataLayout,
 uint64_t
 RecordType::getABIAlignment(const ::mlir::DataLayout &dataLayout,
                             ::mlir::DataLayoutEntryListRef params) const {
-  if (isUnion())
-    return dataLayout.getTypeABIAlignment(getLargestMember(dataLayout));
+  if (isUnion()) {
+    mlir::Type lm = getLargestMember(dataLayout);
+    // An empty union (no members at all) has a minimal alignment of 1.
+    if (!lm)
+      return 1;
+    return dataLayout.getTypeABIAlignment(lm);
+  }
 
   // Packed structures always have an ABI alignment of 1.
   if (getPacked())

@@ -46,8 +46,6 @@ static CIRGenCXXABI *createCXXABI(CIRGenModule &cgm) {
   case TargetCXXABI::GenericItanium:
   case TargetCXXABI::GenericAArch64:
   case TargetCXXABI::AppleARM64:
-    return CreateCIRGenItaniumCXXABI(cgm);
-
   case TargetCXXABI::Fuchsia:
   case TargetCXXABI::GenericARM:
   case TargetCXXABI::iOS:
@@ -55,6 +53,8 @@ static CIRGenCXXABI *createCXXABI(CIRGenModule &cgm) {
   case TargetCXXABI::GenericMIPS:
   case TargetCXXABI::WebAssembly:
   case TargetCXXABI::XL:
+    return CreateCIRGenItaniumCXXABI(cgm);
+
   case TargetCXXABI::Microsoft:
     cgm.errorNYI("C++ ABI kind not yet implemented");
     return nullptr;
@@ -1565,6 +1565,38 @@ CIRGenModule::getAddrOfConstantStringFromLiteral(const StringLiteral *s,
   return builder.getGlobalViewAttr(ptrTy, gv);
 }
 
+cir::GlobalOp CIRGenModule::createUnnamedGlobalFrom(const VarDecl &d,
+                                                    mlir::TypedAttr value,
+                                                    CharUnits align) {
+  // Form a name for the spilled constant. For globals use the mangled name,
+  // otherwise derive it from the enclosing function and variable name.
+  std::string name;
+  if (d.hasGlobalStorage()) {
+    name = (getMangledName(&d) + ".const").str();
+  } else if (const DeclContext *dc = d.getParentFunctionOrMethod()) {
+    std::string fnName;
+    if (const auto *fd = dyn_cast<FunctionDecl>(dc))
+      fnName = getMangledName(fd).str();
+    else
+      fnName = "<anon>";
+    name = "__const." + fnName + "." + d.getName().str();
+  } else {
+    llvm_unreachable("local variable has no parent function or method");
+  }
+  name = getUniqueGlobalName(name);
+
+  mlir::Location loc = getLoc(d.getSourceRange());
+  cir::GlobalOp gv =
+      createGlobalOp(*this, loc, name, value.getType(), /*isConstant=*/true);
+  gv.setAlignmentAttr(getSize(align));
+  gv.setLinkageAttr(cir::GlobalLinkageKindAttr::get(
+      &getMLIRContext(), cir::GlobalLinkageKind::PrivateLinkage));
+  assert(!cir::MissingFeatures::opGlobalUnnamedAddr());
+  setInitializer(gv, value);
+  setDSOLocal(static_cast<mlir::Operation *>(gv));
+  return gv;
+}
+
 // TODO(cir): this could be a common AST helper for both CIR and LLVM codegen.
 LangAS CIRGenModule::getLangTempAllocaAddressSpace() const {
   if (getLangOpts().OpenCL)
@@ -1823,6 +1855,12 @@ cir::FuncOp CIRGenModule::getAddrOfFunction(clang::GlobalDecl gd,
       getOrCreateCIRFunction(mangledName, funcType, gd, forVTable, dontDefer,
                              /*isThunk=*/false, isForDefinition);
   return func;
+}
+
+cir::FuncOp CIRGenModule::getAddrOfThunk(StringRef name, mlir::Type funcType,
+                                         GlobalDecl gd) {
+  return getOrCreateCIRFunction(name, funcType, gd, /*forVTable=*/true,
+                                /*dontDefer=*/true, /*isThunk=*/true);
 }
 
 static std::string getMangledNameImpl(CIRGenModule &cgm, GlobalDecl gd,
@@ -2365,11 +2403,10 @@ cir::FuncOp CIRGenModule::getOrCreateCIRFunction(
     mlir::ArrayAttr extraAttrs) {
   const Decl *d = gd.getDecl();
 
-  if (isThunk)
-    errorNYI(d->getSourceRange(), "getOrCreateCIRFunction: thunk");
-
-  // In what follows, we continue past 'errorNYI' as if nothing happened because
-  // the rest of the implementation is better than doing nothing.
+  // For a thunk, the GlobalDecl's decl is the underlying method, but the
+  // mangled name and function type belong to the thunk. setFunctionAttributes
+  // is told (via isThunk) not to apply decl-derived properties that would be
+  // wrong for the thunk wrapper.
 
   if (const auto *fd = cast_or_null<FunctionDecl>(d)) {
     // For the device mark the function as one that should be emitted.

@@ -1291,6 +1291,29 @@ void CIRGenFunction::emitCXXConstructorCall(const clang::CXXConstructorDecl *d,
                          e->getExprLoc());
 }
 
+static bool canEmitDelegateCallArgs(CIRGenFunction &cgf,
+                                    const CXXConstructorDecl *ctor,
+                                    CXXCtorType type, CallArgList &args) {
+  // We can't forward a variadic call.
+  if (ctor->isVariadic())
+    return false;
+
+  if (cgf.getTarget().getCXXABI().areArgsDestroyedLeftToRightInCallee()) {
+    // If the parameters are callee-cleanup, it's not safe to forward.
+    for (auto *p : ctor->parameters())
+      if (p->needsDestruction(cgf.getContext()))
+        return false;
+
+    // Likewise if they're inalloca. This is an MS-ABI concept that is not
+    // yet modeled in CIR; the MS ABI itself has other NYIs, so it's safe to
+    // flag this as a missing feature rather than answer incorrectly here.
+    assert(!cir::MissingFeatures::opCallInAlloca());
+  }
+
+  // Anything else should be OK.
+  return true;
+}
+
 void CIRGenFunction::emitCXXConstructorCall(
     const CXXConstructorDecl *d, CXXCtorType type, bool forVirtualBase,
     bool delegating, Address thisAddr, CallArgList &args, SourceLocation loc) {
@@ -1308,10 +1331,16 @@ void CIRGenFunction::emitCXXConstructorCall(
   bool passPrototypeArgs = true;
 
   // Check whether we can actually emit the constructor before trying to do so.
-  if (d->getInheritedConstructor()) {
-    cgm.errorNYI(d->getSourceRange(),
-                 "emitCXXConstructorCall: inherited constructor");
-    return;
+  if (auto inherited = d->getInheritedConstructor()) {
+    passPrototypeArgs = cgm.getTypes().inheritingCtorHasParams(inherited, type);
+    if (passPrototypeArgs && !canEmitDelegateCallArgs(*this, d, type, args)) {
+      // We can't forward the arguments to the inherited constructor directly
+      // (e.g. variadic or callee-destroyed params); the inherited constructor
+      // would have to be inlined here. This is not yet implemented in CIR.
+      cgm.errorNYI(d->getSourceRange(),
+                   "emitCXXConstructorCall: inlined inheriting constructor");
+      return;
+    }
   }
 
   // Insert any ABI-specific implicit constructor arguments.
@@ -1330,4 +1359,43 @@ void CIRGenFunction::emitCXXConstructorCall(
   if (cgm.getCodeGenOpts().OptimizationLevel != 0 && !crd->isDynamicClass() &&
       type != Ctor_Base && cgm.getCodeGenOpts().StrictVTablePointers)
     cgm.errorNYI(d->getSourceRange(), "vtable assumption loads");
+}
+
+void CIRGenFunction::emitInheritedCXXConstructorCall(
+    const CXXConstructorDecl *d, bool forVirtualBase, Address thisAddr,
+    bool inheritedFromVBase, const CXXInheritedCtorInitExpr *e) {
+  CallArgList args;
+  CallArg thisArg(RValue::get(getAsNaturalPointerTo(
+                      thisAddr, d->getThisType()->getPointeeType())),
+                  d->getThisType());
+
+  // Forward the parameters.
+  if (inheritedFromVBase &&
+      cgm.getTarget().getCXXABI().hasConstructorVariants()) {
+    // Nothing to do; this construction is not responsible for constructing
+    // the base class containing the inherited constructor.
+    args.push_back(thisArg);
+  } else {
+    // The inheriting constructor was not inlined (the inlined case is handled
+    // separately and is currently a NYI). Emit delegating arguments forwarded
+    // from the enclosing constructor's parameters.
+    args.push_back(thisArg);
+    const auto *outerCtor = cast<CXXConstructorDecl>(curCodeDecl);
+    assert(outerCtor->getNumParams() == d->getNumParams());
+    assert(!outerCtor->isVariadic() && "should have been inlined");
+
+    for (const auto *param : outerCtor->parameters()) {
+      assert(getContext().hasSameUnqualifiedType(
+          outerCtor->getParamDecl(param->getFunctionScopeIndex())->getType(),
+          param->getType()));
+      emitDelegateCallArg(args, param, e->getLocation());
+
+      // TODO(cir): forward __attribute__((pass_object_size)) parameters.
+      assert(!param->hasAttr<PassObjectSizeAttr>() &&
+             "pass_object_size forwarding NYI for inheriting constructors");
+    }
+  }
+
+  emitCXXConstructorCall(d, Ctor_Base, forVirtualBase, /*delegating=*/false,
+                         thisAddr, args, e->getLocation());
 }

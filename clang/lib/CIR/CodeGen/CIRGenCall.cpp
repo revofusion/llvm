@@ -187,9 +187,8 @@ CIRGenTypes::arrangeCXXStructorDeclaration(GlobalDecl gd) {
   if (auto *cd = dyn_cast<CXXConstructorDecl>(md)) {
     // A base class inheriting constructor doesn't get forwarded arguments
     // needed to construct a virtual base (or base class thereof)
-    if (cd->getInheritedConstructor())
-      cgm.errorNYI(cd->getSourceRange(),
-                   "arrangeCXXStructorDeclaration: inheriting constructor");
+    if (auto inherited = cd->getInheritedConstructor())
+      passParams = inheritingCtorHasParams(inherited, gd.getCtorType());
   }
 
   CanQual<FunctionProtoType> fpt = getFormalType(md);
@@ -218,6 +217,15 @@ CIRGenTypes::arrangeCXXStructorDeclaration(GlobalDecl gd) {
   assert(!cir::MissingFeatures::opCallFnInfoOpts());
 
   return arrangeCIRFunctionInfo(resultType, argTypes, required);
+}
+
+bool CIRGenTypes::inheritingCtorHasParams(
+    const InheritedConstructor &inherited, CXXCtorType type) {
+  // Parameters are unnecessary if we're constructing a base class subobject
+  // and the inherited constructor lives in a virtual base.
+  return type == Ctor_Complete ||
+         !inherited.getShadowDecl()->constructsVirtualBase() ||
+         !cgm.getTarget().getCXXABI().hasConstructorVariants();
 }
 
 /// Derives the 'this' type for CIRGen purposes, i.e. ignoring method CVR
@@ -265,12 +273,6 @@ void CIRGenFunction::emitDelegateCallArg(CallArgList &args,
   Address local = getAddrOfLocalVar(param);
 
   QualType type = param->getType();
-
-  if (type->getAsCXXRecordDecl()) {
-    cgm.errorNYI(param->getSourceRange(),
-                 "emitDelegateCallArg: record argument");
-    return;
-  }
 
   // GetAddrOfLocalVar returns a pointer-to-pointer for references, but the
   // argument needs to be the original pointer.
@@ -567,6 +569,16 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
         cgm.errorNYI(loc, "emitCall: aggregate call argument");
       v = arg.getKnownRValue().getValue();
 
+      // An upstream NYI may have produced an argument with no backing value
+      // (e.g. an unsupported l-value expression that returned an empty
+      // RValue). Don't dereference it -- substitute a poison value so the call
+      // can still be formed and the already-emitted diagnostic is reported,
+      // rather than crashing here.
+      if (!v) {
+        cgm.errorNYI(loc, "emitCall: call argument without a value");
+        v = builder.getConstant(loc, cir::PoisonAttr::get(argType));
+      }
+
       // We might have to widen integers, but we should never truncate.
       if (argType != v.getType() && mlir::isa<cir::IntType>(v.getType()))
         cgm.errorNYI(loc, "emitCall: widening integer call argument");
@@ -754,8 +766,28 @@ mlir::Value CIRGenFunction::emitRuntimeCall(mlir::Location loc,
 
 void CIRGenFunction::emitCallArg(CallArgList &args, const clang::Expr *e,
                                  clang::QualType argType) {
-  assert(argType->isReferenceType() == e->isGLValue() &&
-         "reference binding to unmaterialized r-value!");
+  // In well-formed code the value category of the argument expression matches
+  // the reference-ness of the parameter type: a reference parameter binds to a
+  // glvalue, a by-value parameter takes a prvalue. If that invariant is broken
+  // here, the prototype's parameter types and the call's argument expressions
+  // are misaligned (something CIRGen does not model correctly yet). Emit a
+  // clean NYI diagnostic instead of asserting/crashing -- producing a wrong
+  // value here would be unsound for a downstream consumer of the CIR.
+  if (argType->isReferenceType() != e->isGLValue()) {
+    cgm.errorNYI(e->getSourceRange(),
+                 "emitCallArg: argument value category does not match "
+                 "parameter type");
+    // The TU is now poisoned, but emission continues; downstream code (e.g.
+    // emitCall) still expects exactly one well-typed value to have been
+    // appended. Append a poison value of the (memory) parameter type so we
+    // don't crash before the diagnostic is reported.
+    mlir::Location loc = getLoc(e->getSourceRange());
+    mlir::Type ty = convertType(argType);
+    mlir::Value poison =
+        builder.getConstant(loc, cir::PoisonAttr::get(ty));
+    args.add(RValue::get(poison), argType);
+    return;
+  }
 
   if (e->isGLValue()) {
     assert(e->getObjectKind() == OK_Ordinary);
@@ -764,13 +796,39 @@ void CIRGenFunction::emitCallArg(CallArgList &args, const clang::Expr *e,
 
   bool hasAggregateEvalKind = hasAggregateEvaluationKind(argType);
 
-  // In the Microsoft C++ ABI, aggregate arguments are destructed by the callee.
-  // However, we still have to push an EH-only cleanup in case we unwind before
-  // we make it to the call.
+  // When aggregate arguments are destructed by the callee (the Itanium C++ ABI
+  // rule for non-trivially-destructible by-value params, and all by-value
+  // record params in the Microsoft ABI), construct the argument into a
+  // temporary and mark the slot as externally destructed so we don't also
+  // destroy it on the caller side.
   if (argType->isRecordType() &&
       argType->castAsRecordDecl()->isParamDestroyedInCallee()) {
-    assert(!cir::MissingFeatures::msabi());
-    cgm.errorNYI(e->getSourceRange(), "emitCallArg: msabi is NYI");
+    // inalloca is an MS-ABI x86 concept that is not yet modeled in CIR.
+    assert(!cir::MissingFeatures::opCallInAlloca());
+    AggValueSlot slot =
+        createAggTemp(argType, getLoc(e->getSourceRange()), "agg.tmp");
+
+    bool destroyedInCallee = true, needsCleanup = true;
+    if (const auto *rd = argType->getAsCXXRecordDecl())
+      destroyedInCallee = rd->hasNonTrivialDestructor();
+    else
+      needsCleanup = argType.isDestructedType();
+
+    if (destroyedInCallee)
+      slot.setExternallyDestructed();
+
+    emitAggExpr(e, slot);
+    RValue rv = slot.asRValue();
+    args.add(rv, argType);
+
+    if (destroyedInCallee && needsCleanup) {
+      // The callee destroys the argument. The caller-side EH-only cleanup that
+      // would run if we unwind before the call (and its deactivation at the
+      // call site) is not yet modeled in CIR; the externally-destructed slot
+      // already prevents a double destroy on the normal path.
+      assert(!cir::MissingFeatures::cleanupsToDeactivate());
+    }
+    return;
   }
 
   if (hasAggregateEvalKind && isa<ImplicitCastExpr>(e) &&

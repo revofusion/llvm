@@ -92,6 +92,11 @@ public:
   uint64_t getSecondaryVirtualPointerIndex(const CXXRecordDecl *rd,
                                            BaseSubobject base);
 
+  /// Emit a single thunk for the given global decl, if it should be emitted in
+  /// this translation unit. Returns the (declaration or definition) FuncOp.
+  cir::FuncOp maybeEmitThunk(clang::GlobalDecl gd,
+                             const clang::ThunkInfo &thunkInfo, bool forVTable);
+
   /// Emit the associated thunks for the given global decl.
   void emitThunks(GlobalDecl gd);
 

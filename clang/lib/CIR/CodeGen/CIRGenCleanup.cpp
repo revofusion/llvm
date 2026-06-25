@@ -253,6 +253,43 @@ void CIRGenFunction::emitCleanupsForReturn() {
   }
 }
 
+void CIRGenFunction::emitCleanupsForBreakOrContinue(
+    EHScopeStack::stable_iterator exitDepth) {
+  for (EHScopeStack::stable_iterator si = ehStack.getInnermostNormalCleanup();
+       si != ehStack.stable_end() && si != exitDepth;) {
+    EHCleanupScope &scope = cast<EHCleanupScope>(*ehStack.find(si));
+    si = scope.getEnclosingNormalCleanup();
+    if (!scope.isActive())
+      continue;
+
+    // Copy the cleanup out and emit it inline without popping it: the cleanup is
+    // still owned by its lexical scope, which may be exited again through a
+    // different edge (another break/continue, a fallthrough, or a return).
+    auto *cleanupSource = reinterpret_cast<char *>(scope.getCleanupBuffer());
+    alignas(EHScopeStack::ScopeStackAlignment) char
+        cleanupBufferStack[8 * sizeof(void *)];
+    std::unique_ptr<char[]> cleanupBufferHeap;
+    size_t cleanupSize = scope.getCleanupSize();
+    EHScopeStack::Cleanup *cleanup;
+    if (cleanupSize <= sizeof(cleanupBufferStack)) {
+      memcpy(cleanupBufferStack, cleanupSource, cleanupSize);
+      cleanup = reinterpret_cast<EHScopeStack::Cleanup *>(cleanupBufferStack);
+    } else {
+      cleanupBufferHeap.reset(new char[cleanupSize]);
+      memcpy(cleanupBufferHeap.get(), cleanupSource, cleanupSize);
+      cleanup =
+          reinterpret_cast<EHScopeStack::Cleanup *>(cleanupBufferHeap.get());
+    }
+
+    EHScopeStack::Cleanup::Flags cleanupFlags;
+    if (scope.isNormalCleanup())
+      cleanupFlags.setIsNormalCleanupKind();
+    if (scope.isEHCleanup())
+      cleanupFlags.setIsEHCleanupKind();
+    emitCleanup(*this, cleanup, cleanupFlags);
+  }
+}
+
 static mlir::Block *createNormalEntry(CIRGenFunction &cgf,
                                       EHCleanupScope &scope) {
   assert(scope.isNormalCleanup());

@@ -956,6 +956,24 @@ public:
   cir::FuncOp generateCode(clang::GlobalDecl gd, cir::FuncOp fn,
                            cir::FuncType funcType);
 
+  /// Emit a vtable adjustor thunk: a function that adjusts the 'this' pointer
+  /// (and possibly the return value) and forwards to the real method.
+  void generateThunk(cir::FuncOp fn, const CIRGenFunctionInfo &fnInfo,
+                     clang::GlobalDecl gd, const ThunkInfo &thunk);
+
+  /// Set up the implicit 'this' parameter and prologue for a thunk.
+  void startThunk(cir::FuncOp fn, clang::GlobalDecl gd,
+                  const CIRGenFunctionInfo &fnInfo, FunctionArgList &args);
+
+  /// Restore invariants and finish a thunk function.
+  void finishThunk();
+
+  /// Emit the adjusted, forwarding call (and return) for a thunk.
+  void emitCallAndReturnForThunk(cir::FuncOp callee, const ThunkInfo *thunk);
+
+  /// True if the current function being generated is a thunk.
+  bool curFuncIsThunk = false;
+
   clang::QualType buildFunctionArgList(clang::GlobalDecl gd,
                                        FunctionArgList &args);
 
@@ -996,6 +1014,16 @@ public:
   void popCleanupBlock();
   void emitCleanupsForReturn();
 
+  /// Emit, inline at the current insertion point, the active normal cleanups on
+  /// the EH stack from the innermost cleanup down to (but not including)
+  /// \p exitDepth, without popping them. This is used at a break/continue, which
+  /// transfers control out of the innermost loop/switch region: the cleanups for
+  /// scopes left behind must run on that exit edge, but the cleanups are still
+  /// owned by their lexical scopes (which may have other exit edges, e.g. a
+  /// fallthrough or another break), so they must not be consumed here.
+  void emitCleanupsForBreakOrContinue(
+      EHScopeStack::stable_iterator exitDepth);
+
   /// Push a cleanup to be run at the end of the current full-expression.  Safe
   /// against the possibility that we're currently inside a
   /// conditionally-evaluated expression.
@@ -1013,6 +1041,14 @@ public:
   /// will be executed once the scope is exited.
   class RunCleanupsScope {
     EHScopeStack::stable_iterator cleanupStackDepth, oldCleanupStackDepth;
+
+  public:
+    /// The cleanup-stack depth recorded when this scope was entered. Cleanups
+    /// pushed after this point (i.e. those strictly inside this scope) lie
+    /// between ehStack.stable_begin() and this iterator.
+    EHScopeStack::stable_iterator getCleanupStackDepth() const {
+      return cleanupStackDepth;
+    }
 
   protected:
     bool performCleanup;
@@ -1333,6 +1369,8 @@ public:
 
   LValue emitAggExprToLValue(const Expr *e);
 
+  LValue emitInitListLValue(const InitListExpr *e);
+
   /// Emit an aggregate copy.
   ///
   /// \param isVolatile \c true iff either the source or the destination is
@@ -1535,6 +1573,11 @@ public:
                               clang::CXXCtorType type, bool forVirtualBase,
                               bool delegating, Address thisAddr,
                               CallArgList &args, clang::SourceLocation loc);
+
+  void emitInheritedCXXConstructorCall(const clang::CXXConstructorDecl *d,
+                                       bool forVirtualBase, Address thisAddr,
+                                       bool inheritedFromVBase,
+                                       const clang::CXXInheritedCtorInitExpr *e);
 
   void emitCXXDeleteExpr(const CXXDeleteExpr *e);
 

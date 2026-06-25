@@ -214,6 +214,29 @@ static bool isSafeToConvert(const RecordDecl *rd, CIRGenTypes &cgt) {
   return isSafeToConvert(rd, cgt, alreadyChecked);
 }
 
+/// Return the (possibly incomplete/forward) CIR record type for a record decl
+/// without forcing its full layout. Used for pointer/reference pointees so that
+/// pointers to records never trigger layout of the pointee (mirrors classic
+/// CodeGen's opaque pointers and breaks mutually-recursive record graphs).
+cir::RecordType
+CIRGenTypes::getOrCreateRecordForwardType(const clang::RecordDecl *rd) {
+  // TagDecl's are not necessarily unique, instead use the (clang) type
+  // connected to the decl.
+  const Type *key = astContext.getCanonicalTagType(rd).getTypePtr();
+  cir::RecordType &entry = recordDeclTypes[key];
+
+  // If we don't have an entry for this record yet, create an incomplete one.
+  // We intentionally do NOT lay out the body here; that happens lazily when the
+  // record's layout is actually required (convertRecordDeclType /
+  // updateCompletedType).
+  if (!entry) {
+    auto name = getRecordTypeName(rd, "");
+    entry = builder.getIncompleteRecordTy(name, rd);
+  }
+
+  return entry;
+}
+
 /// Lay out a tagged decl type like struct or union.
 mlir::Type CIRGenTypes::convertRecordDeclType(const clang::RecordDecl *rd) {
   // TagDecl's are not necessarily unique, instead use the (clang) type
@@ -458,7 +481,7 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
   case Type::RValueReference: {
     const ReferenceType *refTy = cast<ReferenceType>(ty);
     QualType elemTy = refTy->getPointeeType();
-    auto pointeeType = convertTypeForMem(elemTy);
+    mlir::Type pointeeType = convertPointeeType(elemTy, /*forMem=*/true);
     resultType = builder.getPointerTo(pointeeType, elemTy.getAddressSpace());
     assert(resultType && "Cannot get pointer type?");
     break;
@@ -469,7 +492,7 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
     QualType elemTy = ptrTy->getPointeeType();
     assert(!elemTy->isConstantMatrixType() && "not implemented");
 
-    mlir::Type pointeeType = convertType(elemTy);
+    mlir::Type pointeeType = convertPointeeType(elemTy, /*forMem=*/false);
 
     resultType = builder.getPointerTo(pointeeType, elemTy.getAddressSpace());
     break;
@@ -593,6 +616,35 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
 
   typeCache[ty] = resultType;
   return resultType;
+}
+
+/// Convert a pointer/reference pointee type. For record pointees we return the
+/// forward (possibly incomplete) record type so that lowering a pointer never
+/// forces layout of the pointee. This mirrors classic CodeGen, which lowers all
+/// pointers to opaque pointers and therefore never recurses into the pointee's
+/// layout; it is what breaks the otherwise-unbounded recursion on
+/// mutually-referential record graphs. Non-record pointees are converted as
+/// before (\p forMem selects the memory representation for references, matching
+/// the prior behavior of the two call sites).
+mlir::Type CIRGenTypes::convertPointeeType(clang::QualType pointeeType,
+                                           bool forMem) {
+  QualType canonical = astContext.getCanonicalType(pointeeType);
+
+  // Strip atomic sugar so that e.g. `_Atomic(struct S) *` is still recognized
+  // as a record pointee.
+  QualType recordCandidate = canonical;
+  if (const auto *at = recordCandidate->getAs<AtomicType>())
+    recordCandidate = astContext.getCanonicalType(at->getValueType());
+
+  if (const auto *recordType = recordCandidate->getAs<RecordType>()) {
+    // Use the forward record type without forcing layout. If the record's body
+    // is already (or later) laid out, the same cir::RecordType instance is
+    // shared, so the pointee type stays in sync automatically.
+    return getOrCreateRecordForwardType(
+        recordType->getDecl()->getDefinitionOrSelf());
+  }
+
+  return forMem ? convertTypeForMem(pointeeType) : convertType(pointeeType);
 }
 
 mlir::Type CIRGenTypes::convertTypeForMem(clang::QualType qualType,

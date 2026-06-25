@@ -2345,15 +2345,24 @@ void cir::TernaryOp::build(
   builder.createBlock(falseRegion);
   falseBuilder(builder, result.location);
 
-  // Get result type from whichever branch has a yield (the other may have
-  // unreachable from a throw expression)
-  auto yield =
-      dyn_cast_or_null<cir::YieldOp>(trueRegion->back().getTerminator());
+  // Get the result type from whichever branch yields a value. Void ternaries
+  // legitimately have no yielded value, and codegen may also leave an
+  // unreachable branch without a terminator at all (e.g. an arm that ends in a
+  // throw, or whose value is patched in later). getTerminator() asserts on
+  // blocks that don't have one, so guard with mightHaveTerminator().
+  auto branchYield = [](Region *region) -> cir::YieldOp {
+    Block &block = region->back();
+    if (!block.mightHaveTerminator())
+      return nullptr;
+    return dyn_cast_or_null<cir::YieldOp>(block.getTerminator());
+  };
+  cir::YieldOp yield = branchYield(trueRegion);
   if (!yield)
-    yield = dyn_cast_or_null<cir::YieldOp>(falseRegion->back().getTerminator());
+    yield = branchYield(falseRegion);
+  if (!yield)
+    return;
 
-  assert((yield && yield.getNumOperands() <= 1) &&
-         "expected zero or one result type");
+  assert(yield.getNumOperands() <= 1 && "expected zero or one result type");
   if (yield.getNumOperands() == 1)
     result.addTypes(TypeRange{yield.getOperandTypes().front()});
 }

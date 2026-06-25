@@ -414,9 +414,7 @@ public:
   }
 
   mlir::Value VisitImplicitValueInitExpr(const ImplicitValueInitExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "ScalarExprEmitter: implicit value init");
-    return {};
+    return emitNullValue(e->getType(), cgf.getLoc(e->getSourceRange()));
   }
 
   mlir::Value VisitExplicitCastExpr(ExplicitCastExpr *e) {
@@ -2354,6 +2352,17 @@ mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
   case CK_FunctionToPointerDecay:
     return cgf.emitLValue(subExpr).getPointer();
 
+  case CK_LValueToRValueBitCast: {
+    // Reinterpret the bits of the source l-value as the destination type by
+    // retyping the address and loading. Mirrors classic CodeGen.
+    LValue sourceLVal = cgf.emitLValue(subExpr);
+    Address addr = sourceLVal.getAddress().withElementType(
+        builder, cgf.convertTypeForMem(destTy));
+    LValue destLV = cgf.makeAddrLValue(addr, destTy);
+    assert(!cir::MissingFeatures::opTBAA());
+    return emitLoadOfLValue(destLV, ce->getExprLoc());
+  }
+
   default:
     cgf.getCIRGenModule().errorNYI(subExpr->getSourceRange(),
                                    "CastExpr: ", ce->getCastKindName());
@@ -2566,6 +2575,21 @@ mlir::Value ScalarExprEmitter::VisitUnaryExprOrTypeTraitExpr(
     const UnaryExprOrTypeTraitExpr *e) {
   const QualType typeToSize = e->getTypeOfArgument();
   const mlir::Location loc = cgf.getLoc(e->getSourceRange());
+  auto resultIntTy = mlir::cast<cir::IntType>(convertType(e->getType()));
+  auto toResultInt = [&](llvm::APSInt value) {
+    value = value.extOrTrunc(resultIntTy.getWidth());
+    value.setIsUnsigned(!resultIntTy.isSigned());
+    return builder.getConstant(loc, cir::IntAttr::get(resultIntTy, value));
+  };
+  auto castToResultInt = [&](mlir::Value value) -> mlir::Value {
+    if (value.getType() == resultIntTy)
+      return value;
+    if (mlir::isa<cir::IntType>(value.getType()))
+      return builder.createIntCast(value, resultIntTy);
+    cgf.cgm.errorNYI(e->getSourceRange(),
+                     "sizeof result conversion for non-integer value");
+    return value;
+  };
   if (auto kind = e->getKind();
       kind == UETT_SizeOf || kind == UETT_DataSizeOf || kind == UETT_CountOf) {
     if (const VariableArrayType *vat =
@@ -2605,38 +2629,32 @@ mlir::Value ScalarExprEmitter::VisitUnaryExprOrTypeTraitExpr(
           mlir::Value eltSizeValue =
               builder.getConstAPInt(numElts.getLoc(), numElts.getType(),
                                     cgf.cgm.getSize(eltSize).getValue());
-          return builder.createMul(loc, eltSizeValue, numElts,
-                                   cir::OverflowBehavior::NoUnsignedWrap);
+          mlir::Value product = builder.createMul(
+              loc, eltSizeValue, numElts, cir::OverflowBehavior::NoUnsignedWrap);
+          return castToResultInt(product);
         }
 
-        return numElts;
+        return castToResultInt(numElts);
       }
     }
   } else if (e->getKind() == UETT_OpenMPRequiredSimdAlign) {
     cgf.getCIRGenModule().errorNYI(
         e->getSourceRange(), "sizeof operator for OpenMpRequiredSimdAlign",
         e->getStmtClassName());
-    return builder.getConstant(
-        loc, cir::IntAttr::get(cgf.cgm.uInt64Ty,
-                               llvm::APSInt(llvm::APInt(64, 1), true)));
+    return toResultInt(llvm::APSInt(llvm::APInt(64, 1), true));
   } else if (e->getKind() == UETT_VectorElements) {
     auto vecTy = cast<cir::VectorType>(convertType(e->getTypeOfArgument()));
     if (vecTy.getIsScalable()) {
       cgf.getCIRGenModule().errorNYI(
           e->getSourceRange(),
           "VisitUnaryExprOrTypeTraitExpr: sizeOf scalable vector");
-      return builder.getConstant(
-          loc, cir::IntAttr::get(cgf.cgm.uInt64Ty,
-                                 e->EvaluateKnownConstInt(cgf.getContext())));
+      return toResultInt(e->EvaluateKnownConstInt(cgf.getContext()));
     }
 
-    return builder.getConstant(
-        loc, cir::IntAttr::get(cgf.cgm.uInt64Ty, vecTy.getSize()));
+    return toResultInt(llvm::APSInt(llvm::APInt(64, vecTy.getSize()), true));
   }
 
-  return builder.getConstant(
-      loc, cir::IntAttr::get(cgf.cgm.uInt64Ty,
-                             e->EvaluateKnownConstInt(cgf.getContext())));
+  return toResultInt(e->EvaluateKnownConstInt(cgf.getContext()));
 }
 
 /// Return true if the specified expression is cheap enough and side-effect-free

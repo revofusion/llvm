@@ -13,10 +13,13 @@
 #include "CIRGenVTables.h"
 
 #include "CIRGenCXXABI.h"
+#include "CIRGenFunction.h"
 #include "CIRGenModule.h"
 #include "mlir/IR/Types.h"
+#include "clang/AST/Mangle.h"
 #include "clang/AST/VTTBuilder.h"
 #include "clang/AST/VTableBuilder.h"
+#include "clang/Basic/Thunk.h"
 #include "llvm/ADT/SmallVector.h"
 
 using namespace llvm;
@@ -151,18 +154,33 @@ mlir::Attribute CIRGenVTables::getVTableComponent(
 
     assert(!cir::MissingFeatures::cudaSupport());
 
+    // Pure virtual and deleted virtual member functions are filled with a
+    // reference to a runtime function (__cxa_pure_virtual /
+    // __cxa_deleted_virtual). These should never be called; if they are, the
+    // runtime function aborts. This mirrors classic CodeGen's getSpecialVirtualFn.
+    auto getSpecialVirtualFn = [&](StringRef name) -> cir::FuncOp {
+      // TODO(cir): set the calling convention of the runtime function.
+      assert(!cir::MissingFeatures::opFuncCallingConv());
+      cir::FuncType fnTy = builder.getFuncType({}, builder.getVoidTy());
+      cir::FuncOp fn = cgm.createRuntimeFunction(fnTy, name);
+      return fn;
+    };
+
     cir::FuncOp fnPtr;
     if (cast<CXXMethodDecl>(gd.getDecl())->isPureVirtual()) {
-      cgm.errorNYI("getVTableComponent: CK_FunctionPointer: pure virtual");
-      return mlir::Attribute();
+      fnPtr = getSpecialVirtualFn("__cxa_pure_virtual");
     } else if (cast<CXXMethodDecl>(gd.getDecl())->isDeleted()) {
-      cgm.errorNYI("getVTableComponent: CK_FunctionPointer: deleted virtual");
-      return mlir::Attribute();
+      fnPtr = getSpecialVirtualFn("__cxa_deleted_virtual");
     } else if (nextVTableThunkIndex < layout.vtable_thunks().size() &&
                layout.vtable_thunks()[nextVTableThunkIndex].first ==
                    componentIndex) {
-      cgm.errorNYI("getVTableComponent: CK_FunctionPointer: thunk");
-      return mlir::Attribute();
+      // This vtable slot needs an adjustor thunk. Emit (or reference) the thunk
+      // and point the slot at it.
+      const ThunkInfo &thunkInfo =
+          layout.vtable_thunks()[nextVTableThunkIndex].second;
+      ++nextVTableThunkIndex;
+      fnPtr = maybeEmitThunk(gd, thunkInfo, /*forVTable=*/true);
+      assert(!cir::MissingFeatures::pointerAuthentication());
     } else {
       // Otherwise we can use the method definition directly.
       cir::FuncType fnTy = cgm.getTypes().getFunctionTypeForVTable(gd);
@@ -510,6 +528,104 @@ uint64_t CIRGenVTables::getSecondaryVirtualPointerIndex(const CXXRecordDecl *rd,
   return it->second;
 }
 
+// Mirrors clang CodeGen's shouldEmitVTableThunk for the Itanium ABI.
+static bool shouldEmitVTableThunk(CIRGenModule &cgm, const CXXMethodDecl *md,
+                                  bool forVTable) {
+  // In the Itanium C++ ABI, vtable thunks are provided by TUs that provide
+  // definitions of the main method. Therefore, emitting thunks with the vtable
+  // is purely an optimization. Emit the thunk if optimizations are enabled.
+  if (forVTable)
+    return cgm.getCodeGenOpts().OptimizationLevel != 0;
+
+  // Always emit thunks along with the method definition.
+  return true;
+}
+
+cir::FuncOp CIRGenVTables::maybeEmitThunk(GlobalDecl gd,
+                                          const ThunkInfo &thunkInfo,
+                                          bool forVTable) {
+  const auto *md = cast<CXXMethodDecl>(gd.getDecl());
+
+  // Compute the mangled name of the thunk.
+  SmallString<256> name;
+  MangleContext &mangleContext = cgm.getCXXABI().getMangleContext();
+  llvm::raw_svector_ostream out(name);
+  if (const auto *dd = dyn_cast<CXXDestructorDecl>(md))
+    mangleContext.mangleCXXDtorThunk(dd, gd.getDtorType(), thunkInfo,
+                                     /*elideOverrideInfo=*/false, out);
+  else
+    mangleContext.mangleThunk(md, thunkInfo, /*elideOverrideInfo=*/false, out);
+
+  if (cgm.getASTContext().useAbbreviatedThunkName(gd, name.str())) {
+    name = "";
+    llvm::raw_svector_ostream abbrevOut(name);
+    if (const auto *dd = dyn_cast<CXXDestructorDecl>(md))
+      mangleContext.mangleCXXDtorThunk(dd, gd.getDtorType(), thunkInfo,
+                                       /*elideOverrideInfo=*/true, abbrevOut);
+    else
+      mangleContext.mangleThunk(md, thunkInfo, /*elideOverrideInfo=*/true,
+                                abbrevOut);
+  }
+
+  // Get a declaration for the thunk.
+  cir::FuncType thunkVTableTy = cgm.getTypes().getFunctionTypeForVTable(gd);
+  cir::FuncOp thunkFn = cgm.getAddrOfThunk(name, thunkVTableTy, gd);
+
+  // If we don't need to emit a definition, return the declaration as is.
+  if (!shouldEmitVTableThunk(cgm, md, forVTable))
+    return thunkFn;
+
+  // Arrange a function prototype appropriate for a definition.
+  const CIRGenFunctionInfo &fnInfo =
+      cgm.getTypes().arrangeGlobalDeclaration(gd);
+  cir::FuncType thunkFnTy = cgm.getTypes().getFunctionType(fnInfo);
+
+  // If the type of the existing thunk declaration is wrong, replace it.
+  if (thunkFn.getFunctionType() != thunkFnTy) {
+    assert(thunkFn.isDeclaration() && "Shouldn't replace non-declaration");
+    cir::FuncOp oldThunkFn = thunkFn;
+    // Drop the name from the old thunk and create a new one with the right type.
+    oldThunkFn.setName(StringRef());
+    {
+      mlir::OpBuilder::InsertionGuard guard(cgm.getBuilder());
+      cgm.getBuilder().setInsertionPoint(oldThunkFn);
+      thunkFn = cir::FuncOp::create(cgm.getBuilder(), oldThunkFn.getLoc(),
+                                    name.str(), thunkFnTy);
+      thunkFn.setLinkage(cir::GlobalLinkageKind::ExternalLinkage);
+    }
+    if (oldThunkFn.replaceAllSymbolUses(thunkFn.getSymNameAttr(),
+                                        cgm.getModule())
+            .failed())
+      llvm_unreachable("failed to replace thunk symbol uses");
+    oldThunkFn.erase();
+  }
+
+  // If the thunk already has a body, it has already been emitted.
+  if (!thunkFn.isDeclaration())
+    return thunkFn;
+
+  // Set the linkage for the thunk to match the method's vtable linkage rules.
+  thunkFn.setLinkage(forVTable
+                         ? cir::GlobalLinkageKind::AvailableExternallyLinkage
+                         : cgm.getFunctionLinkage(gd));
+
+  cgm.setCIRFunctionAttributesForDefinition(md, thunkFn);
+
+  if (thunkFnTy.isVarArg()) {
+    cgm.errorNYI(md->getSourceRange(), "maybeEmitThunk: variadic thunk");
+    return thunkFn;
+  }
+
+  // Generate the thunk body.
+  CIRGenFunction cgf{cgm, cgm.getBuilder()};
+  {
+    mlir::OpBuilder::InsertionGuard guard(cgm.getBuilder());
+    cgf.generateThunk(thunkFn, fnInfo, gd, thunkInfo);
+  }
+
+  return thunkFn;
+}
+
 void CIRGenVTables::emitThunks(GlobalDecl gd) {
   const CXXMethodDecl *md =
       cast<CXXMethodDecl>(gd.getDecl())->getCanonicalDecl();
@@ -524,5 +640,6 @@ void CIRGenVTables::emitThunks(GlobalDecl gd) {
   if (!thunkInfoVector)
     return;
 
-  cgm.errorNYI(md->getSourceRange(), "emitThunks");
+  for (const ThunkInfo &thunk : *thunkInfoVector)
+    maybeEmitThunk(gd, thunk, /*forVTable=*/false);
 }

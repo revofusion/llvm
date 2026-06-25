@@ -40,13 +40,35 @@ Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
                                                const FieldDecl *field,
                                                llvm::StringRef fieldName,
                                                unsigned fieldIndex) {
-  if (field->isZeroSize(getContext())) {
-    cgm.errorNYI(field->getSourceRange(),
-                 "emitAddrOfFieldStorage: zero-sized field");
-    return Address::invalid();
-  }
-
   mlir::Location loc = getLoc(field->getLocation());
+
+  // Empty fields have no storage in the record layout (they were skipped by
+  // CIRRecordLowering::accumulateFields). Their address is computed directly
+  // from the field's byte offset, mirroring classic CodeGen's
+  // emitAddrOfZeroSizeField.
+  if (field->isZeroSize(getContext())) {
+    CharUnits offset = getContext().toCharUnitsFromBits(
+        getContext().getFieldOffset(field));
+    // The result must have the field's pointer type (CIR pointers are typed),
+    // unlike classic CodeGen where the opaque base pointer can be returned
+    // as-is. Bitcast the (possibly byte-adjusted) base to the field type.
+    mlir::Type fieldType = convertType(field->getType());
+    mlir::Type fieldPtrType = cir::PointerType::get(fieldType);
+
+    if (offset.isZero())
+      return Address(builder.createBitcast(base.getPointer(), fieldPtrType),
+                     fieldType, base.getAlignment());
+
+    mlir::Type charPtrType = cgm.uInt8PtrTy;
+    mlir::Value charPtr = builder.createBitcast(base.getPointer(), charPtrType);
+    mlir::Value byteOffset =
+        builder.getConstInt(loc, cgm.ptrDiffTy, offset.getQuantity());
+    mlir::Value adjusted =
+        cir::PtrStrideOp::create(builder, loc, charPtrType, charPtr, byteOffset);
+    mlir::Value result = builder.createBitcast(adjusted, fieldPtrType);
+    return Address(result, fieldType,
+                   base.getAlignment().alignmentAtOffset(offset));
+  }
 
   mlir::Type fieldType = convertType(field->getType());
   auto fieldPtr = cir::PointerType::get(fieldType);
@@ -235,9 +257,11 @@ Address CIRGenFunction::emitPointerWithAlignment(const Expr *expr,
     case Builtin::BIaddressof:
     case Builtin::BI__addressof:
     case Builtin::BI__builtin_addressof: {
-      cgm.errorNYI(expr->getSourceRange(),
-                   "emitPointerWithAlignment: builtin addressof");
-      return Address::invalid();
+      LValue lv = emitLValue(call->getArg(0));
+      if (baseInfo)
+        *baseInfo = lv.getBaseInfo();
+      assert(!cir::MissingFeatures::opTBAA());
+      return lv.getAddress();
     }
     }
   }
@@ -475,7 +499,12 @@ LValue CIRGenFunction::emitLValueForField(LValue base, const FieldDecl *field) {
 
   if (rec->isUnion())
     fieldIndex = field->getFieldIndex();
-  else {
+  else if (field->isZeroSize(getContext())) {
+    // Empty fields have no storage in the record layout, so there is no field
+    // index to look up; emitAddrOfFieldStorage computes the address directly
+    // from the byte offset.
+    fieldIndex = 0;
+  } else {
     const CIRGenRecordLayout &layout =
         cgm.getTypes().getCIRGenRecordLayout(field->getParent());
     fieldIndex = layout.getCIRFieldNo(field);
@@ -857,10 +886,34 @@ LValue CIRGenFunction::emitDeclRefLValue(const DeclRefExpr *e) {
       return LValue();
     }
 
+    // If this DeclRefExpr does not constitute an odr-use of the variable, we're
+    // not permitted to emit a reference to it in general, and it might not be
+    // captured if capture would be necessary for a use. Emit the constant value
+    // directly instead.
     if (e->isNonOdrUse() == NOUR_Constant &&
         (vd->getType()->isReferenceType() ||
          !canEmitSpuriousReferenceToVariable(*this, e, vd))) {
-      cgm.errorNYI(e->getSourceRange(), "emitDeclRefLValue: NonOdrUse");
+      vd->getAnyInitializer(vd);
+      mlir::Attribute valAttr = ConstantEmitter(*this).emitAbstract(
+          e->getLocation(), *vd->evaluateValue(), vd->getType());
+      assert(valAttr && "failed to emit constant expression");
+      auto typedVal = mlir::dyn_cast<mlir::TypedAttr>(valAttr);
+
+      if (!vd->getType()->isReferenceType() && typedVal) {
+        // Spill the constant value to a private constant global and use its
+        // address. This matches classic CodeGen's createUnnamedGlobalFrom.
+        cir::GlobalOp gv = cgm.createUnnamedGlobalFrom(
+            *vd, typedVal, getContext().getDeclAlign(vd));
+        mlir::Type ptrTy = builder.getPointerTo(gv.getSymType());
+        mlir::Value addrVal = cir::GetGlobalOp::create(
+            builder, getLoc(e->getSourceRange()), ptrTy, gv.getSymNameAttr());
+        Address addr(addrVal, gv.getSymType(),
+                     getContext().getDeclAlign(vd));
+        return makeAddrLValue(addr, ty, AlignmentSource::Decl);
+      }
+
+      cgm.errorNYI(e->getSourceRange(),
+                   "emitDeclRefLValue: NonOdrUse reference constant");
       return LValue();
     }
 
@@ -1441,15 +1494,13 @@ LValue CIRGenFunction::emitCastLValue(const CastExpr *e) {
     LValue lv = emitLValue(e->getSubExpr());
     // Propagate the volatile qualifier to LValue, if exists in e.
     if (e->changesVolatileQualification())
-      cgm.errorNYI(e->getSourceRange(),
-                   "emitCastLValue: NoOp changes volatile qual");
+      lv.getQuals() = e->getType().getQualifiers();
     if (lv.isSimple()) {
       Address v = lv.getAddress();
       if (v.isValid()) {
         mlir::Type ty = convertTypeForMem(e->getType());
         if (v.getElementType() != ty)
-          cgm.errorNYI(e->getSourceRange(),
-                       "emitCastLValue: NoOp needs bitcast");
+          lv.setAddress(v.withElementType(builder, ty));
       }
     }
     return lv;
@@ -1662,8 +1713,21 @@ static void pushTemporaryCleanup(CIRGenFunction &cgf,
     break;
 
   case SD_Automatic:
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "pushTemporaryCleanup: automatic storage duration");
+    // The temporary's lifetime is extended to that of the binding (a reference
+    // with automatic storage duration), so it must be destroyed when the
+    // enclosing block exits rather than at the end of the full expression.
+    // createReferenceTemporary already allocates the temporary in the extending
+    // declaration's scope; here we register its destructor on the cleanup
+    // stack. Classic CodeGen uses a dedicated lifetime-extended cleanup stack to
+    // defer activation to the extending declaration's scope. CIR does not model
+    // that yet, but pushing the destroy here ties it to the current cleanup
+    // scope -- which is the extending declaration's scope for the common case of
+    // a temporary materialized while initializing a local reference -- and fires
+    // it (after the binding's own cleanup) at scope exit, giving the correct
+    // destruction order.
+    assert(!cir::MissingFeatures::lifetimeExtendedCleanup());
+    cgf.pushDestroy(NormalAndEHCleanup, referenceTemporary, e->getType(),
+                    CIRGenFunction::destroyCXXObject);
     break;
 
   case SD_Dynamic:
@@ -1966,7 +2030,23 @@ RValue CIRGenFunction::emitCall(clang::QualType calleeTy,
   CallArgList args;
   assert(!cir::MissingFeatures::opCallArgEvaluationOrder());
 
-  emitCallArgs(args, dyn_cast<FunctionProtoType>(fnType), e->arguments(),
+  // A call through a C++23 static operator()/operator[] is modeled in the AST
+  // as a CXXOperatorCallExpr whose first argument is the object expression even
+  // though the static operator takes no implicit object parameter. Mirror
+  // classic CodeGen: emit (and ignore) the object argument for its side
+  // effects, then drop it so the remaining arguments line up with the
+  // prototype's parameters.
+  auto arguments = e->arguments();
+  if (const auto *oce = dyn_cast<CXXOperatorCallExpr>(e)) {
+    if (const auto *md =
+            dyn_cast_or_null<CXXMethodDecl>(oce->getCalleeDecl());
+        md && md->isStatic()) {
+      emitIgnoredExpr(e->getArg(0));
+      arguments = drop_begin(arguments, 1);
+    }
+  }
+
+  emitCallArgs(args, dyn_cast<FunctionProtoType>(fnType), arguments,
                e->getDirectCallee());
 
   const CIRGenFunctionInfo &funcInfo =
@@ -2038,15 +2118,21 @@ CIRGenCallee CIRGenFunction::emitCallee(const clang::Expr *e) {
     assert(implicitCast->getCastKind() == CK_LValueToRValue &&
            "unexpected implicit cast on function pointers");
   } else if (const auto *declRef = dyn_cast<DeclRefExpr>(e)) {
-    // Resolve direct calls.
-    const auto *funcDecl = cast<FunctionDecl>(declRef->getDecl());
-    return emitDirectCallee(funcDecl);
+    // Resolve direct calls. The referenced decl is not necessarily a function:
+    // a call through a function-pointer variable produces a DeclRefExpr to a
+    // VarDecl, which must be handled as an indirect reference below.
+    if (const auto *funcDecl = dyn_cast<FunctionDecl>(declRef->getDecl()))
+      return emitDirectCallee(funcDecl);
+    // Else fall through to the indirect reference handling below.
   } else if (auto me = dyn_cast<MemberExpr>(e)) {
     if (const auto *fd = dyn_cast<FunctionDecl>(me->getMemberDecl())) {
       emitIgnoredExpr(me->getBase());
       return emitDirectCallee(fd);
     }
     // Else fall through to the indirect reference handling below.
+  } else if (const auto *nttp = dyn_cast<SubstNonTypeTemplateParmExpr>(e)) {
+    // Look through template substitutions.
+    return emitCallee(nttp->getReplacement());
   } else if (auto *pde = dyn_cast<CXXPseudoDestructorExpr>(e)) {
     return CIRGenCallee::forPseudoDestructor(pde);
   }
@@ -2086,14 +2172,15 @@ RValue CIRGenFunction::emitCallExpr(const clang::CallExpr *e,
   }
 
   if (const auto *operatorCall = dyn_cast<CXXOperatorCallExpr>(e)) {
-    // If the callee decl is a CXXMethodDecl, we need to emit this as a C++
-    // operator member call.
+    // A CXXOperatorCallExpr is created even for explicit object methods and for
+    // static operators (C++23 static operator()/operator[]), but only implicit
+    // object member functions take an implicit 'this' and must be emitted as a
+    // C++ operator member call. Static operators fall through to be treated as
+    // ordinary (static) function calls.
     if (const CXXMethodDecl *md =
-            dyn_cast_or_null<CXXMethodDecl>(operatorCall->getCalleeDecl()))
+            dyn_cast_or_null<CXXMethodDecl>(operatorCall->getCalleeDecl());
+        md && md->isImplicitObjectMemberFunction())
       return emitCXXOperatorMemberCallExpr(operatorCall, md, returnValue);
-    // A CXXOperatorCallExpr is created even for explicit object methods, but
-    // these should be treated like static function calls. Fall through to do
-    // that.
   }
 
   CIRGenCallee callee = emitCallee(e->getCallee());

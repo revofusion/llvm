@@ -323,6 +323,13 @@ public:
   getAddrOfConstantStringFromLiteral(const StringLiteral *s,
                                      llvm::StringRef name = ".str");
 
+  /// Create a private, constant, unnamed global initialized from \p value, used
+  /// to spill the constant value of a variable that is referenced through a
+  /// non-odr-use. Mirrors classic CodeGen's createUnnamedGlobalFrom.
+  cir::GlobalOp createUnnamedGlobalFrom(const clang::VarDecl &d,
+                                        mlir::TypedAttr value,
+                                        clang::CharUnits align);
+
   /// Returns the address space for temporary allocations in the language. This
   /// ensures that the allocated variable's address space matches the
   /// expectations of the AST, rather than using the target's allocation address
@@ -420,6 +427,11 @@ public:
   getAddrOfFunction(clang::GlobalDecl gd, mlir::Type funcType = nullptr,
                     bool forVTable = false, bool dontDefer = false,
                     ForDefinition_t isForDefinition = NotForDefinition);
+
+  /// Get the address of a C++ vtable adjustor thunk, creating its declaration
+  /// if necessary.
+  cir::FuncOp getAddrOfThunk(llvm::StringRef name, mlir::Type funcType,
+                             clang::GlobalDecl gd);
 
   mlir::Operation *
   getAddrOfGlobal(clang::GlobalDecl gd,

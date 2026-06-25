@@ -283,6 +283,30 @@ public:
     return false;
   }
 
+  /// Perform ABI-specific "this" pointer adjustment for a thunk, returning the
+  /// adjusted pointer.
+  virtual mlir::Value
+  performThisAdjustment(CIRGenFunction &cgf, Address thisAddr,
+                        const clang::CXXRecordDecl *unadjustedClass,
+                        const ThunkInfo &ti) = 0;
+
+  /// Perform ABI-specific return value adjustment for a covariant-return thunk,
+  /// returning the adjusted pointer.
+  virtual mlir::Value
+  performReturnAdjustment(CIRGenFunction &cgf, Address ret,
+                          const clang::CXXRecordDecl *unadjustedClass,
+                          const ReturnAdjustment &ra) = 0;
+
+  /// Emit the return value from a thunk after any return adjustment.
+  virtual void emitReturnFromThunk(CIRGenFunction &cgf, RValue rv,
+                                   clang::QualType resultType);
+
+  /// Adjust the call arguments for a destructor thunk (e.g. the implicit
+  /// structor parameter). The base implementation does nothing.
+  virtual void adjustCallArgsForDestructorThunk(CIRGenFunction &cgf,
+                                                clang::GlobalDecl gd,
+                                                CallArgList &callArgs) {}
+
   /// Returns true if the target allows calling a function through a pointer
   /// with a different signature than the actual function (or equivalently,
   /// bitcasting a function or function pointer to a different function type).

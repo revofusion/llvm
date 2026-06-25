@@ -74,6 +74,12 @@ class CIRGenTypes {
   /// Heper for convertType.
   mlir::Type convertFunctionTypeInternal(clang::QualType ft);
 
+  /// Helper for convertType: convert a pointer/reference pointee type. Record
+  /// pointees resolve to a forward (incomplete) record type to avoid forcing
+  /// layout of the pointee. \p forMem selects the memory representation for the
+  /// non-record case (used by references).
+  mlir::Type convertPointeeType(clang::QualType pointeeType, bool forMem);
+
 public:
   CIRGenTypes(CIRGenModule &cgm);
   ~CIRGenTypes();
@@ -111,6 +117,16 @@ public:
   mlir::Type convertType(clang::QualType type);
 
   mlir::Type convertRecordDeclType(const clang::RecordDecl *recordDecl);
+
+  /// Return the (possibly incomplete/forward) CIR record type for a record
+  /// decl without forcing its full layout. This is used when lowering a
+  /// pointer or reference pointee: like classic CodeGen's opaque pointers, a
+  /// pointer to a record must not trigger layout of the pointee, otherwise
+  /// mutually-referential record graphs (e.g. `struct A { B *b; }; struct B {
+  /// A *a; };`) would recurse without reaching a fixpoint. The record's body
+  /// is filled in lazily when its own layout is actually needed (via
+  /// convertRecordDeclType / updateCompletedType).
+  cir::RecordType getOrCreateRecordForwardType(const clang::RecordDecl *rd);
 
   std::unique_ptr<CIRGenRecordLayout>
   computeRecordLayout(const clang::RecordDecl *rd, cir::RecordType *ty);
@@ -187,6 +203,11 @@ public:
   const CIRGenFunctionInfo &
   arrangeCXXMethodDeclaration(const clang::CXXMethodDecl *md);
   const CIRGenFunctionInfo &arrangeCXXStructorDeclaration(clang::GlobalDecl gd);
+
+  /// Returns true if the given constructor type forwards its (non-implicit)
+  /// arguments to the inherited constructor it delegates to.
+  bool inheritingCtorHasParams(const clang::InheritedConstructor &inherited,
+                               clang::CXXCtorType type);
 
   const CIRGenFunctionInfo &
   arrangeCXXMethodType(const clang::CXXRecordDecl *rd,
