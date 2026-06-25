@@ -3054,8 +3054,18 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     mlir::Value v = rst.value();
     // CIR dialect operations may have no results, no values will be returned
     // even if it executes successfully.
-    if (!v)
-      return RValue::get(nullptr);
+    if (!v) {
+      // A null value here means either (a) a void-result builtin that
+      // legitimately produced no value, or (b) a builtin that issued an
+      // errorNYI diagnostic and bailed without producing a value. In case (b)
+      // the builtin's source type may be non-void (e.g. a NEON load like
+      // vld1_s8 returning int8x8_t); returning a raw null scalar RValue would
+      // crash downstream consumers that store/use the result. getUndefRValue
+      // yields a null RValue for void types and a well-formed `cir.const undef`
+      // for non-void types, keeping the IR valid after a clean NYI instead of
+      // crashing.
+      return getUndefRValue(e->getType());
+    }
 
     switch (evalKind) {
     case cir::TEK_Scalar:

@@ -158,15 +158,34 @@ void CIRGenBuilderTy::computeGlobalViewIndicesFromFlatOffset(
             assert(eltSize > 0 && "element size must be positive");
             const auto [index, newOffset] =
                 getIndexAndNewOffset(offset, eltSize);
+            if (newOffset != 0) {
+              // A sub-element (mid-scalar) byte offset cannot be modeled as
+              // an element index. Return null so the caller degrades cleanly
+              // instead of recursing without progress.
+              return nullptr;
+            }
             indices.push_back(index);
             offset = newOffset;
             return intTy;
           })
-          .Default([](mlir::Type) -> mlir::Type {
-            llvm_unreachable("unexpected type");
+          .Default([](mlir::Type otherTy) -> mlir::Type {
+            // A leaf type (float/pointer/bool) was reached while a non-zero
+            // byte offset remains. Callers are expected to walk the
+            // referenced global's *aggregate* storage type so that the offset
+            // is fully consumed by array/record indices before reaching a leaf
+            // (see ConstantLValueEmitter::applyOffset, which resolves the
+            // global symbol's type). If we still end up here it is a
+            // sub-element (mid-scalar) byte offset we don't yet model; return
+            // null so the caller emits a clean error instead of crashing.
+            return nullptr;
           });
 
-  assert(subType);
+  if (!subType) {
+    // We could not make progress walking the type for this offset. Rather than
+    // crash or emit invalid CIR, leave the offset unresolved; the caller's
+    // errorNYI path (or verifier) will surface a clean diagnostic.
+    return;
+  }
   computeGlobalViewIndicesFromFlatOffset(offset, subType, layout, indices);
 }
 

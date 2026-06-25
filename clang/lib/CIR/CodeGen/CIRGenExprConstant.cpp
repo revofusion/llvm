@@ -1392,7 +1392,24 @@ private:
     // Handle attribute constant LValues.
     if (auto attr = mlir::dyn_cast<mlir::Attribute>(c.value)) {
       if (auto gv = mlir::dyn_cast<cir::GlobalViewAttr>(attr)) {
-        auto baseTy = mlir::cast<cir::PointerType>(gv.getType()).getPointee();
+        // The flat byte offset must be resolved against the *referenced
+        // global's* actual storage type, not against the GlobalViewAttr's
+        // declared pointee type. They can differ: e.g. a string literal
+        // decays to `char *`, so the GlobalViewAttr's pointee is the element
+        // type (`!cir.int<s, 8>`) while the underlying global is an array
+        // (`!cir.array<!cir.int<s, 8> x N>`). Walking the element type would
+        // hit a scalar leaf with a non-zero residual offset and trip the
+        // "unexpected type" path in computeGlobalViewIndicesFromFlatOffset.
+        // This mirrors the direct-to-LLVM lowering, which builds the GEP over
+        // the global's storage type (see CIRAttrToValue::visitCirAttr for
+        // GlobalViewAttr).
+        mlir::Type baseTy =
+            mlir::cast<cir::PointerType>(gv.getType()).getPointee();
+        if (mlir::Operation *symOp =
+                cgm.getGlobalValue(gv.getSymbol().getValue())) {
+          if (auto globalOp = mlir::dyn_cast<cir::GlobalOp>(symOp))
+            baseTy = globalOp.getSymType();
+        }
         mlir::Type destTy = cgm.getTypes().convertTypeForMem(destType);
         assert(!gv.getIndices() && "Global view is already indexed");
         return cir::GlobalViewAttr::get(destTy, gv.getSymbol(),
