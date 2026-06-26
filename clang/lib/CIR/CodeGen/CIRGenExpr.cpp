@@ -1401,8 +1401,10 @@ LValue CIRGenFunction::emitDeclRefLValue(const DeclRefExpr *e) {
 
   if (const auto *bd = dyn_cast<BindingDecl>(nd)) {
     if (e->refersToEnclosingVariableOrCapture()) {
-      assert(!cir::MissingFeatures::lambdaCaptures());
-      cgm.errorNYI(e->getSourceRange(), "emitDeclRefLValue: lambda captures");
+      if (FieldDecl *fd = lambdaCaptureFields.lookup(bd))
+        return emitCapturedFieldLValue(*this, fd, cxxabiThisValue);
+      cgm.errorNYI(e->getSourceRange(),
+                   "emitDeclRefLValue: binding lambda capture lookup failure");
       return LValue();
     }
     return emitLValue(bd->getBinding());
