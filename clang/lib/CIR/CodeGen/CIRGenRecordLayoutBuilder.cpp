@@ -41,7 +41,7 @@ struct CIRRecordLowering final {
   // member type that ensures correct rounding.
   struct MemberInfo final {
     CharUnits offset;
-    enum class InfoKind { VFPtr, Field, Base, VBase } kind;
+    enum class InfoKind { VFPtr, VBPtr, Field, Base, VBase } kind;
     mlir::Type data;
     union {
       const FieldDecl *fieldDecl;
@@ -1018,8 +1018,8 @@ void CIRRecordLowering::accumulateVPtrs() {
                                  getVFPtrType()));
 
   if (astRecordLayout.hasOwnVBPtr())
-    cirGenTypes.getCGModule().errorNYI(recordDecl->getSourceRange(),
-                                       "accumulateVPtrs: hasOwnVBPtr");
+    members.push_back(MemberInfo(astRecordLayout.getVBPtrOffset(),
+                                 MemberInfo::InfoKind::VBPtr, getVFPtrType()));
 }
 
 mlir::Type CIRRecordLowering::getVFPtrType() {

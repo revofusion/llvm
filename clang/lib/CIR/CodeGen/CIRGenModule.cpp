@@ -38,6 +38,7 @@
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
 
@@ -1571,24 +1572,31 @@ cir::GlobalOp CIRGenModule::getGlobalForStringLiteral(const StringLiteral *s,
     // Mangle the string literal if that's how the ABI merges duplicate strings.
     // Don't do it if they are writable, since we don't want writes in one TU to
     // affect strings in another.
+    SmallString<256> mangledNameBuffer;
+    StringRef globalVariableName = name;
+    cir::GlobalLinkageKind linkage = cir::GlobalLinkageKind::PrivateLinkage;
     if (getCXXABI().getMangleContext().shouldMangleStringLiteral(s) &&
         !getLangOpts().WritableStrings) {
-      errorNYI(s->getSourceRange(),
-               "getGlobalForStringLiteral: mangle string literals");
+      llvm::raw_svector_ostream out(mangledNameBuffer);
+      getCXXABI().getMangleContext().mangleStringLiteral(s, out);
+      linkage = cir::GlobalLinkageKind::LinkOnceODRLinkage;
+      globalVariableName = mangledNameBuffer;
     }
 
     // Unlike LLVM IR, CIR doesn't automatically unique names for globals, so
     // we need to do that explicitly.
-    std::string uniqueName = getUniqueGlobalName(name.str());
+    std::string globalName =
+        linkage == cir::GlobalLinkageKind::PrivateLinkage
+            ? getUniqueGlobalName(globalVariableName.str())
+            : globalVariableName.str();
     // Synthetic string literals (e.g., from SourceLocExpr) may not have valid
     // source locations. Use unknown location in those cases.
     mlir::Location loc = s->getBeginLoc().isValid()
                              ? getLoc(s->getSourceRange())
                              : builder.getUnknownLoc();
     auto typedC = llvm::cast<mlir::TypedAttr>(c);
-    gv = generateStringLiteral(loc, typedC,
-                               cir::GlobalLinkageKind::PrivateLinkage, *this,
-                               uniqueName, alignment);
+    gv = generateStringLiteral(loc, typedC, linkage, *this, globalName,
+                               alignment);
     setDSOLocal(static_cast<mlir::Operation *>(gv));
     constantStringMap[c] = gv;
 
@@ -1940,14 +1948,21 @@ std::pair<cir::FuncType, cir::FuncOp> CIRGenModule::getAddrAndTypeOfCXXStructor(
     bool dontDefer, ForDefinition_t isForDefinition) {
   auto *md = cast<CXXMethodDecl>(gd.getDecl());
 
-  if (isa<CXXDestructorDecl>(md)) {
-    // Always alias equivalent complete destructors to base destructors in the
-    // MS ABI.
-    if (getTarget().getCXXABI().isMicrosoft() &&
-        gd.getDtorType() == Dtor_Complete &&
-        md->getParent()->getNumVBases() == 0)
-      errorNYI(md->getSourceRange(),
-               "getAddrAndTypeOfCXXStructor: MS ABI complete destructor");
+  if (getTarget().getCXXABI().isMicrosoft()) {
+    if (const auto *cd = dyn_cast<CXXConstructorDecl>(md)) {
+      if (gd.getCtorType() != Ctor_Complete) {
+        gd = GlobalDecl(cd, Ctor_Complete);
+        fnInfo = nullptr;
+        fnType = nullptr;
+      }
+    } else if (const auto *dd = dyn_cast<CXXDestructorDecl>(md)) {
+      if (gd.getDtorType() == Dtor_Complete &&
+          dd->getParent()->getNumVBases() == 0) {
+        gd = GlobalDecl(dd, Dtor_Base);
+        fnInfo = nullptr;
+        fnType = nullptr;
+      }
+    }
   }
 
   if (!fnType) {

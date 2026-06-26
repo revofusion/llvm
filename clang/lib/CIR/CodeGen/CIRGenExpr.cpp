@@ -3588,6 +3588,13 @@ bool CIRGenFunction::isLValueSuitableForInlineAtomic(LValue lv) {
   if (!cgm.getLangOpts().MSVolatile)
     return false;
 
-  cgm.errorNYI("LValueSuitableForInlineAtomic LangOpts MSVolatile");
-  return false;
+  bool isVolatile = lv.isVolatile() || hasVolatileMember(lv.getType());
+  if (!isVolatile)
+    return false;
+
+  if (getContext().getTypeSize(lv.getType()) >
+      getContext().getTypeSize(getContext().getIntPtrType()))
+    return false;
+
+  return true;
 }

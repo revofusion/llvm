@@ -716,7 +716,6 @@ bool CIRGenFunction::isCatchOrCleanupRequired() {
   if (!lo.Exceptions || lo.IgnoreExceptions) {
     if (!lo.Borland && !lo.MicrosoftExt)
       return false;
-    cgm.errorNYI("isInvokeDest: no exceptions or ignore exception");
     return false;
   }
 

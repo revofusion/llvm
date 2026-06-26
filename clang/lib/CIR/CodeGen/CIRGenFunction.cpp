@@ -1297,6 +1297,24 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
   case Expr::CXXOperatorCallExprClass:
   case Expr::UserDefinedLiteralClass:
     return emitCallExprLValue(cast<CallExpr>(e));
+  case Expr::CXXTypeidExprClass: {
+    const auto *typeidExpr = cast<CXXTypeidExpr>(e);
+    QualType operandTy =
+        typeidExpr->isTypeOperand()
+            ? typeidExpr->getTypeOperand(getContext())
+            : typeidExpr->getExprOperand()->getType();
+    auto rtti = mlir::dyn_cast<cir::GlobalViewAttr>(
+        cgm.getAddrOfRTTIDescriptor(getLoc(e->getSourceRange()), operandTy));
+    if (!rtti || rtti.getIndices()) {
+      cgm.errorNYI(e->getSourceRange(), "CXXTypeidExpr l-value");
+      return LValue();
+    }
+    mlir::Type rttiTy = convertTypeForMem(e->getType());
+    mlir::Value addr = cir::GetGlobalOp::create(
+        builder, getLoc(e->getSourceRange()), rtti.getType(), rtti.getSymbol());
+    addr = builder.createBitcast(addr, builder.getPointerTo(rttiTy));
+    return makeNaturalAlignAddrLValue(addr, e->getType());
+  }
   case Expr::ExprWithCleanupsClass: {
     const auto *cleanups = cast<ExprWithCleanups>(e);
     RunCleanupsScope scope(*this);

@@ -2287,9 +2287,12 @@ ConstantLValueEmitter::tryEmitBase(const APValue::LValueBase &base) {
   }
 
   // Handle typeid(T).
-  if (base.dyn_cast<TypeInfoLValue>()) {
-    cgm.errorNYI("ConstantLValueEmitter: typeid");
-    return {};
+  if (TypeInfoLValue typeInfo = base.dyn_cast<TypeInfoLValue>()) {
+    ConstantLValue result;
+    result.value = cgm.getAddrOfRTTIDescriptor(
+        cgm.getBuilder().getUnknownLoc(), QualType(typeInfo.getType(), 0));
+    result.hasOffsetApplied = true;
+    return result;
   }
 
   // Otherwise, it must be an expression.
@@ -2367,8 +2370,14 @@ ConstantLValue ConstantLValueEmitter::VisitBlockExpr(const BlockExpr *e) {
 
 ConstantLValue
 ConstantLValueEmitter::VisitCXXTypeidExpr(const CXXTypeidExpr *e) {
-  cgm.errorNYI(e->getSourceRange(), "ConstantLValueEmitter: cxx typeid expr");
-  return {};
+  QualType ty = e->isTypeOperand()
+                    ? e->getTypeOperand(cgm.getASTContext())
+                    : e->getExprOperand()->getType();
+  ConstantLValue result;
+  result.value =
+      cgm.getAddrOfRTTIDescriptor(cgm.getLoc(e->getSourceRange()), ty);
+  result.hasOffsetApplied = true;
+  return result;
 }
 
 ConstantLValue ConstantLValueEmitter::VisitMaterializeTemporaryExpr(

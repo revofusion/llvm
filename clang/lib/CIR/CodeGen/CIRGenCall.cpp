@@ -706,8 +706,18 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
       }
 
       // We might have to widen integers, but we should never truncate.
-      if (argType != v.getType() && mlir::isa<cir::IntType>(v.getType()))
-        cgm.errorNYI(loc, "emitCall: widening integer call argument");
+      if (argType != v.getType()) {
+        if (auto srcTy = mlir::dyn_cast<cir::IntType>(v.getType())) {
+          if (auto dstTy = mlir::dyn_cast<cir::IntType>(argType)) {
+            if (srcTy.getWidth() <= dstTy.getWidth())
+              v = builder.createIntCast(v, argType);
+            else {
+              cgm.errorNYI(loc, "emitCall: truncating integer call argument");
+              v = builder.getConstant(loc, cir::PoisonAttr::get(argType));
+            }
+          }
+        }
+      }
 
       // If the argument doesn't match, perform a bitcast to coerce it. This
       // can happen due to trivial type mismatches.
@@ -1000,8 +1010,13 @@ QualType CIRGenFunction::getVarArgType(const Expr *arg) {
   if (!getTarget().getTriple().isOSWindows())
     return arg->getType();
 
-  assert(!cir::MissingFeatures::msabi());
-  cgm.errorNYI(arg->getSourceRange(), "getVarArgType: NYI for Windows target");
+  if (arg->getType()->isIntegerType() &&
+      getContext().getTypeSize(arg->getType()) <
+          getContext().getTargetInfo().getPointerWidth(LangAS::Default) &&
+      arg->isNullPointerConstant(getContext(),
+                                 Expr::NPC_ValueDependentIsNotNull))
+    return getContext().getIntPtrType();
+
   return arg->getType();
 }
 
@@ -1084,8 +1099,7 @@ void CIRGenFunction::emitCallArgs(
       assert(!cir::MissingFeatures::sanitizers());
       maybeEmitImplicitObjectSize(idx, *currentArg, rvArg);
     }
-
-    if (!leftToRight)
-      std::reverse(args.begin() + callArgsStart, args.end());
   }
+  if (!leftToRight)
+    std::reverse(args.begin() + callArgsStart, args.end());
 }

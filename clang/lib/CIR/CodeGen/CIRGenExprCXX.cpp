@@ -955,8 +955,11 @@ void CIRGenFunction::emitCXXDeleteExpr(const CXXDeleteExpr *e) {
   if (e->isArrayForm() &&
       cgm.getASTContext().getTargetInfo().emitVectorDeletingDtors(
           cgm.getASTContext().getLangOpts())) {
-    cgm.errorNYI(e->getSourceRange(),
-                 "emitCXXDeleteExpr: emitVectorDeletingDtors");
+    if (deleteTy.isDestructedType()) {
+      cgm.errorNYI(e->getSourceRange(),
+                   "emitCXXDeleteExpr: emitVectorDeletingDtors");
+      return;
+    }
   }
 
   if (e->isArrayForm()) {
