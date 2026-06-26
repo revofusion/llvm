@@ -104,8 +104,7 @@ mlir::Type LowerItaniumCXXABI::lowerMethodType(
   //    };
 
   cir::IntType ptrdiffCIRTy = getPtrDiffCIRTy(lm);
-  mlir::Type loweredFuncTy = typeConverter.convertType(type.getMemberFuncTy());
-  auto fnPtrTy = cir::PointerType::get(loweredFuncTy);
+  auto fnPtrTy = cir::PointerType::get(cir::VoidType::get(type.getContext()));
 
   return cir::RecordType::get(type.getContext(), {fnPtrTy, ptrdiffCIRTy},
                               /*packed=*/false, /*padded=*/false,

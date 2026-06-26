@@ -180,6 +180,13 @@ public:
     return flags;
   }
 
+  bool hasSupportedCaptures(const CIRGenBlockInfo &info) {
+    if (info.captures.empty())
+      return true;
+    cgm.errorNYI(info.blockExpr->getSourceRange(), "block capture lowering");
+    return false;
+  }
+
   cir::FuncOp emitInvokeFunction(CIRGenFunction &parent,
                                  const CIRGenBlockInfo &info) {
     const auto *blockTy = info.blockExpr->getType()->castAs<BlockPointerType>();
@@ -187,9 +194,11 @@ public:
     ASTContext &ctx = cgm.getASTContext();
 
     FunctionArgList args;
+    IdentifierInfo *selfName = &ctx.Idents.get(".block_descriptor");
     auto *selfDecl = ImplicitParamDecl::Create(
-        ctx, nullptr, info.blockExpr->getCaretLocation(), nullptr, ctx.VoidPtrTy,
-        ImplicitParamKind::Other);
+        ctx, const_cast<BlockDecl *>(info.blockDecl),
+        info.blockExpr->getCaretLocation(), selfName, ctx.VoidPtrTy,
+        ImplicitParamKind::ObjCSelf);
     args.push_back(selfDecl);
     for (ParmVarDecl *param : info.blockDecl->parameters())
       args.push_back(param);
@@ -207,25 +216,42 @@ public:
     cir::FuncOp fn = cgm.createCIRFunction(
         parent.getLoc(info.blockExpr->getCaretLocation()), name, cirFnTy,
         nullptr);
+    fn.setLinkage(cir::GlobalLinkageKind::InternalLinkage);
+    fn.addEntryBlock();
 
+    mlir::OpBuilder::InsertionGuard guard(cgm.getBuilder());
     CIRGenFunction cgf(cgm, cgm.getBuilder(), /*suppressNewContext=*/true);
     CIRGenModule::CurCGFGuard curCGFGuard(cgm, cgf);
     cgf.curBlockInfo = &info;
-    cgf.startFunction(GlobalDecl(), fnTy->getReturnType(), fn, cirFnTy, args,
-                      info.blockExpr->getCaretLocation(),
-                      info.blockExpr->getBody()->getBeginLoc());
-    cgf.curFuncDecl = parent.curFuncDecl;
-    cgf.curCodeDecl = info.blockDecl;
+    cgf.curGD = GlobalDecl(info.blockDecl);
+    {
+      CIRGenFunction::SymTableScopeTy varScope(cgf.symbolTable);
+      CIRGenFunction::LexicalScope lexScope(
+          cgf, parent.getLoc(info.blockExpr->getSourceRange()),
+          &fn.getBlocks().front());
+      cgf.startFunction(GlobalDecl(info.blockDecl), fnTy->getReturnType(), fn,
+                        cirFnTy, args, info.blockExpr->getCaretLocation(),
+                        info.blockExpr->getBody()->getBeginLoc());
+      cgf.curFuncDecl = parent.curFuncDecl;
+      cgf.curCodeDecl = info.blockDecl;
 
-    Address selfAddr = cgf.getAddrOfLocalVar(selfDecl);
-    cgf.blockPointer = cgf.getBuilder().createLoad(
-        cgf.getLoc(info.blockExpr->getCaretLocation()), selfAddr);
+      Address selfAddr = cgf.getAddrOfLocalVar(selfDecl);
+      cgf.blockPointer = cgf.getBuilder().createLoad(
+          cgf.getLoc(info.blockExpr->getCaretLocation()), selfAddr);
 
-    (void)cgf.emitFunctionBody(info.blockExpr->getBody());
-    cgf.finishFunction(info.blockExpr->getBody()->getEndLoc());
+      (void)cgf.emitFunctionBody(info.blockExpr->getBody());
+      cgf.finishFunction(info.blockExpr->getBody()->getEndLoc());
+    }
     cgf.curBlockInfo = nullptr;
     cgf.blockPointer = nullptr;
     return fn;
+  }
+
+  mlir::Value getFunctionPointer(CIRGenFunction &cgf, mlir::Location loc,
+                                 cir::FuncOp fn) {
+    mlir::Type fnPtrTy = cir::PointerType::get(fn.getFunctionType());
+    return cir::GetGlobalOp::create(cgf.getBuilder(), loc, fnPtrTy,
+                                    fn.getSymNameAttr());
   }
 
   cir::GlobalOp emitDescriptor(CIRGenFunction &cgf, const CIRGenBlockInfo &info,
@@ -261,8 +287,44 @@ public:
   mlir::Value emitBlockLiteral(CIRGenFunction &cgf,
                                const BlockExpr *expr) override {
     mlir::Location loc = cgf.getLoc(expr->getSourceRange());
-    cgm.errorNYI(expr->getSourceRange(), "block literal runtime lowering");
-    return cgf.getBuilder().getNullPtr(cgf.convertType(expr->getType()), loc);
+    if (cgf.getLangOpts().OpenCL) {
+      cgm.errorNYI(expr->getSourceRange(), "OpenCL block literal lowering");
+      return cgf.getBuilder().getNullPtr(cgf.convertType(expr->getType()), loc);
+    }
+
+    CIRGenBlockInfo info = computeBlockInfo(cgf, expr);
+    if (!checkPhase1Supported(cgf, info) || !hasSupportedCaptures(info))
+      return cgf.getBuilder().getNullPtr(cgf.convertType(expr->getType()), loc);
+    if (!expr->getFunctionType()->getReturnType()->isVoidType()) {
+      cgm.errorNYI(expr->getSourceRange(), "non-void block literal lowering");
+      return cgf.getBuilder().getNullPtr(cgf.convertType(expr->getType()), loc);
+    }
+
+    cir::FuncOp invokeFn = emitInvokeFunction(cgf, info);
+    cir::GlobalOp descriptor = emitDescriptor(cgf, info, loc);
+    Address block = cgf.createTempAlloca(info.literalType, info.literalAlign,
+                                         loc, "block");
+
+    CIRGenBuilderTy &builder = cgf.getBuilder();
+    mlir::Type voidPtr = getOpaquePtrTy(cgf);
+    mlir::Value isa = getNSConcreteStackBlock(cgf, loc);
+    mlir::Value flags =
+        builder.getConstInt(loc, builder.getSInt32Ty(), getInitialFlags(info));
+    mlir::Value reserved = builder.getConstInt(loc, builder.getSInt32Ty(), 0);
+    mlir::Value invoke = getFunctionPointer(cgf, loc, invokeFn);
+    invoke = builder.createBitcast(loc, invoke, voidPtr);
+    mlir::Value descAddr = builder.createGetGlobal(loc, descriptor);
+    descAddr = builder.createBitcast(loc, descAddr, voidPtr);
+
+    storeField(cgf, loc, block, 0, isa, voidPtr, "block.isa");
+    storeField(cgf, loc, block, 1, flags, builder.getSInt32Ty(), "block.flags");
+    storeField(cgf, loc, block, 2, reserved, builder.getSInt32Ty(),
+               "block.reserved");
+    storeField(cgf, loc, block, 3, invoke, voidPtr, "block.invoke");
+    storeField(cgf, loc, block, 4, descAddr, voidPtr, "block.descriptor");
+
+    mlir::Type resultTy = cgf.convertType(expr->getType());
+    return builder.createBitcast(loc, block.getPointer(), resultTy);
   }
 
   RValue emitBlockCallExpr(CIRGenFunction &cgf, const CallExpr *expr,

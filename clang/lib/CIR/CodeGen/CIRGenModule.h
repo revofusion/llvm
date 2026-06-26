@@ -32,6 +32,7 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CIR/Dialect/IR/CIROpsEnums.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/TargetParser/Triple.h"
@@ -150,6 +151,7 @@ public:
   /// -------
 
   mlir::Operation *lastGlobalOp = nullptr;
+  llvm::StringMap<mlir::Operation *> globalValueCache;
 
   /// Keep a map between lambda fields and names, this needs to be per module
   /// since lambdas might get generated later as part of defered work, and since

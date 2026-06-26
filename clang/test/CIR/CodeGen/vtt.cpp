@@ -46,13 +46,13 @@ void f(D *d) {}
 // Trigger vtable and VTT emission for D.
 void D::y() {}
 
-// CIR-COMMON: !rec_A2Ebase = !cir.record<struct "A.base" packed {!cir.vptr, !s32i}>
-// CIR-COMMON: !rec_B2Ebase = !cir.record<struct "B.base" packed {!cir.vptr, !s32i}>
-// CIR-COMMON: !rec_C2Ebase = !cir.record<struct "C.base" {!cir.vptr, !s64i}>
-// CIR-COMMON: !rec_A = !cir.record<class "A" packed padded {!cir.vptr, !s32i, !cir.array<!u8i x 4>}>
-// CIR-COMMON: !rec_B = !cir.record<class "B" packed padded {!cir.vptr, !s32i, !cir.array<!u8i x 4>, !rec_A2Ebase, !cir.array<!u8i x 4>}>
-// CIR-COMMON: !rec_C = !cir.record<class "C" {!cir.vptr, !s64i, !rec_A2Ebase}>
-// CIR-COMMON: !rec_D = !cir.record<class "D" {!rec_B2Ebase, !rec_C2Ebase, !s64i, !rec_A2Ebase}>
+// CIR-COMMON-DAG: !rec_A2Ebase = !cir.record<struct "A.base" packed {!cir.vptr, !cir.int<s, 32>}>
+// CIR-COMMON-DAG: !rec_B2Ebase = !cir.record<struct "B.base" packed {!cir.vptr, !cir.int<s, 32>}>
+// CIR-COMMON-DAG: !rec_C2Ebase = !cir.record<struct "C.base" {!cir.vptr, !cir.int<s, 64>}>
+// CIR-COMMON-DAG: !rec_A = !cir.record<class "A" packed padded {!cir.vptr, !s32i, !cir.array<!u8i x 4>}>
+// CIR-COMMON-DAG: !rec_B = !cir.record<class "B" packed padded {!cir.vptr, !s32i, !cir.array<!u8i x 4>, !rec_A2Ebase, !cir.array<!u8i x 4>}>
+// CIR-COMMON-DAG: !rec_C = !cir.record<class "C" {!cir.vptr, !s64i, !rec_A2Ebase}>
+// CIR-COMMON-DAG: !rec_D = !cir.record<class "D" {!rec_B2Ebase, !rec_C2Ebase, !s64i, !rec_A2Ebase}>
 
 // CIR-RTTI:   ![[REC_TYPE_INFO_VTABLE:.*]]= !cir.record<struct  {!cir.ptr<!u8i>, !cir.ptr<!u8i>, !u32i, !u32i, !cir.ptr<!u8i>, !s64i, !cir.ptr<!u8i>, !s64i}>
 // CIR-COMMON: ![[REC_D_VTABLE:.*]] = !cir.record<struct  {!cir.array<!cir.ptr<!u8i> x 5>, !cir.array<!cir.ptr<!u8i> x 4>, !cir.array<!cir.ptr<!u8i> x 4>}>

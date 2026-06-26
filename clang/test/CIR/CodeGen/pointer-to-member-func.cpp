@@ -18,15 +18,15 @@ void unused_pointer_to_member_func(void (Foo::*func)(int)) {
 // CIR-BEFORE: cir.func {{.*}} @_Z29unused_pointer_to_member_funcM3FooFviE(%[[ARG:.*]]: !cir.method<!cir.func<(!s32i)> in !rec_Foo>)
 // CIR-BEFORE:   %[[FUNC:.*]] = cir.alloca !cir.method<!cir.func<(!s32i)> in !rec_Foo>, !cir.ptr<!cir.method<!cir.func<(!s32i)> in !rec_Foo>>, ["func", init]
 
-// CIR-AFTER: !rec_anon_struct = !cir.record<struct  {!s64i, !s64i}>
+// CIR-AFTER: !rec_anon_struct = !cir.record<struct  {!cir.ptr<!void>, !s64i}>
 // CIR-AFTER: cir.func {{.*}} @_Z29unused_pointer_to_member_funcM3FooFviE(%[[ARG:.*]]: !rec_anon_struct {{.*}})
 // CIR-AFTER    %[[FUNC:.*]] = cir.alloca !rec_anon_struct, !cir.ptr<!rec_anon_struct>, ["func", init]
 
 // NOTE: The difference between LLVM and OGCG are due to the lack of calling convention handling in CIR.
 
-// LLVM: define {{.*}} void @_Z29unused_pointer_to_member_funcM3FooFviE({ i64, i64 } %[[ARG:.*]])
-// LLVM:   %[[FUNC:.*]] = alloca { i64, i64 }
-// LLVM:   store { i64, i64 } %[[ARG]], ptr %[[FUNC]]
+// LLVM: define {{.*}} void @_Z29unused_pointer_to_member_funcM3FooFviE({ ptr, i64 } %[[ARG:.*]])
+// LLVM:   %[[FUNC:.*]] = alloca { ptr, i64 }
+// LLVM:   store { ptr, i64 } %[[ARG]], ptr %[[FUNC]]
 
 // OGCG: define {{.*}} void @_Z29unused_pointer_to_member_funcM3FooFviE(i64 %[[FUNC_COERCE0:.*]], i64 %[[FUNC_COERCE1:.*]])
 // OGCG:   %[[FUNC:.*]] = alloca { i64, i64 }

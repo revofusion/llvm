@@ -601,7 +601,14 @@ void CIRGenModule::handleCXXStaticMemberVarInstantiation(VarDecl *vd) {
 }
 
 mlir::Operation *CIRGenModule::getGlobalValue(StringRef name) {
-  return mlir::SymbolTable::lookupSymbolIn(theModule, name);
+  auto cached = globalValueCache.find(name);
+  if (cached != globalValueCache.end())
+    return cached->second;
+
+  mlir::Operation *op = mlir::SymbolTable::lookupSymbolIn(theModule, name);
+  if (op)
+    globalValueCache[name] = op;
+  return op;
 }
 
 cir::GlobalOp CIRGenModule::createGlobalOp(CIRGenModule &cgm,
@@ -628,6 +635,7 @@ cir::GlobalOp CIRGenModule::createGlobalOp(CIRGenModule &cgm,
     }
 
     g = cir::GlobalOp::create(builder, loc, name, t, isConstant);
+    cgm.globalValueCache[name] = g;
     if (!insertPoint)
       cgm.lastGlobalOp = g;
 
@@ -2637,6 +2645,8 @@ cir::FuncOp CIRGenModule::getOrCreateCIRFunction(
     entry->erase();
   }
 
+  globalValueCache[mangledName] = funcOp;
+
   if (d)
     setFunctionAttributes(gd, funcOp, /*isIncompleteFunction=*/false, isThunk);
 
@@ -2748,6 +2758,7 @@ CIRGenModule::createCIRFunction(mlir::Location loc, StringRef name,
                                attr->Clauses);
     }
   }
+  globalValueCache[name] = func;
   return func;
 }
 

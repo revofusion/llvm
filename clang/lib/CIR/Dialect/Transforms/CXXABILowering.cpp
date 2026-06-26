@@ -20,6 +20,9 @@
 #include "clang/CIR/Dialect/IR/CIROpsEnums.h"
 #include "clang/CIR/Dialect/Passes.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/StringExtras.h"
 
 using namespace mlir;
 using namespace cir;
@@ -59,26 +62,21 @@ public:
     // Do not match on operations that have dedicated ABI lowering rewrite rules
     if (llvm::isa<cir::AllocaOp, cir::BaseDataMemberOp, cir::ConstantOp,
                   cir::CmpOp, cir::DerivedDataMemberOp, cir::FuncOp,
+                  cir::ExtractMemberOp, cir::GetMemberOp,
                   cir::GetRuntimeMemberOp, cir::GlobalOp>(op))
       return mlir::failure();
 
     const mlir::TypeConverter *typeConverter = getTypeConverter();
     assert(typeConverter &&
            "CIRGenericCXXABILoweringPattern requires a type converter");
-    bool operandsAndResultsLegal = typeConverter->isLegal(op);
-    bool regionsLegal =
-        std::all_of(op->getRegions().begin(), op->getRegions().end(),
-                    [typeConverter](mlir::Region &region) {
-                      return typeConverter->isLegal(&region);
-                    });
-    if (operandsAndResultsLegal && regionsLegal) {
+    assert(op->getNumRegions() == 0 &&
+           "region-owning ops must lower ABI-dependent region signatures "
+           "with a dedicated pattern");
+    if (typeConverter->isLegal(op)) {
       // The operation does not have any CXXABI-dependent operands or results,
       // the match fails.
       return mlir::failure();
     }
-
-    assert(op->getNumRegions() == 0 && "CIRGenericCXXABILoweringPattern cannot "
-                                       "deal with operations with regions");
 
     mlir::OperationState loweredOpState(op->getLoc(), op->getName());
     loweredOpState.addOperands(operands);
@@ -92,15 +90,6 @@ public:
       loweredResultTypes.push_back(typeConverter->convertType(result));
     loweredOpState.addTypes(loweredResultTypes);
 
-    // Lower all regions
-    for (mlir::Region &region : op->getRegions()) {
-      mlir::Region *loweredRegion = loweredOpState.addRegion();
-      rewriter.inlineRegionBefore(region, *loweredRegion, loweredRegion->end());
-      if (mlir::failed(
-              rewriter.convertRegionTypes(loweredRegion, *getTypeConverter())))
-        return mlir::failure();
-    }
-
     // Clone the operation with lowered operand types and result types
     mlir::Operation *loweredOp = rewriter.create(loweredOpState);
 
@@ -108,6 +97,161 @@ public:
     return mlir::success();
   }
 };
+
+static bool canLowerRecordLayout(cir::RecordType type);
+
+static bool isLayoutSimpleForMemberPointerClass(mlir::Type ty) {
+  if (mlir::isa<cir::RecordType>(ty))
+    return false;
+  if (auto pointer = mlir::dyn_cast<cir::PointerType>(ty))
+    return !mlir::isa<cir::RecordType>(pointer.getPointee());
+  if (auto array = mlir::dyn_cast<cir::ArrayType>(ty))
+    return isLayoutSimpleForMemberPointerClass(array.getElementType());
+  return !mlir::isa<cir::DataMemberType, cir::MethodType>(ty);
+}
+
+static bool isLayoutSimpleForMemberPointerClass(cir::RecordType type) {
+  if (type.isIncomplete())
+    return false;
+  return llvm::all_of(type.getMembers(), [](mlir::Type member) {
+    return isLayoutSimpleForMemberPointerClass(member);
+  });
+}
+
+static bool canLowerDirectCXXABIType(mlir::Type ty) {
+  if (auto dataMember = mlir::dyn_cast<cir::DataMemberType>(ty))
+    return isLayoutSimpleForMemberPointerClass(dataMember.getClassTy()) &&
+           !mlir::isa<cir::RecordType>(dataMember.getMemberTy());
+  if (mlir::isa<cir::MethodType>(ty))
+    return true;
+  if (auto array = mlir::dyn_cast<cir::ArrayType>(ty))
+    return canLowerDirectCXXABIType(array.getElementType());
+  return false;
+}
+
+static bool canLowerAsRecordMember(mlir::Type ty) {
+  if (auto record = mlir::dyn_cast<cir::RecordType>(ty))
+    return canLowerRecordLayout(record);
+  if (auto pointer = mlir::dyn_cast<cir::PointerType>(ty))
+    return !mlir::isa<cir::RecordType>(pointer.getPointee());
+  if (auto array = mlir::dyn_cast<cir::ArrayType>(ty))
+    return canLowerAsRecordMember(array.getElementType());
+  return true;
+}
+
+static bool memberNeedsCXXABILowering(mlir::Type ty) {
+  if (mlir::isa<cir::MethodType>(ty))
+    return false;
+  if (mlir::isa<cir::DataMemberType>(ty))
+    return canLowerDirectCXXABIType(ty);
+  if (auto record = mlir::dyn_cast<cir::RecordType>(ty))
+    return canLowerRecordLayout(record);
+  if (auto array = mlir::dyn_cast<cir::ArrayType>(ty))
+    return memberNeedsCXXABILowering(array.getElementType());
+  return false;
+}
+
+static bool canLowerRecordLayout(cir::RecordType type) {
+  if (type.isIncomplete())
+    return false;
+
+  bool needsLowering = false;
+  for (mlir::Type member : type.getMembers()) {
+    if (!canLowerAsRecordMember(member))
+      return false;
+    needsLowering |= memberNeedsCXXABILowering(member);
+  }
+  return needsLowering;
+}
+
+static mlir::StringAttr getLoweredRecordName(cir::RecordType type) {
+  if (mlir::StringAttr name = type.getName())
+    return mlir::StringAttr::get(type.getContext(),
+                                 (name.getValue() + "$cxxabi").str());
+
+  static thread_local llvm::DenseMap<mlir::Type, unsigned> anonRecordIds;
+  static thread_local unsigned nextAnonRecordId;
+  auto [it, inserted] = anonRecordIds.try_emplace(type, nextAnonRecordId);
+  if (inserted)
+    ++nextAnonRecordId;
+  return mlir::StringAttr::get(type.getContext(),
+                               "__cxxabi_anon_" + llvm::utostr(it->second));
+}
+
+static mlir::Attribute
+lowerCXXABIAttribute(mlir::Attribute attr, mlir::Type loweredTy,
+                     const mlir::TypeConverter &typeConverter,
+                     const mlir::DataLayout &layout,
+                     cir::LowerModule &lowerModule) {
+  if (!attr)
+    return {};
+
+  if (auto dataMember = mlir::dyn_cast<cir::DataMemberAttr>(attr))
+    return lowerModule.getCXXABI().lowerDataMemberConstant(
+        dataMember, layout, typeConverter);
+
+  if (auto method = mlir::dyn_cast<cir::MethodAttr>(attr))
+    return lowerModule.getCXXABI().lowerMethodConstant(method, typeConverter);
+
+  if (auto zero = mlir::dyn_cast<cir::ZeroAttr>(attr))
+    return cir::ZeroAttr::get(loweredTy);
+
+  if (auto ptr = mlir::dyn_cast<cir::ConstPtrAttr>(attr)) {
+    auto loweredPtrTy = mlir::dyn_cast<cir::PointerType>(loweredTy);
+    if (!loweredPtrTy)
+      return {};
+    return cir::ConstPtrAttr::get(loweredPtrTy, ptr.getValue());
+  }
+
+  if (auto array = mlir::dyn_cast<cir::ConstArrayAttr>(attr)) {
+    auto loweredArrayTy = mlir::dyn_cast<cir::ArrayType>(loweredTy);
+    if (!loweredArrayTy)
+      return {};
+    auto elements = mlir::dyn_cast<mlir::ArrayAttr>(array.getElts());
+    if (!elements)
+      return attr;
+
+    llvm::SmallVector<mlir::Attribute> loweredElements;
+    loweredElements.reserve(elements.size());
+    for (mlir::Attribute element : elements) {
+      mlir::Attribute loweredElement = lowerCXXABIAttribute(
+          element, loweredArrayTy.getElementType(), typeConverter, layout,
+          lowerModule);
+      if (!loweredElement)
+        return {};
+      loweredElements.push_back(loweredElement);
+    }
+
+    return cir::ConstArrayAttr::get(
+        loweredArrayTy,
+        mlir::ArrayAttr::get(loweredTy.getContext(), loweredElements));
+  }
+
+  if (auto record = mlir::dyn_cast<cir::ConstRecordAttr>(attr)) {
+    auto loweredRecordTy = mlir::dyn_cast<cir::RecordType>(loweredTy);
+    if (!loweredRecordTy)
+      return {};
+
+    llvm::SmallVector<mlir::Attribute> loweredMembers;
+    loweredMembers.reserve(record.getMembers().size());
+    for (auto [index, member] : llvm::enumerate(record.getMembers())) {
+      if (index >= loweredRecordTy.getMembers().size())
+        return {};
+      mlir::Attribute loweredMember = lowerCXXABIAttribute(
+          member, loweredRecordTy.getMembers()[index], typeConverter, layout,
+          lowerModule);
+      if (!loweredMember)
+        return {};
+      loweredMembers.push_back(loweredMember);
+    }
+
+    return cir::ConstRecordAttr::get(
+        loweredRecordTy,
+        mlir::ArrayAttr::get(loweredTy.getContext(), loweredMembers));
+  }
+
+  return attr;
+}
 
 } // namespace
 
@@ -133,6 +277,7 @@ mlir::LogicalResult CIRAllocaOpABILowering::matchAndRewrite(
 mlir::LogicalResult CIRConstantOpABILowering::matchAndRewrite(
     cir::ConstantOp op, OpAdaptor adaptor,
     mlir::ConversionPatternRewriter &rewriter) const {
+  mlir::Type loweredTy = getTypeConverter()->convertType(op.getType());
 
   if (mlir::isa<cir::DataMemberType>(op.getType())) {
     auto dataMember = mlir::cast<cir::DataMemberAttr>(op.getValue());
@@ -159,7 +304,15 @@ mlir::LogicalResult CIRConstantOpABILowering::matchAndRewrite(
     return mlir::success();
   }
 
-  llvm_unreachable("constant operand is not a CXXABI-dependent type");
+  mlir::DataLayout layout(op->getParentOfType<mlir::ModuleOp>());
+  mlir::Attribute loweredAttr =
+      lowerCXXABIAttribute(op.getValue(), loweredTy, *getTypeConverter(),
+                           layout, *lowerModule);
+  if (!loweredTy || !loweredAttr || loweredTy == op.getType())
+    return mlir::failure();
+  rewriter.replaceOpWithNewOp<ConstantOp>(
+      op, mlir::cast<mlir::TypedAttr>(loweredAttr));
+  return mlir::success();
 }
 
 mlir::LogicalResult CIRCmpOpABILowering::matchAndRewrite(
@@ -240,8 +393,11 @@ mlir::LogicalResult CIRGlobalOpABILowering::matchAndRewrite(
     else
       return mlir::failure();
   } else {
-    llvm_unreachable(
-        "inputs to cir.global in ABI lowering must be data member or method");
+    loweredInit = lowerCXXABIAttribute(op.getInitialValueAttr(), loweredTy,
+                                       *getTypeConverter(), layout,
+                                       *lowerModule);
+    if (!loweredInit && op.getInitialValueAttr())
+      return mlir::failure();
   }
 
   auto newOp = mlir::cast<cir::GlobalOp>(rewriter.clone(*op.getOperation()));
@@ -279,12 +435,110 @@ mlir::LogicalResult CIRGetRuntimeMemberOpABILowering::matchAndRewrite(
   return mlir::success();
 }
 
+class CIRRecursiveConstantOpCXXABILoweringPattern
+    : public mlir::OpConversionPattern<cir::ConstantOp> {
+public:
+  CIRRecursiveConstantOpCXXABILoweringPattern(
+      const mlir::TypeConverter &typeConverter, mlir::MLIRContext *context,
+      const mlir::DataLayout &layout, cir::LowerModule &lowerModule)
+      : OpConversionPattern(typeConverter, context), layout(layout),
+        lowerModule(lowerModule) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(cir::ConstantOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    mlir::Type loweredTy = getTypeConverter()->convertType(op.getType());
+    if (!loweredTy || loweredTy == op.getType())
+      return mlir::failure();
+
+    mlir::Attribute loweredAttr =
+        lowerCXXABIAttribute(op.getValue(), loweredTy, *getTypeConverter(),
+                             layout, lowerModule);
+    auto typedAttr = mlir::dyn_cast_if_present<mlir::TypedAttr>(loweredAttr);
+    if (!typedAttr)
+      return mlir::failure();
+
+    rewriter.replaceOpWithNewOp<cir::ConstantOp>(op, typedAttr);
+    return mlir::success();
+  }
+
+private:
+  const mlir::DataLayout &layout;
+  cir::LowerModule &lowerModule;
+};
+
+class CIRGetMemberOpABILoweringPattern
+    : public mlir::OpConversionPattern<cir::GetMemberOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(cir::GetMemberOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto addrPtrTy = mlir::dyn_cast<cir::PointerType>(adaptor.getAddr().getType());
+    if (!addrPtrTy)
+      return mlir::failure();
+    auto recordTy = mlir::dyn_cast<cir::RecordType>(addrPtrTy.getPointee());
+    if (!recordTy || recordTy.getMembers().size() <= op.getIndex())
+      return mlir::failure();
+
+    mlir::Type memberPtrTy = cir::PointerType::get(
+        op.getType().getContext(), recordTy.getMembers()[op.getIndex()],
+        op.getType().getAddrSpace());
+    auto memberAddr = cir::GetMemberOp::create(
+        rewriter, op.getLoc(), memberPtrTy, adaptor.getAddr(), op.getName(),
+        op.getIndex());
+
+    mlir::Type convertedPtrTy = getTypeConverter()->convertType(op.getType());
+    if (convertedPtrTy && convertedPtrTy != memberPtrTy) {
+      rewriter.replaceOpWithNewOp<cir::CastOp>(
+          op, convertedPtrTy, cir::CastKind::bitcast, memberAddr);
+      return mlir::success();
+    }
+
+    rewriter.replaceOp(op, memberAddr);
+    return mlir::success();
+  }
+};
+
+class CIRExtractMemberOpABILoweringPattern
+    : public mlir::OpConversionPattern<cir::ExtractMemberOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(cir::ExtractMemberOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto recordTy = mlir::dyn_cast<cir::RecordType>(adaptor.getRecord().getType());
+    if (!recordTy || recordTy.getMembers().size() <= op.getIndex())
+      return mlir::failure();
+
+    rewriter.replaceOpWithNewOp<cir::ExtractMemberOp>(
+        op, recordTy.getMembers()[op.getIndex()], adaptor.getRecord(),
+        op.getIndex());
+    return mlir::success();
+  }
+};
+
 // Prepare the type converter for the CXXABI lowering pass.
 // Even though this is a CIR-to-CIR pass, we are eliminating some CIR types.
 static void prepareCXXABITypeConverter(mlir::TypeConverter &converter,
                                        mlir::DataLayout &dataLayout,
                                        cir::LowerModule &lowerModule) {
   converter.addConversion([&](mlir::Type type) -> mlir::Type { return type; });
+  auto materializePointerBitcast = [](mlir::OpBuilder &builder,
+                                      mlir::Type resultType,
+                                      mlir::ValueRange inputs,
+                                      mlir::Location loc) -> mlir::Value {
+    if (inputs.size() != 1 || !mlir::isa<cir::PointerType>(resultType) ||
+        !mlir::isa<cir::PointerType>(inputs.front().getType()))
+      return {};
+    return cir::CastOp::create(builder, loc, resultType, cir::CastKind::bitcast,
+                               inputs.front());
+  };
+  converter.addSourceMaterialization(materializePointerBitcast);
+  converter.addTargetMaterialization(materializePointerBitcast);
+
   // This is necessary in order to convert CIR pointer types that are pointing
   // to CIR types that we are lowering in this pass.
   converter.addConversion([&](cir::PointerType type) -> mlir::Type {
@@ -293,6 +547,42 @@ static void prepareCXXABITypeConverter(mlir::TypeConverter &converter,
       return {};
     return cir::PointerType::get(type.getContext(), loweredPointeeType,
                                  type.getAddrSpace());
+  });
+  converter.addConversion([&](cir::ArrayType type) -> mlir::Type {
+    mlir::Type loweredElementType = converter.convertType(type.getElementType());
+    if (!loweredElementType)
+      return {};
+    return cir::ArrayType::get(loweredElementType, type.getSize());
+  });
+  converter.addConversion([&](cir::RecordType type) -> mlir::Type {
+    if (!canLowerRecordLayout(type))
+      return type;
+
+    static thread_local llvm::DenseMap<mlir::Type, cir::RecordType>
+        activeNamedRecordConversions;
+    mlir::StringAttr loweredName = getLoweredRecordName(type);
+    auto activeIt = activeNamedRecordConversions.find(type);
+    if (activeIt != activeNamedRecordConversions.end())
+      return activeIt->second;
+
+    cir::RecordType loweredType =
+        cir::RecordType::get(type.getContext(), loweredName, type.getKind());
+    activeNamedRecordConversions[type] = loweredType;
+    llvm::scope_exit cleanup([&] { activeNamedRecordConversions.erase(type); });
+
+    llvm::SmallVector<mlir::Type> loweredMembers;
+    loweredMembers.reserve(type.getMembers().size());
+    for (mlir::Type member : type.getMembers()) {
+      mlir::Type loweredMember = converter.convertType(member);
+      if (!loweredMember)
+        return {};
+      loweredMembers.push_back(loweredMember);
+    }
+
+    if (loweredType.isIncomplete())
+      loweredType.complete(loweredMembers, type.getPacked(),
+                           type.getPadded());
+    return loweredType;
   });
   converter.addConversion([&](cir::DataMemberType type) -> mlir::Type {
     mlir::Type abiType =
@@ -332,12 +622,7 @@ populateCXXABIConversionTarget(mlir::ConversionTarget &target,
   // block arguments are of CXXABI-dependent types.
   target.addDynamicallyLegalDialect<cir::CIRDialect>(
       [&typeConverter](mlir::Operation *op) {
-        if (!typeConverter.isLegal(op))
-          return false;
-        return std::all_of(op->getRegions().begin(), op->getRegions().end(),
-                           [&typeConverter](mlir::Region &region) {
-                             return typeConverter.isLegal(&region);
-                           });
+        return typeConverter.isLegal(op);
       });
 
   // Some CIR ops needs special checking for legality
@@ -347,6 +632,20 @@ populateCXXABIConversionTarget(mlir::ConversionTarget &target,
   target.addDynamicallyLegalOp<cir::GlobalOp>(
       [&typeConverter](cir::GlobalOp op) {
         return typeConverter.isLegal(op.getSymType());
+      });
+  target.addDynamicallyLegalOp<cir::GetMemberOp>([](cir::GetMemberOp op) {
+    auto addrPtrTy = mlir::dyn_cast<cir::PointerType>(op.getAddr().getType());
+    if (!addrPtrTy)
+      return false;
+    auto recordTy = mlir::dyn_cast<cir::RecordType>(addrPtrTy.getPointee());
+    return recordTy && recordTy.getMembers().size() > op.getIndex() &&
+           recordTy.getMembers()[op.getIndex()] == op.getType().getPointee();
+  });
+  target.addDynamicallyLegalOp<cir::ExtractMemberOp>(
+      [](cir::ExtractMemberOp op) {
+        auto recordTy = mlir::dyn_cast<cir::RecordType>(op.getRecord().getType());
+        return recordTy && recordTy.getMembers().size() > op.getIndex() &&
+               recordTy.getMembers()[op.getIndex()] == op.getType();
       });
 }
 
@@ -376,6 +675,11 @@ void CXXABILoweringPass::runOnOperation() {
   mlir::RewritePatternSet patterns(ctx);
   patterns.add<CIRGenericCXXABILoweringPattern>(patterns.getContext(),
                                                 typeConverter);
+  patterns.add<CIRGetMemberOpABILoweringPattern,
+               CIRExtractMemberOpABILoweringPattern>(typeConverter,
+                                                     patterns.getContext());
+  patterns.add<CIRRecursiveConstantOpCXXABILoweringPattern>(
+      typeConverter, patterns.getContext(), dataLayout, *lowerModule);
   patterns.add<
 #define GET_ABI_LOWERING_PATTERNS_LIST
 #include "clang/CIR/Dialect/IR/CIRLowering.inc"

@@ -18,6 +18,7 @@
 #include "clang/CIR/Dialect/IR/CIROpsEnums.h"
 #include "clang/CIR/Dialect/Passes.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/Path.h"
 
 #include <memory>
@@ -49,8 +50,7 @@ static SmallString<128> getTransformedFileName(mlir::ModuleOp mlirModule) {
   return fileName;
 }
 
-/// Return the FuncOp called by `callOp`.
-static cir::FuncOp getCalledFunction(cir::CallOp callOp) {
+static cir::FuncOp lookupDirectCallee(cir::CallOp callOp) {
   mlir::SymbolRefAttr sym = llvm::dyn_cast_if_present<mlir::SymbolRefAttr>(
       callOp.getCallableForCallee());
   if (!sym)
@@ -131,6 +131,7 @@ struct LoweringPreparePass
   llvm::SmallVector<std::pair<std::string, uint32_t>, 4> globalDtorList;
   /// List of annotations in the module
   llvm::SmallVector<mlir::Attribute, 4> globalAnnotations;
+  llvm::DenseSet<mlir::StringAttr> trivialCopyConstructors;
 
   void setASTContext(clang::ASTContext *c) {
     astCtx = c;
@@ -743,7 +744,7 @@ cir::FuncOp LoweringPreparePass::getOrCreateDtorFunc(CIRBaseBuilderTy &builder,
     if (yieldOp && callOp && callOp.getNumOperands() == 1 &&
         callOp.getArgOperand(0) == ggop) {
       dtorCall = callOp;
-      return getCalledFunction(callOp);
+      return lookupDirectCallee(callOp);
     }
   }
 
@@ -1119,22 +1120,18 @@ void LoweringPreparePass::lowerArrayCtor(cir::ArrayCtor op) {
 }
 
 void LoweringPreparePass::lowerTrivialCopyCall(cir::CallOp op) {
-  cir::FuncOp funcOp = getCalledFunction(op);
-  if (!funcOp)
+  mlir::SymbolRefAttr sym = llvm::dyn_cast_if_present<mlir::SymbolRefAttr>(
+      op.getCallableForCallee());
+  if (!sym || !trivialCopyConstructors.contains(sym.getRootReference()))
     return;
 
-  std::optional<cir::CtorKind> ctorKind = funcOp.getCxxConstructorKind();
-  if (ctorKind && *ctorKind == cir::CtorKind::Copy &&
-      funcOp.isCxxTrivialMemberFunction()) {
-    // Replace the trivial copy constructor call with a `CopyOp`
-    CIRBaseBuilderTy builder(getContext());
-    mlir::ValueRange operands = op.getOperands();
-    mlir::Value dest = operands[0];
-    mlir::Value src = operands[1];
-    builder.setInsertionPoint(op);
-    builder.createCopy(dest, src);
-    op.erase();
-  }
+  CIRBaseBuilderTy builder(getContext());
+  mlir::ValueRange operands = op.getOperands();
+  mlir::Value dest = operands[0];
+  mlir::Value src = operands[1];
+  builder.setInsertionPoint(op);
+  builder.createCopy(dest, src);
+  op.erase();
 }
 
 void LoweringPreparePass::runOnOp(mlir::Operation *op) {
@@ -1167,6 +1164,8 @@ void LoweringPreparePass::runOnOp(mlir::Operation *op) {
 }
 
 void LoweringPreparePass::runOnOperation() {
+  trivialCopyConstructors.clear();
+
   mlir::Operation *op = getOperation();
   if (isa<::mlir::ModuleOp>(op))
     mlirModule = cast<::mlir::ModuleOp>(op);
@@ -1174,6 +1173,12 @@ void LoweringPreparePass::runOnOperation() {
   llvm::SmallVector<mlir::Operation *> opsToTransform;
 
   op->walk([&](mlir::Operation *op) {
+    if (auto fnOp = dyn_cast<cir::FuncOp>(op)) {
+      std::optional<cir::CtorKind> ctorKind = fnOp.getCxxConstructorKind();
+      if (ctorKind && *ctorKind == cir::CtorKind::Copy &&
+          fnOp.isCxxTrivialMemberFunction())
+        trivialCopyConstructors.insert(fnOp.getNameAttr());
+    }
     if (mlir::isa<cir::ArrayCtor, cir::ArrayDtor, cir::CastOp,
                   cir::ComplexMulOp, cir::ComplexDivOp, cir::DynamicCastOp,
                   cir::FuncOp, cir::CallOp, cir::GlobalOp, cir::UnaryOp>(op))

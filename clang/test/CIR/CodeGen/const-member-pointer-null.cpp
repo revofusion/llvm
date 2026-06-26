@@ -14,6 +14,6 @@ struct ExtensionInfo {
 ExtensionInfo empty;
 ExtensionInfo enabled = {true, &Extensions::ext};
 
-// CHECK: !rec_ExtensionInfo = !cir.record<struct "ExtensionInfo" {!cir.bool, !cir.data_member<!cir.bool in !rec_Extensions>}>
-// CHECK: cir.global external @empty = #cir.const_record<{#false, #cir.data_member<null> : !cir.data_member<!cir.bool in !rec_Extensions>}> : !rec_ExtensionInfo
-// CHECK: cir.global external @enabled = #cir.const_record<{#true, #cir.data_member<0> : !cir.data_member<!cir.bool in !rec_Extensions>}> : !rec_ExtensionInfo
+// CHECK: !rec_ExtensionInfo$cxxabi = !cir.record<struct "ExtensionInfo$cxxabi" {!cir.bool, !s64i}>
+// CHECK: cir.global external @empty = #cir.const_record<{#false, #cir.int<-1> : !s64i}> : !rec_ExtensionInfo$cxxabi
+// CHECK: cir.global external @enabled = #cir.const_record<{#true, #cir.int<0> : !s64i}> : !rec_ExtensionInfo$cxxabi

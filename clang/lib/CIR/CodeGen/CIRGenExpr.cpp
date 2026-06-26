@@ -1329,6 +1329,21 @@ LValue CIRGenFunction::emitDeclRefLValue(const DeclRefExpr *e) {
     if (vd->hasLinkage() || vd->isStaticDataMember())
       return emitGlobalVarDeclLValue(*this, e, vd);
 
+    if (vd->isStaticLocal() && curBlockInfo) {
+      cir::GlobalLinkageKind linkage =
+          cgm.getCIRLinkageVarDefinition(vd, /*IsConstant=*/false);
+      cir::GlobalOp global = cgm.getOrCreateStaticVarDecl(*vd, linkage);
+      mlir::Value value =
+          builder.createGetGlobal(getLoc(e->getSourceRange()), global,
+                                  vd->getTLSKind() != VarDecl::TLS_None);
+      mlir::Type realVarTy = convertTypeForMem(vd->getType());
+      cir::PointerType realPtrTy = builder.getPointerTo(realVarTy);
+      if (realPtrTy != value.getType())
+        value = builder.createBitcast(value.getLoc(), value, realPtrTy);
+      Address addr(value, realVarTy, getContext().getDeclAlign(vd));
+      return makeAddrLValue(addr, ty, AlignmentSource::Decl);
+    }
+
     Address addr = Address::invalid();
 
     // The variable should generally be present in the local decl map.
@@ -2994,6 +3009,110 @@ static const CXXRecordDecl *getPointeeOrObjectRecord(const Expr *e,
   return baseTy->getAsCXXRecordDecl();
 }
 
+static RValue emitIndirectCXXMemberFunctionPointerCall(
+    CIRGenFunction &cgf, const CXXMemberCallExpr *ce, const BinaryOperator *bo,
+    ReturnValueSlot returnValue) {
+  bool isArrow = bo->getOpcode() == BO_PtrMemI;
+  if (bo->getOpcode() != BO_PtrMemI && bo->getOpcode() != BO_PtrMemD) {
+    cgf.cgm.errorNYI(ce->getSourceRange(),
+                     "emitCXXMemberCallExpr: unexpected binary callee");
+    return RValue::get(nullptr);
+  }
+
+  const auto *mpt = bo->getRHS()->getType()->castAs<MemberPointerType>();
+  const auto *fpt = mpt->getPointeeType()->getAs<FunctionProtoType>();
+  if (!fpt) {
+    cgf.cgm.errorNYI(ce->getSourceRange(),
+                     "emitCXXMemberCallExpr: unprototyped member function "
+                     "pointer call");
+    return RValue::get(nullptr);
+  }
+
+  const CXXRecordDecl *memberPtrClass = mpt->getMostRecentCXXRecordDecl();
+  const CXXRecordDecl *baseClass =
+      getPointeeOrObjectRecord(bo->getLHS(), isArrow);
+  if (!baseClass ||
+      baseClass->getCanonicalDecl() != memberPtrClass->getCanonicalDecl()) {
+    cgf.cgm.errorNYI(ce->getSourceRange(),
+                     "emitCXXMemberCallExpr: member function pointer this "
+                     "adjustment");
+    return RValue::get(nullptr);
+  }
+
+  const CXXRecordDecl *definition = memberPtrClass->getDefinition();
+  if (!definition) {
+    cgf.cgm.errorNYI(ce->getSourceRange(),
+                     "emitCXXMemberCallExpr: incomplete member pointer class");
+    return RValue::get(nullptr);
+  }
+  if (definition->isDynamicClass()) {
+    cgf.cgm.errorNYI(ce->getSourceRange(),
+                     "emitCXXMemberCallExpr: virtual-capable member function "
+                     "pointer call");
+    return RValue::get(nullptr);
+  }
+
+  Address thisAddr = Address::invalid();
+  if (isArrow)
+    thisAddr = cgf.emitPointerWithAlignment(bo->getLHS());
+  else
+    thisAddr = cgf.emitLValue(bo->getLHS()).getAddress();
+  if (!thisAddr.isValid()) {
+    cgf.cgm.errorNYI(ce->getSourceRange(),
+                     "emitCXXMemberCallExpr: unavailable this address");
+    return RValue::get(nullptr);
+  }
+
+  LValue memberPtrLValue = cgf.emitLValue(bo->getRHS()->IgnoreParenImpCasts());
+  if (!memberPtrLValue.isSimple()) {
+    cgf.cgm.errorNYI(ce->getSourceRange(),
+                     "emitCXXMemberCallExpr: non-addressable member function "
+                     "pointer");
+    return RValue::get(nullptr);
+  }
+
+  mlir::Location loc = cgf.getLoc(ce->getExprLoc());
+  mlir::Type storedFuncPtrTy = cgf.getBuilder().getVoidPtrTy();
+  auto methodRecordTy =
+      cgf.getBuilder().getAnonRecordTy({storedFuncPtrTy, cgf.cgm.ptrDiffTy});
+  Address memberPtrAddr = memberPtrLValue.getAddress();
+  auto methodRecordPtrTy = cgf.getBuilder().getPointerTo(methodRecordTy);
+  Address methodRecordAddr(
+      cgf.getBuilder().createBitcast(loc, memberPtrAddr.getPointer(),
+                                     methodRecordPtrTy),
+      methodRecordTy, memberPtrAddr.getAlignment());
+  mlir::Value methodRecord = cgf.getBuilder().createLoad(loc, methodRecordAddr);
+  mlir::Value fnPtr = cir::ExtractMemberOp::create(
+      cgf.getBuilder(), loc, storedFuncPtrTy, methodRecord, 0);
+  mlir::Value thisAdjustment = cir::ExtractMemberOp::create(
+      cgf.getBuilder(), loc, cgf.cgm.ptrDiffTy, methodRecord, 1);
+
+  mlir::Value adjustedThis = thisAddr.getPointer();
+  mlir::Value thisAsBytes =
+      cgf.getBuilder().createBitcast(loc, adjustedThis, cgf.cgm.uInt8PtrTy);
+  mlir::Value adjustedBytes = cir::PtrStrideOp::create(
+      cgf.getBuilder(), loc, cgf.cgm.uInt8PtrTy, thisAsBytes, thisAdjustment);
+  adjustedThis =
+      cgf.getBuilder().createBitcast(loc, adjustedBytes, adjustedThis.getType());
+
+  CallArgList args;
+  args.add(RValue::get(adjustedThis),
+           cgf.getTypes().deriveThisType(memberPtrClass, nullptr));
+  RequiredArgs required = RequiredArgs::getFromProtoWithExtraSlots(fpt, 1);
+  cgf.emitCallArgs(args, fpt, ce->arguments(), ce->getDirectCallee());
+
+  const CIRGenFunctionInfo &fnInfo =
+      cgf.cgm.getTypes().arrangeCXXMethodCall(args, fpt, required, 0);
+  cir::FuncType callFnTy = cgf.getTypes().getFunctionType(fnInfo);
+  mlir::Value typedFnPtr =
+      cgf.getBuilder().createBitcast(loc, fnPtr,
+                                     cgf.getBuilder().getPointerTo(callFnTy));
+
+  return cgf.emitCall(fnInfo,
+                      CIRGenCallee::forDirect(typedFnPtr.getDefiningOp()),
+                      returnValue, args, nullptr, loc);
+}
+
 // Note: this function also emit constructor calls to support a MSVC extensions
 // allowing explicit constructor function call.
 RValue CIRGenFunction::emitCXXMemberCallExpr(const CXXMemberCallExpr *ce,
@@ -3002,11 +3121,9 @@ RValue CIRGenFunction::emitCXXMemberCallExpr(const CXXMemberCallExpr *ce,
 
   if (const auto *bo = dyn_cast<BinaryOperator>(callee)) {
     const auto *md = getDirectMemberFunctionPointerMethod(bo->getRHS());
-    if (!md) {
-      cgm.errorNYI(ce->getSourceRange(),
-                   "emitCXXMemberCallExpr: member function pointer call");
-      return RValue::get(nullptr);
-    }
+    if (!md)
+      return emitIndirectCXXMemberFunctionPointerCall(*this, ce, bo,
+                                                     returnValue);
 
     bool isArrow = bo->getOpcode() == BO_PtrMemI;
     if (bo->getOpcode() != BO_PtrMemI && bo->getOpcode() != BO_PtrMemD) {
@@ -3282,8 +3399,6 @@ LValue CIRGenFunction::emitPredefinedLValue(const PredefinedExpr *e) {
   std::array<StringRef, 2> nameItems = {
       PredefinedExpr::getIdentKindName(e->getIdentKind()), fnName};
   std::string gvName = llvm::join(nameItems, ".");
-  if (isa_and_nonnull<BlockDecl>(curCodeDecl))
-    cgm.errorNYI(e->getSourceRange(), "predefined lvalue in block");
 
   return emitStringLiteralLValue(sl, gvName);
 }

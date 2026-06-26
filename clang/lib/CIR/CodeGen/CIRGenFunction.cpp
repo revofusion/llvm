@@ -405,14 +405,14 @@ void CIRGenFunction::LexicalScope::emitImplicitReturn() {
   CIRGenBuilderTy &builder = cgf.getBuilder();
   LexicalScope *localScope = cgf.curLexScope;
 
-  const auto *fd = cast<clang::FunctionDecl>(cgf.curGD.getDecl());
+  const auto *fd = dyn_cast_or_null<clang::FunctionDecl>(cgf.curGD.getDecl());
 
   // In C++, flowing off the end of a non-void function is always undefined
   // behavior. In C, flowing off the end of a non-void function is undefined
   // behavior only if the non-existent return value is used by the caller.
   // That influences whether the terminating op is trap, unreachable, or
   // return.
-  if (cgf.getLangOpts().CPlusPlus && !fd->hasImplicitReturnZero() &&
+  if (fd && cgf.getLangOpts().CPlusPlus && !fd->hasImplicitReturnZero() &&
       !cgf.sawAsmBlock && !fd->getReturnType()->isVoidType() &&
       builder.getInsertionBlock()) {
     bool shouldEmitUnreachable =

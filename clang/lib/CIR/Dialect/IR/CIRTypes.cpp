@@ -230,6 +230,19 @@ void RecordType::print(mlir::AsmPrinter &printer) const {
   if (getName())
     printer << getName();
 
+  static thread_local unsigned recordPrintDepth = 0;
+  if (recordPrintDepth && getName()) {
+    printer << '>';
+    return;
+  }
+
+  struct RecordPrintDepthGuard {
+    unsigned &depth;
+    ~RecordPrintDepthGuard() { --depth; }
+  };
+  ++recordPrintDepth;
+  RecordPrintDepthGuard recordPrintDepthGuard{recordPrintDepth};
+
   // Current type has already been printed: print as self reference.
   cyclicPrintGuard = printer.tryStartCyclicPrint(*this);
   if (failed(cyclicPrintGuard)) {
@@ -250,7 +263,8 @@ void RecordType::print(mlir::AsmPrinter &printer) const {
     printer << "incomplete";
   } else {
     printer << "{";
-    llvm::interleaveComma(getMembers(), printer);
+    llvm::interleaveComma(getMembers(), printer,
+                          [&](mlir::Type type) { printer.printType(type); });
     printer << "}";
   }
 
