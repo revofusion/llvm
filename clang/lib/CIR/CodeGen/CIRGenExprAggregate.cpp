@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CIRGenBuilder.h"
+#include "CIRGenConstantEmitter.h"
 #include "CIRGenFunction.h"
 #include "CIRGenValue.h"
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
@@ -243,6 +244,10 @@ public:
              "Implicit cast types must be compatible");
       Visit(e->getSubExpr());
       break;
+    case CK_AtomicToNonAtomic:
+    case CK_NonAtomicToAtomic:
+      Visit(e->getSubExpr());
+      break;
     default:
       cgf.cgm.errorNYI(e->getSourceRange(),
                        std::string("AggExprEmitter: VisitCastExpr: ") +
@@ -402,9 +407,92 @@ public:
   }
 
   void VisitArrayInitLoopExpr(const ArrayInitLoopExpr *e,
-                              llvm::Value *outerBegin = nullptr) {
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "AggExprEmitter: VisitArrayInitLoopExpr");
+                              mlir::Value outerBegin = nullptr) {
+    mlir::Location loc = cgf.getLoc(e->getSourceRange());
+    CIRGenFunction::OpaqueValueMapping binding(cgf, e->getCommonExpr());
+
+    Address destPtr = ensureSlot(loc, e->getType()).getAddress();
+    uint64_t numElements = e->getArraySize().getZExtValue();
+    if (!numElements)
+      return;
+
+    auto *arrayType = cgf.getContext().getAsArrayType(e->getType());
+    if (!arrayType) {
+      cgf.cgm.errorNYI(e->getSourceRange(),
+                       "AggExprEmitter: ArrayInitLoopExpr without array type");
+      return;
+    }
+
+    QualType elementType = arrayType->getElementType();
+    if (elementType.isDestructedType() && cgf.cgm.getLangOpts().Exceptions) {
+      cgf.cgm.errorNYI(e->getSourceRange(),
+                       "ArrayInitLoopExpr requires EH partial-array cleanup");
+      return;
+    }
+
+    const mlir::Type cirElementType = cgf.convertType(elementType);
+    const cir::PointerType cirElementPtrType =
+        cgf.getBuilder().getPointerTo(cirElementType);
+    mlir::Value begin =
+        cir::CastOp::create(cgf.getBuilder(), loc, cirElementPtrType,
+                            cir::CastKind::array_to_ptrdecay,
+                            destPtr.getPointer());
+    if (!outerBegin)
+      outerBegin = begin;
+
+    const CharUnits elementSize =
+        cgf.getContext().getTypeSizeInChars(elementType);
+    const CharUnits elementAlign =
+        destPtr.getAlignment().alignmentOfArrayElement(elementSize);
+
+    Address indexAddr = cgf.createTempAlloca(cgf.sizeTy, cgf.getSizeAlign(),
+                                             loc, "arrayinit.index");
+    mlir::Value zero = cgf.getBuilder().getConstInt(loc, cgf.sizeTy, 0);
+    cgf.getBuilder().createStore(loc, zero, indexAddr);
+
+    ArrayInitLoopExpr *innerLoop = dyn_cast<ArrayInitLoopExpr>(e->getSubExpr());
+    mlir::Value end = cgf.getBuilder().getConstInt(loc, cgf.sizeTy,
+                                                   numElements);
+
+    cgf.getBuilder().createDoWhile(
+        loc,
+        [&](mlir::OpBuilder &b, mlir::Location condLoc) {
+          mlir::Value currentIndex = cgf.getBuilder().createLoad(condLoc,
+                                                                 indexAddr);
+          mlir::Value done = cgf.getBuilder().createCompare(
+              condLoc, cir::CmpOpKind::ne, currentIndex, end);
+          cgf.getBuilder().createCondition(done);
+        },
+        [&](mlir::OpBuilder &b, mlir::Location bodyLoc) {
+          mlir::Value currentIndex = cgf.getBuilder().createLoad(bodyLoc,
+                                                                 indexAddr);
+          mlir::Value indexForStride = currentIndex;
+          if (indexForStride.getType() != cgf.ptrDiffTy)
+            indexForStride = cgf.getBuilder().createIntCast(indexForStride,
+                                                            cgf.ptrDiffTy);
+          mlir::Value element = cgf.getBuilder().createPtrStride(
+              bodyLoc, begin, indexForStride);
+          LValue elementLV = cgf.makeAddrLValue(
+              Address(element, cirElementType, elementAlign), elementType);
+
+          CIRGenFunction::ArrayInitLoopExprScope scope(cgf, currentIndex);
+          if (innerLoop) {
+            auto elementSlot = AggValueSlot::forLValue(
+                elementLV, AggValueSlot::IsDestructed,
+                AggValueSlot::IsNotAliased, AggValueSlot::DoesNotOverlap);
+            AggExprEmitter(cgf, elementSlot).VisitArrayInitLoopExpr(innerLoop,
+                                                                    outerBegin);
+          } else {
+            emitInitializationToLValue(e->getSubExpr(), elementLV);
+          }
+
+          mlir::Value one = cgf.getBuilder().getConstInt(bodyLoc, cgf.sizeTy,
+                                                         1);
+          mlir::Value nextIndex = cgf.getBuilder().createNUWAdd(
+              bodyLoc, currentIndex, one);
+          cgf.getBuilder().createStore(bodyLoc, nextIndex, indexAddr);
+          cgf.getBuilder().createYield(bodyLoc);
+        });
   }
   void VisitImplicitValueInitExpr(ImplicitValueInitExpr *e) {
     cgf.cgm.errorNYI(e->getSourceRange(),
@@ -973,8 +1061,13 @@ void AggExprEmitter::VisitLambdaExpr(LambdaExpr *e) {
 
     // Push a destructor if necessary.
     if ([[maybe_unused]] QualType::DestructionKind DtorKind =
-            curField->getType().isDestructedType())
-      cgf.cgm.errorNYI(e->getSourceRange(), "lambda with destructed field");
+            curField->getType().isDestructedType()) {
+      if (cgf.cgm.getLangOpts().Exceptions) {
+        cgf.cgm.errorNYI(e->getSourceRange(),
+                         "lambda destructed field EH cleanup");
+        return;
+      }
+    }
   }
 }
 
@@ -984,6 +1077,33 @@ void AggExprEmitter::VisitExprWithCleanups(ExprWithCleanups *e) {
 }
 
 void AggExprEmitter::VisitCallExpr(const CallExpr *e) {
+  if (const FunctionDecl *fd = e->getDirectCallee(); fd && fd->isConsteval()) {
+    Expr::EvalResult result;
+    if (!e->EvaluateAsRValue(result, cgf.getContext())) {
+      cgf.cgm.errorNYI(e->getSourceRange(),
+                       "AggExprEmitter: consteval call result");
+      return;
+    }
+
+    mlir::Attribute attr = ConstantEmitter(cgf).emitAbstract(
+        e->getExprLoc(), result.Val, e->getType());
+    auto typedAttr = mlir::dyn_cast_or_null<mlir::TypedAttr>(attr);
+    if (!typedAttr) {
+      cgf.cgm.errorNYI(e->getSourceRange(),
+                       "AggExprEmitter: consteval call constant");
+      return;
+    }
+
+    mlir::Location loc = cgf.getLoc(e->getExprLoc());
+    mlir::Value value = cir::ConstantOp::create(cgf.getBuilder(), loc,
+                                                typedAttr);
+    AggValueSlot slot = ensureSlot(loc, e->getType());
+    cgf.emitStoreThroughLValue(
+        RValue::get(value), cgf.makeAddrLValue(slot.getAddress(), e->getType()),
+        /*isInit=*/true);
+    return;
+  }
+
   if (e->getCallReturnType(cgf.getContext())->isReferenceType()) {
     cgf.cgm.errorNYI(e->getSourceRange(), "reference return type");
     return;

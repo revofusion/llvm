@@ -50,23 +50,35 @@ static RValue emitLibraryCall(CIRGenFunction &cgf, const FunctionDecl *fd,
 
 template <typename Op>
 static RValue emitBuiltinBitOp(CIRGenFunction &cgf, const CallExpr *e,
-                               bool poisonZero = false) {
+                               bool poisonZero = false,
+                               bool hasFallback = false) {
   assert(!cir::MissingFeatures::builtinCheckKind());
 
   mlir::Value arg = cgf.emitScalarExpr(e->getArg(0));
   CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
 
   Op op;
   if constexpr (std::is_same_v<Op, cir::BitClzOp> ||
                 std::is_same_v<Op, cir::BitCtzOp>)
-    op = Op::create(builder, cgf.getLoc(e->getSourceRange()), arg, poisonZero);
+    op = Op::create(builder, loc, arg, poisonZero);
   else
-    op = Op::create(builder, cgf.getLoc(e->getSourceRange()), arg);
+    op = Op::create(builder, loc, arg);
 
   mlir::Value result = op.getResult();
   mlir::Type exprTy = cgf.convertType(e->getType());
   if (exprTy != result.getType())
     result = builder.createIntCast(result, exprTy);
+
+  if (hasFallback) {
+    mlir::Value zero = builder.getNullValue(arg.getType(), loc);
+    mlir::Value isZero =
+        builder.createCompare(loc, cir::CmpOpKind::eq, arg, zero);
+    mlir::Value fallback = cgf.emitScalarExpr(e->getArg(1));
+    if (fallback.getType() != exprTy)
+      fallback = builder.createIntCast(fallback, exprTy);
+    result = builder.createSelect(loc, isZero, fallback, result);
+  }
 
   return RValue::get(result);
 }
@@ -390,6 +402,20 @@ static RValue emitBuiltinIsAligned(CIRGenFunction &cgf, const CallExpr *e) {
   mlir::Value isAligned =
       builder.createCompare(loc, cir::CmpOpKind::eq, setBits, zero);
   return RValue::get(isAligned);
+}
+
+static RValue emitBuiltinSignBit(CIRGenFunction &cgf, const CallExpr *e) {
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
+
+  mlir::Value arg = cgf.emitScalarExpr(e->getArg(0));
+  unsigned width = cgf.getContext().getTypeSize(e->getArg(0)->getType());
+  mlir::Type intTy = builder.getSIntNTy(width);
+  mlir::Value bits = builder.createBitcast(loc, arg, intTy);
+  mlir::Value zero = builder.getNullValue(intTy, loc);
+  mlir::Value sign = builder.createCompare(loc, cir::CmpOpKind::lt, bits, zero);
+  return RValue::get(
+      builder.createBoolToInt(sign, cgf.convertType(e->getType())));
 }
 
 static RValue emitBuiltinAlloca(CIRGenFunction &cgf, const CallExpr *e,
@@ -1012,7 +1038,9 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_ctzll:
   case Builtin::BI__builtin_ctzg:
     assert(!cir::MissingFeatures::builtinCheckKind());
-    return emitBuiltinBitOp<cir::BitCtzOp>(*this, e, /*poisonZero=*/true);
+    return emitBuiltinBitOp<cir::BitCtzOp>(
+        *this, e, /*poisonZero=*/true,
+        builtinID == Builtin::BI__builtin_ctzg && e->getNumArgs() > 1);
 
   case Builtin::BI__builtin_clzs:
   case Builtin::BI__builtin_clz:
@@ -1020,7 +1048,9 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_clzll:
   case Builtin::BI__builtin_clzg:
     assert(!cir::MissingFeatures::builtinCheckKind());
-    return emitBuiltinBitOp<cir::BitClzOp>(*this, e, /*poisonZero=*/true);
+    return emitBuiltinBitOp<cir::BitClzOp>(
+        *this, e, /*poisonZero=*/true,
+        builtinID == Builtin::BI__builtin_clzg && e->getNumArgs() > 1);
 
   case Builtin::BI__builtin_ffs:
   case Builtin::BI__builtin_ffsl:
@@ -1724,9 +1754,11 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     return RValue::get(nullptr);
   }
   case Builtin::BI__scoped_atomic_thread_fence:
+    return errorBuiltinNYI(*this, e, builtinID);
   case Builtin::BI__builtin_signbit:
   case Builtin::BI__builtin_signbitf:
   case Builtin::BI__builtin_signbitl:
+    return emitBuiltinSignBit(*this, e);
   case Builtin::BI__warn_memset_zero_len:
   case Builtin::BI__annotation:
   case Builtin::BI__builtin_annotation:

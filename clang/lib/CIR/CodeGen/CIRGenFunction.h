@@ -205,6 +205,10 @@ public:
   /// expression.
   Address cxxDefaultInitExprThis = Address::invalid();
 
+  /// The current array initialization index when evaluating an
+  /// ArrayInitIndexExpr within an ArrayInitLoopExpr.
+  mlir::Value arrayInitIndex = nullptr;
+
   // Holds the Decl for the current outermost non-closure context
   const clang::Decl *curFuncDecl = nullptr;
   /// This is the inner-most code context, which includes blocks.
@@ -898,6 +902,24 @@ public:
     CXXDefaultArgExprScope(CIRGenFunction &cfg, const CXXDefaultArgExpr *e)
         : SourceLocExprScopeGuard(e, cfg.curSourceLocExprScope) {}
   };
+
+  /// The scope of an ArrayInitLoopExpr. Within this scope, the value of the
+  /// current loop index is overridden.
+  class ArrayInitLoopExprScope {
+  public:
+    ArrayInitLoopExprScope(CIRGenFunction &cgf, mlir::Value index)
+        : cgf(cgf), oldArrayInitIndex(cgf.arrayInitIndex) {
+      cgf.arrayInitIndex = index;
+    }
+    ~ArrayInitLoopExprScope() { cgf.arrayInitIndex = oldArrayInitIndex; }
+
+  private:
+    CIRGenFunction &cgf;
+    mlir::Value oldArrayInitIndex;
+  };
+
+  /// Get the index of the current ArrayInitLoopExpr, if any.
+  mlir::Value getArrayInitIndex() { return arrayInitIndex; }
 
   LValue makeNaturalAlignPointeeAddrLValue(mlir::Value v, clang::QualType t);
   LValue makeNaturalAlignAddrLValue(mlir::Value val, QualType ty);

@@ -362,7 +362,7 @@ RecordType::getTypeSizeInBits(const mlir::DataLayout &dataLayout,
     // An empty union (no members at all) has a size of 0.
     if (!lm)
       return llvm::TypeSize::getFixed(0);
-    return dataLayout.getTypeSize(lm);
+    return llvm::TypeSize::getFixed(dataLayout.getTypeSizeInBits(lm));
   }
 
   auto recordSize = static_cast<uint64_t>(computeStructSize(dataLayout));

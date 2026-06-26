@@ -203,17 +203,25 @@ private:
   /// A data-flow flag to make sure getRValue and/or copyInto are not
   /// called twice for duplicated IR emission.
   [[maybe_unused]] mutable bool isUsed;
+  bool isUnavailable;
 
 public:
   clang::QualType ty;
 
   CallArg(RValue rv, clang::QualType ty)
-      : rv(rv), hasLV(false), isUsed(false), ty(ty) {}
+      : rv(rv), hasLV(false), isUsed(false), isUnavailable(false), ty(ty) {}
 
   CallArg(LValue lv, clang::QualType ty)
-      : lv(lv), hasLV(true), isUsed(false), ty(ty) {}
+      : lv(lv), hasLV(true), isUsed(false), isUnavailable(false), ty(ty) {}
+
+  static CallArg getUnavailable(RValue rv, clang::QualType ty) {
+    CallArg arg(rv, ty);
+    arg.isUnavailable = true;
+    return arg;
+  }
 
   bool hasLValue() const { return hasLV; }
+  bool unavailable() const { return isUnavailable; }
 
   LValue getKnownLValue() const {
     assert(hasLV && !isUsed);
@@ -242,6 +250,10 @@ private:
 
 public:
   void add(RValue rvalue, clang::QualType type) { emplace_back(rvalue, type); }
+
+  void addUnavailable(RValue rvalue, clang::QualType type) {
+    push_back(CallArg::getUnavailable(rvalue, type));
+  }
 
   void addUncopiedAggregate(LValue lvalue, clang::QualType type) {
     emplace_back(lvalue, type);

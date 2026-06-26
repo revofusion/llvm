@@ -84,11 +84,11 @@ clang::CIRGen::CIRGenBuilderTy::getConstFP(mlir::Location loc, mlir::Type t,
   return cir::ConstantOp::create(*this, loc, cir::FPAttr::get(t, fpVal));
 }
 
-void CIRGenBuilderTy::computeGlobalViewIndicesFromFlatOffset(
+bool CIRGenBuilderTy::computeGlobalViewIndicesFromFlatOffset(
     int64_t offset, mlir::Type ty, cir::CIRDataLayout layout,
     llvm::SmallVectorImpl<int64_t> &indices) {
   if (!offset)
-    return;
+    return true;
 
   auto getIndexAndNewOffset =
       [](int64_t offset, int64_t eltSize) -> std::pair<int64_t, int64_t> {
@@ -99,52 +99,75 @@ void CIRGenBuilderTy::computeGlobalViewIndicesFromFlatOffset(
     return {divRet, modRet};
   };
 
-  mlir::Type subType =
-      llvm::TypeSwitch<mlir::Type, mlir::Type>(ty)
-          .Case<cir::ArrayType>([&](auto arrayTy) {
-            int64_t eltSize = layout.getTypeAllocSize(arrayTy.getElementType());
-            const auto [index, newOffset] =
-                getIndexAndNewOffset(offset, eltSize);
-            indices.push_back(index);
-            offset = newOffset;
-            return arrayTy.getElementType();
-          })
-          .Case<cir::RecordType>([&](auto recordTy) {
-            ArrayRef<mlir::Type> elts = recordTy.getMembers();
-            int64_t pos = 0;
-            for (size_t i = 0; i < elts.size(); ++i) {
-              int64_t eltSize =
-                  (int64_t)layout.getTypeAllocSize(elts[i]).getFixedValue();
-              unsigned alignMask = layout.getABITypeAlign(elts[i]).value() - 1;
-              if (recordTy.getPacked())
-                alignMask = 0;
-              // Union's fields have the same offset, so no need to change pos
-              // here, we just need to find eltSize that is greater then the
-              // required offset. The same is true for the similar union type
-              // check below
-              if (!recordTy.isUnion())
-                pos = (pos + alignMask) & ~alignMask;
-              assert(offset >= 0);
-              if (offset < pos + eltSize) {
-                indices.push_back(i);
-                offset -= pos;
-                return elts[i];
-              }
-              // No need to update pos here, see the comment above.
-              if (!recordTy.isUnion())
-                pos += eltSize;
-            }
-            llvm_unreachable("offset was not found within the record");
-          })
-          .Default([](mlir::Type otherTy) {
-            llvm_unreachable("unexpected type");
-            return otherTy; // Even though this is unreachable, we need to
-                            // return a type to satisfy the return type of the
-                            // lambda.
-          });
+  mlir::Type subType;
+  bool supported = true;
+  llvm::TypeSwitch<mlir::Type>(ty)
+      .Case<cir::ArrayType>([&](auto arrayTy) {
+        int64_t eltSize = layout.getTypeAllocSize(arrayTy.getElementType());
+        const auto [index, newOffset] = getIndexAndNewOffset(offset, eltSize);
+        indices.push_back(index);
+        offset = newOffset;
+        subType = arrayTy.getElementType();
+      })
+      .Case<cir::RecordType>([&](auto recordTy) {
+        if (offset < 0) {
+          supported = false;
+          return;
+        }
+        ArrayRef<mlir::Type> elts = recordTy.getMembers();
+        int64_t pos = 0;
+        for (size_t i = 0; i < elts.size(); ++i) {
+          int64_t eltSize =
+              (int64_t)layout.getTypeAllocSize(elts[i]).getFixedValue();
+          unsigned alignMask = layout.getABITypeAlign(elts[i]).value() - 1;
+          if (recordTy.getPacked())
+            alignMask = 0;
+          // Union's fields have the same offset, so no need to change pos
+          // here, we just need to find eltSize that is greater then the
+          // required offset. The same is true for the similar union type
+          // check below
+          if (!recordTy.isUnion())
+            pos = (pos + alignMask) & ~alignMask;
+          if (offset < pos + eltSize) {
+            indices.push_back(i);
+            offset -= pos;
+            subType = elts[i];
+            return;
+          }
+          // No need to update pos here, see the comment above.
+          if (!recordTy.isUnion())
+            pos += eltSize;
+        }
+        supported = false;
+      })
+      .Default([&](mlir::Type scalarTy) {
+        if (!cir::isSized(scalarTy)) {
+          supported = false;
+          return;
+        }
 
-  assert(subType);
-  computeGlobalViewIndicesFromFlatOffset(offset, subType, layout, indices);
+        int64_t eltSize =
+            (int64_t)layout.getTypeAllocSize(scalarTy).getFixedValue();
+        if (eltSize <= 0) {
+          supported = false;
+          return;
+        }
+
+        const auto [index, newOffset] = getIndexAndNewOffset(offset, eltSize);
+        if (newOffset != 0) {
+          supported = false;
+          return;
+        }
+        indices.push_back(index);
+        offset = 0;
+      });
+
+  if (!supported)
+    return false;
+  if (!subType)
+    return offset == 0;
+  return computeGlobalViewIndicesFromFlatOffset(offset, subType, layout,
+                                                indices);
 }
 
 cir::RecordType clang::CIRGen::CIRGenBuilderTy::getCompleteRecordType(

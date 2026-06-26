@@ -72,7 +72,7 @@ int g3() {
 // CIR:   %[[LAM_ALLOCA:.*]] = cir.alloca ![[REC_LAM_G3]], !cir.ptr<![[REC_LAM_G3]]>, ["unused.capture"]
 // CIR:   cir.store %[[REF_I_ARG]], %[[REF_I_ALLOCA]]
 // CIR:   %[[REF_I:.*]] = cir.load{{.*}} %[[REF_I_ALLOCA]]
-// CIR:   %[[LAM_RESULT:.*]] = cir.call @_ZZ2g3vENK3$_0clERKi(%2, %3) : (!cir.ptr<![[REC_LAM_G3]]>, !cir.ptr<!s32i>) -> !s32i
+// CIR:   %[[LAM_RESULT:.*]] = cir.call @_ZZ2g3vENK3$_0clERKi(%[[LAM_ALLOCA]], %[[REF_I]]) : (!cir.ptr<![[REC_LAM_G3]]>, !cir.ptr<!s32i>) -> !s32i
 // CIR:   cir.store{{.*}} %[[LAM_RESULT]], %[[RETVAL]]
 // CIR:   %[[RET:.*]] = cir.load %[[RETVAL]]
 // CIR:   cir.return %[[RET]]
@@ -197,3 +197,13 @@ int g3() {
 // OGCG:   %[[I_PTR:.*]] = load ptr, ptr %[[I_ADDR]]
 // OGCG:   %[[I:.*]] = load i32, ptr %[[I_PTR]]
 // OGCG:   ret i32 %[[I]]
+
+void g4() {
+  auto *fn = +[]() {};
+  fn();
+}
+
+// CIR: cir.func no_inline internal private dso_local @_ZZ2g4vEN3$_08__invokeEv()
+// CIR:   %[[VOID_LAM:.*]] = cir.alloca {{.*}} ["unused.capture"]
+// CIR:   cir.call @_ZZ2g4vENK3$_0clEv(%[[VOID_LAM]])
+// CIR:   cir.return

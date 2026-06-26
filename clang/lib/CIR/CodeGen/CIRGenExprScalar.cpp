@@ -266,8 +266,9 @@ public:
   mlir::Value VisitOffsetOfExpr(OffsetOfExpr *e);
 
   mlir::Value VisitSizeOfPackExpr(SizeOfPackExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(), "ScalarExprEmitter: size of pack");
-    return {};
+    mlir::Type type = cgf.convertType(e->getType());
+    return builder.getConstInt(cgf.getLoc(e->getExprLoc()), type,
+                               e->getPackLength());
   }
   mlir::Value VisitPseudoObjectExpr(PseudoObjectExpr *e) {
     return cgf.emitPseudoObjectRValue(e).getValue();
@@ -406,9 +407,13 @@ public:
   mlir::Value VisitInitListExpr(InitListExpr *e);
 
   mlir::Value VisitArrayInitIndexExpr(ArrayInitIndexExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "ScalarExprEmitter: array init index");
-    return {};
+    mlir::Value index = cgf.getArrayInitIndex();
+    if (!index) {
+      cgf.cgm.errorNYI(e->getSourceRange(),
+                       "ScalarExprEmitter: array init index outside loop");
+      return {};
+    }
+    return index;
   }
 
   mlir::Value VisitImplicitValueInitExpr(const ImplicitValueInitExpr *e) {
@@ -847,7 +852,12 @@ public:
         e->EvaluateInContext(ctx, cgf.curSourceLocExprScope.getDefaultExpr());
     mlir::Attribute attribute = ConstantEmitter(cgf).emitAbstract(
         e->getLocation(), evaluated, e->getType());
-    mlir::TypedAttr typedAttr = mlir::cast<mlir::TypedAttr>(attribute);
+    auto typedAttr = mlir::dyn_cast_or_null<mlir::TypedAttr>(attribute);
+    if (!typedAttr) {
+      cgf.cgm.errorNYI(e->getSourceRange(),
+                       "ScalarExprEmitter: source location constant");
+      return {};
+    }
     return cir::ConstantOp::create(builder, cgf.getLoc(e->getExprLoc()),
                                    typedAttr);
   }
@@ -1383,7 +1393,7 @@ public:
 
   // Other Operators.
   mlir::Value VisitBlockExpr(const BlockExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(), "ScalarExprEmitter: block");
+    cgf.cgm.errorNYI(e->getSourceRange(), "block literal runtime lowering");
     return {};
   }
 
@@ -2078,6 +2088,12 @@ mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
   // their sub-expressions, so we clear this now.
   ignoreResultAssign = false;
 
+  auto getUnavailableCastResult = [&]() -> mlir::Value {
+    mlir::Location loc = cgf.getLoc(ce->getSourceRange());
+    mlir::Type dstCIRTy = cgf.convertType(destTy);
+    return builder.getConstant(loc, cir::PoisonAttr::get(dstCIRTy));
+  };
+
   switch (kind) {
   case clang::CK_Dependent:
     llvm_unreachable("dependent cast kind in CIR gen!");
@@ -2090,6 +2106,8 @@ mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
   case CK_BitCast: {
     mlir::Value src = Visit(const_cast<Expr *>(subExpr));
     mlir::Type dstTy = cgf.convertType(destTy);
+    if (!src)
+      return getUnavailableCastResult();
 
     assert(!cir::MissingFeatures::addressSpace());
 

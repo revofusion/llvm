@@ -575,7 +575,7 @@ public:
   // GlobalViewAttr. Ideally we shouldn't deal with low-level offsets at all
   // but currently some parts of Clang AST, which we don't want to touch just
   // yet, return them.
-  void computeGlobalViewIndicesFromFlatOffset(
+  bool computeGlobalViewIndicesFromFlatOffset(
       int64_t offset, mlir::Type ty, cir::CIRDataLayout layout,
       llvm::SmallVectorImpl<int64_t> &indices);
 

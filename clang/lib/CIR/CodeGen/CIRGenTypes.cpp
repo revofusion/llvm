@@ -45,7 +45,14 @@ bool CIRGenTypes::isFuncParamTypeConvertible(clang::QualType type) {
   if (!tagType)
     return true;
 
-  // Function types involving incomplete class types are problematic in MLIR.
+  // CIR records are mutable, named types.  A function signature can mention an
+  // incomplete record opaquely; layout-dependent uses will still require the
+  // definition before they can be emitted.
+  if (isa<RecordType>(tagType))
+    return true;
+
+  // Incomplete enum lowering still depends on choosing the eventual integer
+  // representation, so keep it out of function signatures until completion.
   return !tagType->isIncompleteType();
 }
 
@@ -498,6 +505,16 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
     resultType = builder.getPointerTo(pointeeType, elemTy.getAddressSpace());
     break;
   }
+
+  case Type::BlockPointer:
+    // Blocks are Objective-C runtime objects, not plain function pointers.
+    // Until CIRGen grows CGBlocks-style runtime layout and helper emission,
+    // model block references as opaque pointers.  This is sufficient for
+    // by-reference signatures and keeps actual block literals/calls behind
+    // explicit NYI diagnostics instead of forcing layout through the pointee
+    // function type.
+    resultType = builder.getVoidPtrTy();
+    break;
 
   case Type::VariableArray: {
     const VariableArrayType *a = cast<VariableArrayType>(ty);

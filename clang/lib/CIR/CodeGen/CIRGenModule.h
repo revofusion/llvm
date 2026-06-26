@@ -43,6 +43,8 @@ class Decl;
 class GlobalDecl;
 class LangOptions;
 class TargetInfo;
+class TemplateParamObjectDecl;
+class UnnamedGlobalConstantDecl;
 class VarDecl;
 
 namespace CIRGen {
@@ -173,6 +175,8 @@ public:
   void handleCXXStaticMemberVarInstantiation(VarDecl *vd);
 
   llvm::DenseMap<const Decl *, cir::GlobalOp> staticLocalDeclMap;
+  llvm::DenseMap<const UnnamedGlobalConstantDecl *, cir::GlobalOp>
+      unnamedGlobalConstantDeclMap;
 
   mlir::Operation *getGlobalValue(llvm::StringRef ref);
 
@@ -338,6 +342,12 @@ public:
   cir::GlobalViewAttr
   getAddrOfConstantStringFromLiteral(const StringLiteral *s,
                                      llvm::StringRef name = ".str");
+
+  cir::GlobalViewAttr
+  getAddrOfUnnamedGlobalConstantDecl(const UnnamedGlobalConstantDecl *d);
+
+  cir::GlobalViewAttr
+  getAddrOfTemplateParamObject(const TemplateParamObjectDecl *d);
 
   /// Create a private, constant, unnamed global initialized from \p value, used
   /// to spill the constant value of a variable that is referenced through a

@@ -22,6 +22,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/CharUnits.h"
+#include "clang/AST/DeclCXX.h"
 #include "clang/AST/OperationKinds.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/StmtVisitor.h"
@@ -90,11 +91,18 @@ struct ConstantAggregateBuilderUtils {
   }
 };
 
+static bool isDiscardableTailConstant(CIRGenModule &cgm,
+                                      mlir::TypedAttr attr) {
+  return mlir::isa<cir::UndefAttr>(attr) || cgm.getBuilder().isNullValue(attr);
+}
+
 static std::optional<mlir::TypedAttr>
 retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
                                 mlir::Type desiredType) {
   if (attr.getType() == desiredType)
     return attr;
+  if (!cir::isSized(attr.getType()) || !cir::isSized(desiredType))
+    return std::nullopt;
 
   CIRGenBuilderTy &builder = cgm.getBuilder();
   if (builder.isNullValue(attr))
@@ -145,8 +153,20 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
     };
 
     if (!record) {
-      if (!desiredRecord.isUnion())
+      if (!desiredRecord.isUnion()) {
+        if (desiredRecord.getNumElements() == 1 &&
+            utils.getSize(attr) == utils.getSize(desiredType) &&
+            utils.getSize(attr) == utils.getSize(desiredRecord.getElementType(0)) &&
+            desiredRecord.getElementOffset(utils.dataLayout.layout, 0) == 0) {
+          auto retargeted = retargetLayoutIdenticalConstant(
+              cgm, attr, desiredRecord.getElementType(0));
+          if (retargeted)
+            return cir::ConstRecordAttr::get(
+                desiredRecord,
+                mlir::ArrayAttr::get(builder.getContext(), {*retargeted}));
+        }
         return std::nullopt;
+      }
       for (unsigned index = 0; index < desiredRecord.getNumElements();
            ++index) {
         auto retargeted = retargetLayoutIdenticalConstant(
@@ -185,6 +205,10 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
             mlir::dyn_cast<mlir::TypedAttr>(record.getMembers()[index]);
         if (!typedMember)
           continue;
+        if (builder.isNullValue(typedMember) &&
+            utils.getSize(typedMember) != utils.getSize(memberType) &&
+            mlir::isa<cir::RecordType, cir::VectorType>(memberType))
+          continue;
         auto retargeted =
             retargetLayoutIdenticalConstant(cgm, typedMember, memberType);
         if (!retargeted)
@@ -203,6 +227,84 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
       if (auto retargeted =
               retargetSourceMemberAtOffset(offset, memberType, used))
         return retargeted;
+
+      if (auto desiredInt = mlir::dyn_cast<cir::IntTypeInterface>(memberType)) {
+        unsigned charWidth = cgm.getASTContext().getCharWidth();
+        CharUnits memberSize = utils.getSize(memberType);
+        if (!memberSize.isZero() &&
+            static_cast<uint64_t>(memberSize.getQuantity()) * charWidth ==
+                desiredInt.getWidth()) {
+          SmallVector<unsigned, 8> byteMembers;
+          llvm::APInt value(desiredInt.getWidth(), 0);
+          bool matchedAllBytes = true;
+
+          for (uint64_t byteIndex = 0;
+               byteIndex < static_cast<uint64_t>(memberSize.getQuantity());
+               ++byteIndex) {
+            CharUnits byteOffset =
+                offset + CharUnits::fromQuantity(
+                             static_cast<int64_t>(byteIndex));
+            std::optional<unsigned> byteMember;
+            for (unsigned sourceIndex = 0;
+                 sourceIndex < sourceRecord.getNumElements(); ++sourceIndex) {
+              if (used[sourceIndex] || getSourceOffset(sourceIndex) != byteOffset)
+                continue;
+              auto intMember = mlir::dyn_cast<cir::IntAttr>(
+                  record.getMembers()[sourceIndex]);
+              if (!intMember || intMember.getBitWidth() != charWidth ||
+                  utils.getSize(intMember) != CharUnits::One())
+                continue;
+              byteMember = sourceIndex;
+              break;
+            }
+            if (!byteMember) {
+              matchedAllBytes = false;
+              break;
+            }
+
+            auto byteValue = mlir::cast<cir::IntAttr>(
+                                 record.getMembers()[*byteMember])
+                                 .getValue()
+                                 .zextOrTrunc(desiredInt.getWidth());
+            uint64_t shiftByte = cgm.getDataLayout().isBigEndian()
+                                     ? static_cast<uint64_t>(
+                                           memberSize.getQuantity()) -
+                                           byteIndex - 1
+                                     : byteIndex;
+            value |= byteValue.shl(shiftByte * charWidth);
+            byteMembers.push_back(*byteMember);
+          }
+
+          if (matchedAllBytes) {
+            for (unsigned byteMember : byteMembers)
+              used[byteMember] = true;
+            return cir::IntAttr::get(memberType, value);
+          }
+        }
+      }
+
+      if (auto desiredRecord = mlir::dyn_cast<cir::RecordType>(memberType);
+          desiredRecord && !desiredRecord.isUnion()) {
+        SmallVector<bool, 16> trialUsed(used.begin(), used.end());
+        SmallVector<mlir::Attribute, 16> members;
+        members.reserve(desiredRecord.getNumElements());
+        for (unsigned index = 0; index < desiredRecord.getNumElements();
+             ++index) {
+          CharUnits memberOffset =
+              offset + CharUnits::fromQuantity(desiredRecord.getElementOffset(
+                           utils.dataLayout.layout, index));
+          auto retargeted = retargetSourceRangeAtOffset(
+              memberOffset, desiredRecord.getElementType(index), trialUsed);
+          if (!retargeted)
+            return std::nullopt;
+          members.push_back(*retargeted);
+        }
+
+        used.assign(trialUsed.begin(), trialUsed.end());
+        return cir::ConstRecordAttr::get(
+            desiredRecord,
+            mlir::ArrayAttr::get(builder.getContext(), members));
+      }
 
       auto desiredVector = mlir::dyn_cast<cir::VectorType>(memberType);
       if (!desiredVector || desiredVector.getIsScalable())
@@ -289,10 +391,9 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
 
     {
       SmallVector<bool, 16> used(sourceRecord.getNumElements(), false);
-      SmallVector<mlir::Attribute> members;
-      members.reserve(desiredRecord.getNumElements());
       unsigned sourceIndex = 0;
       bool consumedVector = false;
+      bool skippedPadding = false;
 
       auto retargetSourceMemberAtIndex =
           [&](unsigned index,
@@ -305,15 +406,85 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
           return std::nullopt;
         if (typedMember.getType() == memberType)
           return typedMember;
+        if (builder.isNullValue(typedMember) &&
+            utils.getSize(typedMember) != utils.getSize(memberType) &&
+            mlir::isa<cir::RecordType, cir::VectorType>(memberType))
+          return std::nullopt;
         if (builder.isNullValue(typedMember))
           return builder.getZeroInitAttr(memberType);
         return retargetLayoutIdenticalConstant(cgm, typedMember, memberType);
       };
 
+      auto isPaddingStorageType = [&](mlir::Type type) {
+        if (type == cgm.uCharTy)
+          return true;
+        auto arrayType = mlir::dyn_cast<cir::ArrayType>(type);
+        return arrayType && arrayType.getElementType() == cgm.uCharTy;
+      };
+
+      auto currentSourceTypeDiffers = [&](mlir::Type memberType) {
+        if (sourceIndex >= sourceRecord.getNumElements())
+          return false;
+        auto typedMember =
+            mlir::dyn_cast<mlir::TypedAttr>(record.getMembers()[sourceIndex]);
+        return typedMember && typedMember.getType() != memberType;
+      };
+
+      auto currentSourceRetargetsTo = [&](mlir::Type memberType) {
+        if (sourceIndex >= sourceRecord.getNumElements())
+          return false;
+        return retargetSourceMemberAtIndex(sourceIndex, memberType).has_value();
+      };
+
       std::function<std::optional<mlir::TypedAttr>(mlir::Type)>
           consumeLogicalMember;
+      std::function<std::optional<mlir::TypedAttr>(cir::RecordType)>
+          consumeLogicalRecord;
+
+      consumeLogicalRecord =
+          [&](cir::RecordType recordType) -> std::optional<mlir::TypedAttr> {
+        SmallVector<mlir::Attribute, 16> nestedMembers;
+        nestedMembers.reserve(recordType.getNumElements());
+        for (unsigned index = 0; index < recordType.getNumElements();
+             ++index) {
+          mlir::Type memberType = recordType.getElementType(index);
+          if (recordType.getPadded() && isPaddingStorageType(memberType) &&
+              (sourceIndex >= sourceRecord.getNumElements() ||
+               currentSourceTypeDiffers(memberType))) {
+            bool sourceFitsLaterMember = false;
+            for (unsigned next = index + 1; next < recordType.getNumElements();
+                 ++next) {
+              mlir::Type nextType = recordType.getElementType(next);
+              if (recordType.getPadded() && isPaddingStorageType(nextType))
+                continue;
+              sourceFitsLaterMember = currentSourceRetargetsTo(nextType);
+              break;
+            }
+            if (sourceIndex >= sourceRecord.getNumElements() ||
+                sourceFitsLaterMember) {
+              nestedMembers.push_back(builder.getZeroInitAttr(memberType));
+              skippedPadding = true;
+              continue;
+            }
+          }
+
+          auto retargeted = consumeLogicalMember(memberType);
+          if (!retargeted)
+            return std::nullopt;
+          nestedMembers.push_back(*retargeted);
+        }
+
+        return cir::ConstRecordAttr::get(
+            recordType,
+            mlir::ArrayAttr::get(builder.getContext(), nestedMembers));
+      };
+
       consumeLogicalMember =
           [&](mlir::Type memberType) -> std::optional<mlir::TypedAttr> {
+        if (auto nestedRecord = mlir::dyn_cast<cir::RecordType>(memberType);
+            nestedRecord && !nestedRecord.isUnion())
+          return consumeLogicalRecord(nestedRecord);
+
         if (auto desiredVector = mlir::dyn_cast<cir::VectorType>(memberType);
             desiredVector && !desiredVector.getIsScalable()) {
           mlir::Type elementType = desiredVector.getElementType();
@@ -340,21 +511,11 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
         return retargeted;
       };
 
-      for (unsigned index = 0; index < desiredRecord.getNumElements();
-           ++index) {
-        auto retargeted =
-            consumeLogicalMember(desiredRecord.getElementType(index));
-        if (!retargeted) {
-          members.clear();
-          break;
-        }
-        members.push_back(*retargeted);
-      }
-
-      if (consumedVector && members.size() == desiredRecord.getNumElements() &&
-          allUnusedSourceMembersAreNull(used))
-        return cir::ConstRecordAttr::get(
-            desiredRecord, mlir::ArrayAttr::get(builder.getContext(), members));
+      auto retargeted = consumeLogicalRecord(desiredRecord);
+      if ((consumedVector || skippedPadding ||
+           sourceIndex == sourceRecord.getNumElements()) &&
+          retargeted && allUnusedSourceMembersAreNull(used))
+        return retargeted;
     }
 
     if (sourceRecord.getNumElements() == desiredRecord.getNumElements()) {
@@ -1029,12 +1190,79 @@ ConstantAggregateBuilder::buildFrom(CIRGenModule &cgm, ArrayRef<Element> elems,
         vectorTy, mlir::ArrayAttr::get(builder.getContext(), vectorElems));
   }
 
+  if (auto recordTy = mlir::dyn_cast<cir::RecordType>(desiredTy);
+      recordTy && recordTy.isUnion() && elems.size() == 1 &&
+      elems.front().offset == startOffset) {
+    CIRGenBuilderTy &builder = cgm.getBuilder();
+    for (unsigned activeIndex = 0; activeIndex < recordTy.getNumElements();
+         ++activeIndex) {
+      mlir::Type activeType = recordTy.getElementType(activeIndex);
+      auto activeMember =
+          retargetAggregateConstant(cgm, elems.front().element, activeType);
+      if (!activeMember)
+        continue;
+
+      SmallVector<mlir::Attribute> members;
+      members.reserve(recordTy.getNumElements());
+      for (unsigned index = 0; index < recordTy.getNumElements(); ++index)
+        members.push_back(builder.getZeroInitAttr(recordTy.getElementType(index)));
+      members[activeIndex] = *activeMember;
+      return cir::ConstRecordAttr::get(
+          recordTy, mlir::ArrayAttr::get(builder.getContext(), members));
+    }
+  }
+
   // The size of the constant we plan to generate. This is usually just the size
   // of the initialized type, but in AllowOversized mode (i.e. flexible array
   // init), it can be larger.
   CharUnits desiredSize = utils.getSize(desiredTy);
   if (size > desiredSize) {
-    assert(allowOversized && "elems are oversized");
+    if (!allowOversized) {
+      CharUnits desiredEnd = startOffset + desiredSize;
+      SmallVector<Element, 32> clippedElems;
+      clippedElems.reserve(elems.size());
+      bool canClipTail = true;
+
+      for (auto [element, offset] : elems) {
+        CharUnits elementEnd = offset + utils.getSize(element);
+        if (offset >= desiredEnd) {
+          if (!isDiscardableTailConstant(cgm, element)) {
+            canClipTail = false;
+            break;
+          }
+          continue;
+        }
+
+        if (elementEnd <= desiredEnd) {
+          clippedElems.emplace_back(element, offset);
+          continue;
+        }
+
+        if (!isDiscardableTailConstant(cgm, element)) {
+          canClipTail = false;
+          break;
+        }
+
+        CharUnits keptSize = desiredEnd - offset;
+        if (!keptSize.isZero())
+          clippedElems.emplace_back(utils.getPadding(keptSize), offset);
+      }
+
+      if (canClipTail)
+        return buildFrom(cgm, clippedElems, startOffset, desiredSize,
+                         /*naturalLayout=*/false, desiredTy,
+                         /*allowOversized=*/false);
+
+      std::string message;
+      llvm::raw_string_ostream os(message);
+      os << "aggregate constant elements exceed target type size: target "
+         << desiredTy << " size " << desiredSize.getQuantity()
+         << ", constant size " << size.getQuantity() << ", elements";
+      for (auto [element, offset] : elems)
+        os << " [" << offset.getQuantity() << ": " << element.getType() << "]";
+      cgm.errorNYI(os.str());
+      return {};
+    }
     desiredSize = size;
   }
 
@@ -1111,6 +1339,8 @@ retargetAggregateConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
                           mlir::Type desiredType) {
   if (auto retargeted = retargetLayoutIdenticalConstant(cgm, attr, desiredType))
     return retargeted;
+  if (!cir::isSized(attr.getType()) || !cir::isSized(desiredType))
+    return std::nullopt;
 
   ConstantAggregateBuilderUtils utils(cgm);
   if (utils.getSize(attr) != utils.getSize(desiredType))
@@ -1421,8 +1651,9 @@ bool ConstRecordBuilder::build(const APValue &val, const RecordDecl *rd,
 
     for (BaseInfo &base : bases) {
       bool isPrimaryBase = layout.getPrimaryBase() == base.decl;
-      build(val.getStructBase(base.index), base.decl, isPrimaryBase,
-            vTableClass, offset + base.offset);
+      if (!build(val.getStructBase(base.index), base.decl, isPrimaryBase,
+                 vTableClass, offset + base.offset))
+        return false;
     }
   }
 
@@ -1441,8 +1672,11 @@ bool ConstRecordBuilder::build(const APValue &val, const RecordDecl *rd,
     // Emit the value of the initializer.
     const APValue &fieldValue =
         rd->isUnion() ? val.getUnionValue() : val.getStructField(index);
-    mlir::TypedAttr eltInit = mlir::cast<mlir::TypedAttr>(
-        emitter.tryEmitPrivateForMemory(fieldValue, field->getType()));
+    mlir::Attribute eltInitAttr =
+        emitter.tryEmitPrivateForMemory(fieldValue, field->getType());
+    if (!eltInitAttr)
+      return false;
+    auto eltInit = mlir::dyn_cast<mlir::TypedAttr>(eltInitAttr);
     if (!eltInit)
       return false;
 
@@ -1892,12 +2126,19 @@ private:
   VisitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *e);
 
   /// Return GEP-like value offset
-  mlir::ArrayAttr getOffset(mlir::Type ty) {
+  std::optional<mlir::ArrayAttr> getOffset(mlir::Type ty) {
     int64_t offset = value.getLValueOffset().getQuantity();
     cir::CIRDataLayout layout(cgm.getModule());
     SmallVector<int64_t, 3> idxVec;
-    cgm.getBuilder().computeGlobalViewIndicesFromFlatOffset(offset, ty, layout,
-                                                            idxVec);
+    if (!cgm.getBuilder().computeGlobalViewIndicesFromFlatOffset(
+            offset, ty, layout, idxVec)) {
+      std::string message;
+      llvm::raw_string_ostream os(message);
+      os << "ConstantLValueEmitter: unsupported lvalue offset " << offset
+         << " in " << ty;
+      cgm.errorNYI(os.str());
+      return std::nullopt;
+    }
 
     llvm::SmallVector<mlir::Attribute, 3> indices;
     for (int64_t i : idxVec) {
@@ -1906,7 +2147,7 @@ private:
     }
 
     if (indices.empty())
-      return {};
+      return mlir::ArrayAttr{};
     return cgm.getBuilder().getArrayAttr(indices);
   }
 
@@ -1918,8 +2159,10 @@ private:
         auto baseTy = mlir::cast<cir::PointerType>(gv.getType()).getPointee();
         mlir::Type destTy = cgm.getTypes().convertTypeForMem(destType);
         assert(!gv.getIndices() && "Global view is already indexed");
-        return cir::GlobalViewAttr::get(destTy, gv.getSymbol(),
-                                        getOffset(baseTy));
+        std::optional<mlir::ArrayAttr> offset = getOffset(baseTy);
+        if (!offset)
+          return {};
+        return cir::GlobalViewAttr::get(destTy, gv.getSymbol(), *offset);
       }
       llvm_unreachable("Unsupported attribute type to offset");
     }
@@ -2013,11 +2256,25 @@ ConstantLValueEmitter::tryEmitBase(const APValue::LValueBase &base) {
           return cgm.getAddrOfGlobalVarAttr(vd);
 
         if (vd->isLocalVarDecl()) {
-          cgm.errorNYI(vd->getSourceRange(),
-                       "ConstantLValueEmitter: local var decl");
-          return {};
+          cir::GlobalLinkageKind linkage =
+              cgm.getCIRLinkageVarDefinition(vd, false);
+          cir::GlobalOp global = cgm.getOrCreateStaticVarDecl(*vd, linkage);
+          return cgm.getBuilder().getGlobalViewAttr(
+              cgm.getBuilder().getPointerTo(global.getSymType()), global);
         }
       }
+    }
+
+    if (const auto *gcd = dyn_cast<UnnamedGlobalConstantDecl>(d)) {
+      if (auto addr = cgm.getAddrOfUnnamedGlobalConstantDecl(gcd))
+        return addr;
+      return {};
+    }
+
+    if (const auto *tpo = dyn_cast<TemplateParamObjectDecl>(d)) {
+      if (auto addr = cgm.getAddrOfTemplateParamObject(tpo))
+        return addr;
+      return {};
     }
 
     // Classic codegen handles MSGuidDecl,UnnamedGlobalConstantDecl, and
@@ -2321,7 +2578,12 @@ mlir::Attribute ConstantEmitter::tryEmitPrivateForMemory(const Expr *e,
     mlir::Attribute attr = emitForMemory(c, destType);
     if (!attr)
       return nullptr;
-    return mlir::cast<mlir::TypedAttr>(attr);
+    auto typed = mlir::dyn_cast<mlir::TypedAttr>(attr);
+    if (!typed) {
+      cgm.errorNYI("tryEmitPrivateForMemory: non-typed memory constant");
+      return nullptr;
+    }
+    return typed;
   }
   return nullptr;
 }
@@ -2336,7 +2598,7 @@ mlir::Attribute ConstantEmitter::tryEmitPrivateForMemory(const APValue &value,
 mlir::Attribute ConstantEmitter::emitAbstract(const Expr *e,
                                               QualType destType) {
   AbstractStateRAII state{*this, true};
-  mlir::Attribute c = mlir::cast<mlir::Attribute>(tryEmitPrivate(e, destType));
+  mlir::Attribute c = tryEmitPrivate(e, destType);
   if (!c)
     cgm.errorNYI(e->getSourceRange(),
                  "emitAbstract failed, emit null constaant");
@@ -2370,6 +2632,9 @@ mlir::Attribute ConstantEmitter::emitForMemory(mlir::Attribute c,
 mlir::Attribute ConstantEmitter::emitForMemory(CIRGenModule &cgm,
                                                mlir::Attribute c,
                                                QualType destType) {
+  if (!c)
+    return {};
+
   // For an _Atomic-qualified constant, we may need to add tail padding.
   if (const auto *at = destType->getAs<AtomicType>()) {
     QualType destValueType = at->getValueType();
@@ -2421,7 +2686,7 @@ mlir::TypedAttr ConstantEmitter::tryEmitPrivate(const Expr *e,
 
   if (mlir::Attribute c =
           ConstExprEmitter(*this).Visit(const_cast<Expr *>(e), destType))
-    return llvm::dyn_cast<mlir::TypedAttr>(c);
+    return mlir::dyn_cast_or_null<mlir::TypedAttr>(c);
 
   Expr::EvalResult result;
 
@@ -2435,7 +2700,7 @@ mlir::TypedAttr ConstantEmitter::tryEmitPrivate(const Expr *e,
 
   if (success && !result.hasSideEffects()) {
     mlir::Attribute c = tryEmitPrivate(result.Val, destType);
-    return llvm::dyn_cast<mlir::TypedAttr>(c);
+    return mlir::dyn_cast_or_null<mlir::TypedAttr>(c);
   }
 
   return nullptr;
@@ -2452,8 +2717,12 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
   case APValue::Int: {
     mlir::Type ty = cgm.convertType(destType);
     if (mlir::isa<cir::BoolType>(ty))
-      return builder.getCIRBoolAttr(value.getInt().getZExtValue());
-    assert(mlir::isa<cir::IntType>(ty) && "expected integral type");
+      return builder.getCIRBoolAttr(!value.getInt().isZero());
+    if (!mlir::isa<cir::IntType>(ty)) {
+      cgm.errorNYI("ConstExprEmitter::tryEmitPrivate integer with "
+                   "non-integer CIR type");
+      return {};
+    }
     return cir::IntAttr::get(ty, value.getInt());
   }
   case APValue::Float: {
@@ -2466,12 +2735,20 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
     }
 
     mlir::Type ty = cgm.convertType(destType);
-    assert(mlir::isa<cir::FPTypeInterface>(ty) &&
-           "expected floating-point type");
+    if (!mlir::isa<cir::FPTypeInterface>(ty)) {
+      cgm.errorNYI("ConstExprEmitter::tryEmitPrivate float with non-float CIR "
+                   "type");
+      return {};
+    }
     return cir::FPAttr::get(ty, init);
   }
   case APValue::Array: {
     const ArrayType *arrayTy = cgm.getASTContext().getAsArrayType(destType);
+    if (!arrayTy) {
+      cgm.errorNYI("ConstExprEmitter::tryEmitPrivate array with non-array AST "
+                   "type");
+      return {};
+    }
     const QualType arrayElementTy = arrayTy->getElementType();
     const unsigned numElements = value.getArraySize();
     const unsigned numInitElts = value.getArrayInitializedElts();
@@ -2497,7 +2774,13 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
       if (!element)
         return {};
 
-      const mlir::TypedAttr elementTyped = mlir::cast<mlir::TypedAttr>(element);
+      const mlir::TypedAttr elementTyped =
+          mlir::dyn_cast<mlir::TypedAttr>(element);
+      if (!elementTyped) {
+        cgm.errorNYI("ConstExprEmitter::tryEmitPrivate array element without "
+                     "typed constant");
+        return {};
+      }
       if (i == 0)
         commonElementType = elementTyped.getType();
       else if (elementTyped.getType() != commonElementType) {
@@ -2532,7 +2815,12 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
     }
 
     const auto desiredVecTy =
-        mlir::cast<cir::VectorType>(cgm.convertType(destType));
+        mlir::dyn_cast<cir::VectorType>(cgm.convertType(destType));
+    if (!desiredVecTy) {
+      cgm.errorNYI("ConstExprEmitter::tryEmitPrivate vector with non-vector "
+                   "CIR type");
+      return {};
+    }
 
     return cir::ConstVectorAttr::get(
         desiredVecTy,
@@ -2541,7 +2829,18 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
   case APValue::MemberPointer: {
     assert(!cir::MissingFeatures::cxxABI());
 
+    mlir::Type cirTy = cgm.convertType(destType);
     const ValueDecl *memberDecl = value.getMemberPointerDecl();
+    if (!memberDecl) {
+      if (auto dataMemberTy = mlir::dyn_cast<cir::DataMemberType>(cirTy))
+        return builder.getNullDataMemberAttr(dataMemberTy);
+      if (mlir::isa<cir::MethodType>(cirTy))
+        return builder.getZeroInitAttr(cirTy);
+      cgm.errorNYI("ConstExprEmitter::tryEmitPrivate null member pointer with "
+                   "non-member-pointer CIR type");
+      return {};
+    }
+
     if (value.isMemberPointerToDerivedMember()) {
       cgm.errorNYI(
           "ConstExprEmitter::tryEmitPrivate member pointer to derived member");
@@ -2555,17 +2854,17 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
                      "to method");
         return {};
       }
-      auto cirTy = mlir::cast<cir::MethodType>(cgm.convertType(destType));
+      auto methodTy = mlir::cast<cir::MethodType>(cirTy);
       cir::FuncOp func = cgm.getAddrOfFunction(GlobalDecl(methodDecl));
       return cir::MethodAttr::get(
-          cirTy, mlir::FlatSymbolRefAttr::get(func.getSymNameAttr()),
+          methodTy, mlir::FlatSymbolRefAttr::get(func.getSymNameAttr()),
           /*this_adjustment=*/0);
     }
 
-    auto cirTy = mlir::cast<cir::DataMemberType>(cgm.convertType(destType));
+    auto dataMemberTy = mlir::cast<cir::DataMemberType>(cirTy);
 
     const auto *fieldDecl = cast<FieldDecl>(memberDecl);
-    return builder.getDataMemberAttr(cirTy, fieldDecl->getFieldIndex());
+    return builder.getDataMemberAttr(dataMemberTy, fieldDecl->getFieldIndex());
   }
   case APValue::LValue:
     return ConstantLValueEmitter(*this, value, destType).tryEmit();

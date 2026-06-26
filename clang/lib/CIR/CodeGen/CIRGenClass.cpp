@@ -862,8 +862,13 @@ void CIRGenFunction::emitForwardingCallToLambda(
       CIRGenCallee::forDirect(calleePtr, GlobalDecl(callOperator));
   RValue rv = emitCall(calleeFnInfo, callee, returnSlot, callArgs);
 
+  if (resultType->isVoidType()) {
+    cir::ReturnOp::create(builder, getLoc(callOperator->getSourceRange()));
+    return;
+  }
+
   // If necessary, copy the returned value into the slot.
-  if (!resultType->isVoidType() && returnSlot.isNull()) {
+  if (returnSlot.isNull()) {
     if (getLangOpts().ObjCAutoRefCount && resultType->isObjCRetainableType())
       cgm.errorNYI(callOperator->getSourceRange(),
                    "emitForwardingCallToLambda: ObjCAutoRefCount");

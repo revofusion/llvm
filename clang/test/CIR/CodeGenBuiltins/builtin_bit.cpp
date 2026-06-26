@@ -146,6 +146,23 @@ int test_builtin_ctzg(unsigned x) {
 // OGCG-LABEL: _Z17test_builtin_ctzgj
 // OGCG:         %{{.+}} = call i32 @llvm.cttz.i32(i32 %{{.+}}, i1 true)
 
+int test_builtin_ctzg_u8(unsigned char x) {
+  return __builtin_ctzg(x, 8);
+}
+
+// CIR-LABEL: _Z20test_builtin_ctzg_u8h
+// CIR:         [[CTZ:%.+]] = cir.ctz %{{.+}} poison_zero : !u8i
+// CIR:         [[CAST:%.+]] = cir.cast integral [[CTZ]] : !u8i -> !s32i
+// CIR:         {{%.+}} = cir.select if %{{.+}} then %{{.+}} else [[CAST]] : (!cir.bool, !s32i, !s32i) -> !s32i
+
+// LLVM-LABEL: _Z20test_builtin_ctzg_u8h
+// LLVM:         %{{.+}} = call i8 @llvm.cttz.i8(i8 %{{.+}}, i1 true)
+// LLVM:         %{{.+}} = select i1 %{{.+}}, i32 8, i32 %{{.+}}
+
+// OGCG-LABEL: _Z20test_builtin_ctzg_u8h
+// OGCG:         %{{.+}} = call i8 @llvm.cttz.i8(i8 %{{.+}}, i1 true)
+// OGCG:         %{{.+}} = select i1 %{{.+}}, i32 8, i32 %{{.+}}
+
 int test_builtin_clzs(unsigned short x) {
   return __builtin_clzs(x);
 }
@@ -215,6 +232,40 @@ int test_builtin_clzg(unsigned x) {
 
 // OGCG-LABEL: _Z17test_builtin_clzgj
 // OGCG:         %{{.+}} = call i32 @llvm.ctlz.i32(i32 %{{.+}}, i1 true)
+
+int test_builtin_clzg_u8(unsigned char x) {
+  return __builtin_clzg(x, 8);
+}
+
+// CIR-LABEL: _Z20test_builtin_clzg_u8h
+// CIR:         [[CLZ:%.+]] = cir.clz %{{.+}} poison_zero : !u8i
+// CIR:         [[CAST:%.+]] = cir.cast integral [[CLZ]] : !u8i -> !s32i
+// CIR:         {{%.+}} = cir.select if %{{.+}} then %{{.+}} else [[CAST]] : (!cir.bool, !s32i, !s32i) -> !s32i
+
+// LLVM-LABEL: _Z20test_builtin_clzg_u8h
+// LLVM:         %{{.+}} = call i8 @llvm.ctlz.i8(i8 %{{.+}}, i1 true)
+// LLVM:         %{{.+}} = select i1 %{{.+}}, i32 8, i32 %{{.+}}
+
+// OGCG-LABEL: _Z20test_builtin_clzg_u8h
+// OGCG:         %{{.+}} = call i8 @llvm.ctlz.i8(i8 %{{.+}}, i1 true)
+// OGCG:         %{{.+}} = select i1 %{{.+}}, i32 8, i32 %{{.+}}
+
+int test_builtin_clzg_u128(unsigned __int128 x) {
+  return __builtin_clzg(x, 128);
+}
+
+// CIR-LABEL: _Z22test_builtin_clzg_u128o
+// CIR:         [[CLZ:%.+]] = cir.clz %{{.+}} poison_zero : !u128i
+// CIR:         [[CAST:%.+]] = cir.cast integral [[CLZ]] : !u128i -> !s32i
+// CIR:         {{%.+}} = cir.select if %{{.+}} then %{{.+}} else [[CAST]] : (!cir.bool, !s32i, !s32i) -> !s32i
+
+// LLVM-LABEL: _Z22test_builtin_clzg_u128o
+// LLVM:         %{{.+}} = call i128 @llvm.ctlz.i128(i128 %{{.+}}, i1 true)
+// LLVM:         %{{.+}} = select i1 %{{.+}}, i32 128, i32 %{{.+}}
+
+// OGCG-LABEL: _Z22test_builtin_clzg_u128o
+// OGCG:         %{{.+}} = call i128 @llvm.ctlz.i128(i128 %{{.+}}, i1 true)
+// OGCG:         %{{.+}} = select i1 %{{.+}}, i32 128, i32 %{{.+}}
 
 int test_builtin_ffs(int x) {
   return __builtin_ffs(x);

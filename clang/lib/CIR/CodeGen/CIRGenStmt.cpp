@@ -120,6 +120,7 @@ mlir::LogicalResult CIRGenFunction::emitStmt(const Stmt *s,
       case attr::HLSLLoopHint:
       case attr::Likely:
       case attr::LoopHint:
+      case attr::NoMerge:
       case attr::Unlikely:
         break;
       default:
@@ -879,15 +880,29 @@ CIRGenFunction::emitCaseDefaultCascade(const T *stmt, mlir::Type condType,
 mlir::LogicalResult CIRGenFunction::emitCaseStmt(const CaseStmt &s,
                                                  mlir::Type condType,
                                                  bool buildingTopLevelCase) {
+  if (!mlir::isa<cir::IntTypeInterface>(condType)) {
+    cgm.errorNYI(s.getBeginLoc(), "switch case with non-integer condition type");
+    return mlir::failure();
+  }
+
+  auto caseType = mlir::cast<cir::IntTypeInterface>(condType);
+  auto normalizeCaseValue = [&](llvm::APSInt value) {
+    value = value.extOrTrunc(caseType.getWidth());
+    value.setIsUnsigned(!caseType.isSigned());
+    return value;
+  };
+
   cir::CaseOpKind kind;
   mlir::ArrayAttr value;
-  llvm::APSInt intVal = s.getLHS()->EvaluateKnownConstInt(getContext());
+  llvm::APSInt intVal =
+      normalizeCaseValue(s.getLHS()->EvaluateKnownConstInt(getContext()));
 
   // If the case statement has an RHS value, it is representing a GNU
   // case range statement, where LHS is the beginning of the range
   // and RHS is the end of the range.
   if (const Expr *rhs = s.getRHS()) {
-    llvm::APSInt endVal = rhs->EvaluateKnownConstInt(getContext());
+    llvm::APSInt endVal =
+        normalizeCaseValue(rhs->EvaluateKnownConstInt(getContext()));
     value = builder.getArrayAttr({cir::IntAttr::get(condType, intVal),
                                   cir::IntAttr::get(condType, endVal)});
     kind = cir::CaseOpKind::Range;
@@ -1196,6 +1211,9 @@ mlir::LogicalResult CIRGenFunction::emitSwitchBody(const Stmt *s) {
 
   mlir::Block *swtichBlock = builder.getBlock();
   for (auto *c : compoundStmt->body()) {
+    if (auto *attributedStmt = dyn_cast<AttributedStmt>(c))
+      c = attributedStmt->getSubStmt();
+
     if (auto *switchCase = dyn_cast<SwitchCase>(c)) {
       builder.setInsertionPointToEnd(swtichBlock);
       // Reset insert point automatically, so that we can attach following
@@ -1233,6 +1251,12 @@ mlir::LogicalResult CIRGenFunction::emitSwitchStmt(const clang::SwitchStmt &s) {
       emitDecl(*s.getConditionVariable(), /*evaluateConditionDecl=*/true);
 
     mlir::Value condV = emitScalarExpr(s.getCond());
+    if (!condV) {
+      cgm.errorNYI(s.getCond()->getExprLoc(), "switch condition unavailable");
+      return mlir::failure();
+    }
+    if (mlir::isa<cir::BoolType>(condV.getType()))
+      condV = builder.createBoolToInt(condV, convertType(getContext().IntTy));
 
     // TODO: PGO and likelihood (e.g. PGO.haveRegionCounts())
     assert(!cir::MissingFeatures::pgoUse());

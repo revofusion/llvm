@@ -17,6 +17,7 @@
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclBase.h"
+#include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclOpenACC.h"
 #include "clang/AST/GlobalDecl.h"
 #include "clang/AST/RecordLayout.h"
@@ -40,6 +41,25 @@
 
 using namespace clang;
 using namespace clang::CIRGen;
+
+static bool canUseDirectCIRDynamicTLSAccess(const VarDecl *d, ASTContext &ctx) {
+  assert(d->getTLSKind() == VarDecl::TLS_Dynamic &&
+         "only dynamic TLS needs this check");
+
+  if (d->needsDestruction(ctx))
+    return false;
+
+  const Type *baseTy = d->getType()->getBaseElementTypeUnsafe();
+  if (baseTy->isRecordType() && baseTy->isIncompleteType())
+    return false;
+
+  const VarDecl *initDecl = d->getMostRecentDecl()->getInitializingDeclaration();
+  if (!initDecl)
+    return false;
+  if (!initDecl->hasInit())
+    return true;
+  return initDecl->hasConstantInitialization();
+}
 
 static CIRGenCXXABI *createCXXABI(CIRGenModule &cgm) {
   switch (cgm.getASTContext().getCXXABIKind()) {
@@ -333,6 +353,10 @@ CIRGenModule::getAddrOfGlobal(GlobalDecl gd, ForDefinition_t isForDefinition) {
 }
 
 void CIRGenModule::emitGlobalDecl(const clang::GlobalDecl &d) {
+  if (const auto *fd = dyn_cast<FunctionDecl>(d.getDecl()))
+    if (fd->isConsteval())
+      return;
+
   // We call getAddrOfGlobal with isForDefinition set to ForDefinition in
   // order to get a Value with exactly the type we need, not something that
   // might have been created for another decl with the same mangled name but
@@ -416,6 +440,9 @@ void CIRGenModule::emitGlobal(clang::GlobalDecl gd) {
   const auto *global = cast<ValueDecl>(gd.getDecl());
 
   if (const auto *fd = dyn_cast<FunctionDecl>(global)) {
+    if (fd->isConsteval())
+      return;
+
     // Update deferred annotations with the latest declaration if the function
     // was already used or defined.
     if (fd->hasAttr<AnnotateAttr>()) {
@@ -772,8 +799,9 @@ CIRGenModule::getOrCreateCIRGlobal(StringRef mangledName, mlir::Type ty,
     setLinkageForGV(gv, d);
 
     if (d->getTLSKind()) {
-      if (d->getTLSKind() == VarDecl::TLS_Dynamic)
-        errorNYI(d->getSourceRange(), "TLS dynamic");
+      if (d->getTLSKind() == VarDecl::TLS_Dynamic &&
+          !canUseDirectCIRDynamicTLSAccess(d, astContext))
+        errorNYI(d->getSourceRange(), "TLS dynamic wrapper");
       setTLSMode(gv, *d);
     }
 
@@ -1004,6 +1032,9 @@ void CIRGenModule::emitGlobalDefinition(clang::GlobalDecl gd,
                                         mlir::Operation *op) {
   const auto *decl = cast<ValueDecl>(gd.getDecl());
   if (const auto *fd = dyn_cast<FunctionDecl>(decl)) {
+    if (fd->isConsteval())
+      return;
+
     // TODO(CIR): Skip generation of CIR for functions with available_externally
     // linkage at -O0.
 
@@ -1570,6 +1601,86 @@ CIRGenModule::getAddrOfConstantStringFromLiteral(const StringLiteral *s,
   return builder.getGlobalViewAttr(ptrTy, gv);
 }
 
+cir::GlobalViewAttr CIRGenModule::getAddrOfUnnamedGlobalConstantDecl(
+    const UnnamedGlobalConstantDecl *d) {
+  if (cir::GlobalOp existing = unnamedGlobalConstantDeclMap[d]) {
+    cir::PointerType ptrTy = builder.getPointerTo(existing.getSymType());
+    return builder.getGlobalViewAttr(ptrTy, existing);
+  }
+
+  ConstantEmitter emitter(*this);
+  mlir::Attribute initAttr =
+      emitter.tryEmitPrivateForMemory(d->getValue(), d->getType());
+  auto typedInit = mlir::dyn_cast_or_null<mlir::TypedAttr>(initAttr);
+  if (!typedInit) {
+    errorNYI(d->getSourceRange(), "unnamed global constant initializer");
+    return {};
+  }
+
+  CharUnits align = getASTContext().getTypeAlignInChars(d->getType());
+  mlir::Location loc = d->getSourceRange().isValid()
+                           ? getLoc(d->getSourceRange())
+                           : builder.getUnknownLoc();
+  cir::GlobalOp gv = createGlobalOp(*this, loc,
+                                    getUniqueGlobalName(".constant"),
+                                    typedInit.getType(), true);
+  gv.setAlignmentAttr(getSize(align));
+  gv.setLinkageAttr(cir::GlobalLinkageKindAttr::get(
+      &getMLIRContext(), cir::GlobalLinkageKind::PrivateLinkage));
+  assert(!cir::MissingFeatures::opGlobalUnnamedAddr());
+  setInitializer(gv, typedInit);
+  setDSOLocal(static_cast<mlir::Operation *>(gv));
+
+  unnamedGlobalConstantDeclMap[d] = gv;
+  cir::PointerType ptrTy = builder.getPointerTo(gv.getSymType());
+  return builder.getGlobalViewAttr(ptrTy, gv);
+}
+
+cir::GlobalViewAttr
+CIRGenModule::getAddrOfTemplateParamObject(const TemplateParamObjectDecl *d) {
+  StringRef name = getMangledName(d);
+  if (mlir::Operation *op = getGlobalValue(name)) {
+    cir::GlobalOp existing = mlir::dyn_cast<cir::GlobalOp>(op);
+    if (!existing) {
+      errorNYI(d->getSourceRange(), "template parameter object global");
+      return {};
+    }
+
+    cir::PointerType ptrTy = builder.getPointerTo(existing.getSymType());
+    return builder.getGlobalViewAttr(ptrTy, existing);
+  }
+
+  ConstantEmitter emitter(*this);
+  mlir::Attribute initAttr =
+      emitter.tryEmitPrivateForMemory(d->getValue(), d->getType());
+  auto typedInit = mlir::dyn_cast_or_null<mlir::TypedAttr>(initAttr);
+  if (!typedInit) {
+    errorNYI(d->getSourceRange(), "template parameter object initializer");
+    return {};
+  }
+
+  CharUnits align = getASTContext().getTypeAlignInChars(d->getType());
+  mlir::Location loc = d->getSourceRange().isValid()
+                           ? getLoc(d->getSourceRange())
+                           : builder.getUnknownLoc();
+  cir::GlobalOp gv =
+      createGlobalOp(*this, loc, name, typedInit.getType(), true);
+  gv.setAlignmentAttr(getSize(align));
+  cir::GlobalLinkageKind linkage =
+      isExternallyVisible(d->getLinkageAndVisibility().getLinkage())
+          ? cir::GlobalLinkageKind::LinkOnceODRLinkage
+          : cir::GlobalLinkageKind::InternalLinkage;
+  gv.setLinkageAttr(
+      cir::GlobalLinkageKindAttr::get(&getMLIRContext(), linkage));
+  if (supportsCOMDAT() && cir::isWeakForLinker(linkage))
+    gv.setComdat(true);
+  setInitializer(gv, typedInit);
+  setDSOLocal(static_cast<mlir::Operation *>(gv));
+
+  cir::PointerType ptrTy = builder.getPointerTo(gv.getSymType());
+  return builder.getGlobalViewAttr(ptrTy, gv);
+}
+
 cir::GlobalOp CIRGenModule::createUnnamedGlobalFrom(const VarDecl &d,
                                                     mlir::TypedAttr value,
                                                     CharUnits align) {
@@ -1845,11 +1956,13 @@ cir::FuncOp CIRGenModule::getAddrOfFunction(clang::GlobalDecl gd,
                                             mlir::Type funcType, bool forVTable,
                                             bool dontDefer,
                                             ForDefinition_t isForDefinition) {
-  assert(!cast<FunctionDecl>(gd.getDecl())->isConsteval() &&
-         "consteval function should never be emitted");
+  const auto *fd = cast<FunctionDecl>(gd.getDecl());
+  if (fd->isConsteval()) {
+    isForDefinition = NotForDefinition;
+    dontDefer = true;
+  }
 
   if (!funcType) {
-    const auto *fd = cast<FunctionDecl>(gd.getDecl());
     funcType = convertType(fd->getType());
   }
 

@@ -13,6 +13,7 @@
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 
 #include "mlir/IR/DialectImplementation.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 //===-----------------------------------------------------------------===//
@@ -165,45 +166,38 @@ static void printConstPtr(AsmPrinter &p, mlir::IntegerAttr value) {
 // IntAttr definitions
 //===----------------------------------------------------------------------===//
 
-template <typename IntT>
-static bool isTooLargeForType(const mlir::APInt &value, IntT expectedValue) {
-  if constexpr (std::is_signed_v<IntT>) {
-    return value.getSExtValue() != expectedValue;
-  } else {
-    return value.getZExtValue() != expectedValue;
-  }
+static bool isTooLargeForType(const mlir::APInt &value,
+                              cir::IntTypeInterface ty) {
+  return ty.isSigned() ? !value.isSignedIntN(ty.getWidth())
+                       : value.isNegative() || !value.isIntN(ty.getWidth());
 }
 
-template <typename IntT>
 static mlir::ParseResult parseIntLiteralImpl(mlir::AsmParser &p,
                                              llvm::APInt &value,
                                              cir::IntTypeInterface ty) {
-  IntT ivalue;
-  const bool isSigned = ty.isSigned();
-  if (p.parseInteger(ivalue))
+  llvm::APInt parsedValue;
+  if (p.parseInteger(parsedValue))
     return p.emitError(p.getCurrentLocation(), "expected integer value");
 
-  value = mlir::APInt(ty.getWidth(), ivalue, isSigned, /*implicitTrunc=*/true);
-  if (isTooLargeForType(value, ivalue))
+  if (isTooLargeForType(parsedValue, ty))
     return p.emitError(p.getCurrentLocation(),
                        "integer value too large for the given type");
 
+  value = ty.isSigned() ? parsedValue.sextOrTrunc(ty.getWidth())
+                        : parsedValue.zextOrTrunc(ty.getWidth());
   return success();
 }
 
 mlir::ParseResult parseIntLiteral(mlir::AsmParser &parser, llvm::APInt &value,
                                   cir::IntTypeInterface ty) {
-  if (ty.isSigned())
-    return parseIntLiteralImpl<int64_t>(parser, value, ty);
-  return parseIntLiteralImpl<uint64_t>(parser, value, ty);
+  return parseIntLiteralImpl(parser, value, ty);
 }
 
 void printIntLiteral(mlir::AsmPrinter &p, llvm::APInt value,
                      cir::IntTypeInterface ty) {
-  if (ty.isSigned())
-    p << value.getSExtValue();
-  else
-    p << value.getZExtValue();
+  llvm::SmallString<40> text;
+  value.toString(text, 10, ty.isSigned());
+  p << text;
 }
 
 LogicalResult IntAttr::verify(function_ref<InFlightDiagnostic()> emitError,

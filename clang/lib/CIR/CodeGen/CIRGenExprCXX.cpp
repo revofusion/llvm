@@ -17,6 +17,7 @@
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/Basic/OperatorKinds.h"
+#include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "clang/CIR/MissingFeatures.h"
 
 using namespace clang;
@@ -278,8 +279,43 @@ static void emitNullBaseClassInitialization(CIRGenFunction &cgf,
            "Expected store to begin at offset zero");
     CIRGenBuilderTy builder = cgf.getBuilder();
     mlir::Location loc = cgf.getLoc(base->getBeginLoc());
-    builder.createStore(loc, builder.getConstant(loc, nullConstantForBase),
-                        destPtr);
+    mlir::Type destElementType = destPtr.getElementType();
+    if (nullConstantForBase.getType() != destElementType) {
+      if (!cir::isSized(nullConstantForBase.getType()) ||
+          !cir::isSized(destElementType)) {
+        cgf.cgm.errorNYI(base->getSourceRange(),
+                         "emitNullBaseClassInitialization: base constant type "
+                         "does not match destination type");
+        return;
+      }
+
+      cir::CIRDataLayout dataLayout{cgf.cgm.getModule()};
+      llvm::TypeSize nullSize =
+          dataLayout.getTypeAllocSize(nullConstantForBase.getType());
+      llvm::TypeSize destSize = dataLayout.getTypeAllocSize(destElementType);
+      if (nullSize != destSize) {
+        if (nvSize.isZero())
+          return;
+        auto byteArrayType = cir::ArrayType::get(
+            cgf.cgm.uCharTy, static_cast<uint64_t>(nvSize.getQuantity()));
+        Address byteDest =
+            builder.createElementBitCast(loc, destPtr, byteArrayType);
+        mlir::Value zeroBytes =
+            builder.getConstant(loc, builder.getZeroInitAttr(byteArrayType));
+        builder.createStore(loc, zeroBytes, byteDest);
+        return;
+      }
+
+      nullConstantForBase = builder.getZeroInitAttr(destElementType);
+    }
+    mlir::Value nullValue = builder.getConstant(loc, nullConstantForBase);
+    if (nullValue.getType() != destElementType) {
+      cgf.cgm.errorNYI(base->getSourceRange(),
+                       "emitNullBaseClassInitialization: base constant type "
+                       "does not match destination type");
+      return;
+    }
+    builder.createStore(loc, nullValue, destPtr);
   }
 }
 

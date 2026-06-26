@@ -310,7 +310,10 @@ def CIR_PointerType : CIR_Type<"Pointer", "ptr", [
 //===----------------------------------------------------------------------===//
 
 def CIR_DataMemberType : CIR_Type<"DataMember", "data_member",
-    [DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]
+    [
+      DeclareTypeInterfaceMethods<DataLayoutTypeInterface>,
+      DeclareTypeInterfaceMethods<CIR_SizedTypeInterface>
+    ]
 > {
   let summary = "CIR type that represents a pointer-to-data-member in C++";
   let description = [{
@@ -340,7 +343,8 @@ def CIR_DataMemberType : CIR_Type<"DataMember", "data_member",
 //===----------------------------------------------------------------------===//
 
 def CIR_VPtrType : CIR_Type<"VPtr", "vptr", [
-    DeclareTypeInterfaceMethods<DataLayoutTypeInterface>
+    DeclareTypeInterfaceMethods<DataLayoutTypeInterface>,
+    DeclareTypeInterfaceMethods<CIR_SizedTypeInterface>
 ]> {
   let summary = "CIR type that is used for the vptr member of C++ objects";
   let description = [{
@@ -556,7 +560,10 @@ def CIR_FuncType : CIR_Type<"Func", "func"> {
 //===----------------------------------------------------------------------===//
 
 def CIR_MethodType : CIR_Type<"Method", "method",
-    [DeclareTypeInterfaceMethods<DataLayoutTypeInterface>]> {
+    [
+      DeclareTypeInterfaceMethods<DataLayoutTypeInterface>,
+      DeclareTypeInterfaceMethods<CIR_SizedTypeInterface>
+    ]> {
   let summary = "CIR type that represents C++ pointer-to-member-function type";
   let description = [{
     `cir.method` models the pointer-to-member-function type in C++. The layout

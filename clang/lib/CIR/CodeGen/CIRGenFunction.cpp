@@ -1276,6 +1276,8 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
     return emitCompoundLiteralLValue(cast<CompoundLiteralExpr>(e));
   case Expr::PredefinedExprClass:
     return emitPredefinedLValue(cast<PredefinedExpr>(e));
+  case Expr::SubstNonTypeTemplateParmExprClass:
+    return emitLValue(cast<SubstNonTypeTemplateParmExpr>(e)->getReplacement());
   case Expr::BinaryOperatorClass:
     return emitBinaryOperatorLValue(cast<BinaryOperator>(e));
   case Expr::CompoundAssignOperatorClass: {
@@ -1324,6 +1326,7 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
   case Expr::CXXStaticCastExprClass:
   case Expr::CXXDynamicCastExprClass:
   case Expr::CXXConstCastExprClass:
+  case Expr::CXXFunctionalCastExprClass:
   case Expr::ImplicitCastExprClass:
     return emitCastLValue(cast<CastExpr>(e));
   case Expr::MaterializeTemporaryExprClass:

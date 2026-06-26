@@ -50,7 +50,9 @@ public:
       return All;
 
     if (prototype->hasExtParameterInfos())
-      llvm_unreachable("NYI");
+      for (const auto &paramInfo : prototype->getExtParameterInfos())
+        if (paramInfo.hasPassObjectSize())
+          ++additional;
 
     return RequiredArgs(prototype->getNumParams() + additional);
   }

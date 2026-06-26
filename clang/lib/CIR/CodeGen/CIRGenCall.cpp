@@ -91,11 +91,27 @@ void CIRGenFunction::emitAggregateStore(mlir::Value value, Address dest) {
   // record), which can later be broken down in other CIR levels (or prior
   // to dialect codegen).
 
+  mlir::Location loc = currSrcLoc ? *currSrcLoc : builder.getUnknownLoc();
+  if (!value) {
+    cgm.errorNYI(loc, "emitAggregateStore: value unavailable");
+    return;
+  }
+  if (!dest.isValid()) {
+    cgm.errorNYI(loc, "emitAggregateStore: destination unavailable");
+    return;
+  }
+  if (value.getType() != dest.getElementType()) {
+    cgm.errorNYI(
+        loc,
+        "emitAggregateStore: value type does not match destination type");
+    return;
+  }
+
   // Stored result for the callers of this function expected to be in the same
   // scope as the value, don't make assumptions about current insertion point.
   mlir::OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointAfter(value.getDefiningOp());
-  builder.createStore(*currSrcLoc, value, dest);
+  builder.createStore(loc, value, dest);
 }
 
 static void addAttributesFromFunctionProtoType(CIRGenBuilderTy &builder,
@@ -160,6 +176,35 @@ static CanQual<FunctionProtoType> getFormalType(const CXXMethodDecl *md) {
       .getAs<FunctionProtoType>();
 }
 
+static bool diagnoseUnsupportedExtParameterInfo(
+    const CIRGenTypes &cgt, FunctionProtoType::ExtParameterInfo paramInfo) {
+  if (paramInfo.hasPassObjectSize()) {
+    cgt.getCGModule().errorNYI("extended parameter info: pass_object_size");
+    return true;
+  }
+  if (paramInfo.getABI() != ParameterABI::Ordinary) {
+    cgt.getCGModule().errorNYI("extended parameter info: parameter ABI");
+    return true;
+  }
+  if (paramInfo.isConsumed()) {
+    cgt.getCGModule().errorNYI("extended parameter info: consumed parameter");
+    return true;
+  }
+  return false;
+}
+
+static bool diagnoseUnsupportedExtParameterInfos(const CIRGenTypes &cgt,
+                                                 const FunctionProtoType *fpt) {
+  if (!fpt->hasExtParameterInfos())
+    return false;
+
+  bool diagnosed = false;
+  for (FunctionProtoType::ExtParameterInfo paramInfo :
+       fpt->getExtParameterInfos())
+    diagnosed |= diagnoseUnsupportedExtParameterInfo(cgt, paramInfo);
+  return diagnosed;
+}
+
 /// Adds the formal parameters in FPT to the given prefix. If any parameter in
 /// FPT has pass_object_size_attrs, then we'll add parameters for those, too.
 /// TODO(cir): this should be shared with LLVM codegen
@@ -173,7 +218,15 @@ static void appendParameterTypes(const CIRGenTypes &cgt,
     return;
   }
 
-  cgt.getCGModule().errorNYI("appendParameterTypes: hasExtParameterInfos");
+  diagnoseUnsupportedExtParameterInfos(cgt, fpt.getTypePtr());
+
+  auto extInfos = fpt->getExtParameterInfos();
+  assert(extInfos.size() == fpt->getNumParams());
+  for (unsigned i = 0, e = fpt->getNumParams(); i != e; ++i) {
+    prefix.push_back(fpt->getParamType(i));
+    if (extInfos[i].hasPassObjectSize())
+      prefix.push_back(cgt.getASTContext().getCanonicalSizeType());
+  }
 }
 
 const CIRGenFunctionInfo &
@@ -316,8 +369,7 @@ arrangeFreeFunctionLikeCall(CIRGenTypes &cgt, CIRGenModule &cgm,
   if (const auto *proto = dyn_cast<FunctionProtoType>(fnType)) {
     if (proto->isVariadic())
       required = RequiredArgs::getFromProtoWithExtraSlots(proto, 0);
-    if (proto->hasExtParameterInfos())
-      cgm.errorNYI("call to functions with extra parameter info");
+    diagnoseUnsupportedExtParameterInfos(cgt, proto);
   } else if (cgm.getTargetCIRGenInfo().isNoProtoCallVariadic(
                  cast<FunctionNoProtoType>(fnType)))
     cgm.errorNYI("call to function without a prototype");
@@ -584,6 +636,28 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
   QualType retTy = funcInfo.getReturnType();
   cir::FuncType cirFuncTy = getTypes().getFunctionType(funcInfo);
 
+  auto getUnavailableCallResult = [&]() -> RValue {
+    switch (getEvaluationKind(retTy)) {
+    case cir::TEK_Aggregate: {
+      Address dest = returnValue.getValue();
+      if (!dest.isValid())
+        dest = createMemTemp(retTy, loc, getCounterAggTmpAsString());
+      return RValue::getAggregate(dest);
+    }
+    case cir::TEK_Scalar:
+      return getUndefRValue(retTy);
+    case cir::TEK_Complex: {
+      mlir::Type retCIRTy = convertType(retTy);
+      return RValue::getComplex(
+          builder.getConstant(loc, cir::UndefAttr::get(retCIRTy)));
+    }
+    }
+    llvm_unreachable("Invalid evaluation kind");
+  };
+
+  if (llvm::any_of(args, [](const CallArg &arg) { return arg.unavailable(); }))
+    return getUnavailableCallResult();
+
   SmallVector<mlir::Value, 16> cirCallArgs(args.size());
 
   assert(!cir::MissingFeatures::emitLifetimeMarkers());
@@ -834,7 +908,7 @@ void CIRGenFunction::emitCallArg(CallArgList &args, const clang::Expr *e,
     mlir::Type ty = convertType(argType);
     mlir::Value poison =
         builder.getConstant(loc, cir::PoisonAttr::get(ty));
-    args.add(RValue::get(poison), argType);
+    args.addUnavailable(RValue::get(poison), argType);
     return;
   }
 
@@ -888,7 +962,17 @@ void CIRGenFunction::emitCallArg(CallArgList &args, const clang::Expr *e,
     return;
   }
 
-  args.add(emitAnyExprToTemp(e), argType);
+  RValue rv = emitAnyExprToTemp(e);
+  if (rv.isScalar() && !rv.getValue()) {
+    mlir::Location loc = getLoc(e->getSourceRange());
+    mlir::Type ty = convertType(argType);
+    mlir::Value poison =
+        builder.getConstant(loc, cir::PoisonAttr::get(ty));
+    args.addUnavailable(RValue::get(poison), argType);
+    return;
+  }
+
+  args.add(rv, argType);
 }
 
 QualType CIRGenFunction::getVarArgType(const Expr *arg) {
