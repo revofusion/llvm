@@ -581,6 +581,8 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
 
   case Type::MemberPointer: {
     const auto *mpt = cast<MemberPointerType>(ty);
+    if (cgm.getTarget().getCXXABI().isMicrosoft())
+      cgm.errorNYI(SourceLocation(), "Microsoft C++ ABI member pointer type");
 
     mlir::Type memberTy = convertType(mpt->getPointeeType());
     auto clsTy = mlir::cast<cir::RecordType>(

@@ -83,6 +83,7 @@ public:
 
 /// Creates an Itanium-family ABI.
 std::unique_ptr<CIRCXXABI> createItaniumCXXABI(LowerModule &lm);
+std::unique_ptr<CIRCXXABI> createMicrosoftCXXABI(LowerModule &lm);
 
 } // namespace cir
 

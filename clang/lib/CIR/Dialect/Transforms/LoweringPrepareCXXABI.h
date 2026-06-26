@@ -25,6 +25,7 @@ namespace cir {
 class LoweringPrepareCXXABI {
 public:
   static LoweringPrepareCXXABI *createItaniumABI();
+  static LoweringPrepareCXXABI *createMicrosoftABI();
 
   virtual ~LoweringPrepareCXXABI() {}
 

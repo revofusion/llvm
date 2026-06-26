@@ -8,6 +8,7 @@ add_clang_library(MLIRCIRTransforms
   HoistAllocas.cpp
   LoweringPrepare.cpp
   LoweringPrepareItaniumCXXABI.cpp
+  LoweringPrepareMicrosoftCXXABI.cpp
   GotoSolver.cpp
 
   DEPENDS

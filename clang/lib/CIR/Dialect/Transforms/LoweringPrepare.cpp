@@ -147,6 +147,9 @@ struct LoweringPreparePass
       assert(!cir::MissingFeatures::loweringPrepareAArch64XXABI());
       cxxABI.reset(cir::LoweringPrepareCXXABI::createItaniumABI());
       break;
+    case clang::TargetCXXABI::Microsoft:
+      cxxABI.reset(cir::LoweringPrepareCXXABI::createMicrosoftABI());
+      break;
     default:
       llvm_unreachable("NYI");
     }

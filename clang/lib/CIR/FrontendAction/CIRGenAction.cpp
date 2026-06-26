@@ -99,6 +99,8 @@ public:
 
   void HandleTranslationUnit(ASTContext &C) override {
     Gen->HandleTranslationUnit(C);
+    if (CI.getDiagnostics().hasErrorOccurred())
+      return;
 
     if (!FEOptions.ClangIRDisableCIRVerifier) {
       if (!Gen->verifyModule()) {

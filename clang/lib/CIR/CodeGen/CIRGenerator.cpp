@@ -145,10 +145,13 @@ void CIRGenerator::HandleTagDeclDefinition(TagDecl *d) {
 
   cgm->updateCompletedType(d);
 
-  // For MSVC compatibility, treat declarations of static data members with
-  // inline initializers as definitions.
   if (astContext->getTargetInfo().getCXXABI().isMicrosoft())
-    cgm->errorNYI(d->getSourceRange(), "HandleTagDeclDefinition: MSABI");
+    if (auto *record = dyn_cast<CXXRecordDecl>(d))
+      for (Decl *member : record->decls())
+        if (auto *var = dyn_cast<VarDecl>(member))
+          if (astContext->isMSStaticDataMemberInlineDefinition(var) &&
+              astContext->DeclMustBeEmitted(var))
+            cgm->emitGlobal(var);
   // For OpenMP emit declare reduction functions, if required.
   if (astContext->getLangOpts().OpenMP)
     cgm->errorNYI(d->getSourceRange(), "HandleTagDeclDefinition: OpenMP");

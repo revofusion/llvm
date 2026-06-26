@@ -373,6 +373,8 @@ protected:
 /// Creates and Itanium-family ABI
 CIRGenCXXABI *CreateCIRGenItaniumCXXABI(CIRGenModule &cgm);
 
+CIRGenCXXABI *CreateCIRGenMicrosoftCXXABI(CIRGenModule &cgm);
+
 } // namespace clang::CIRGen
 
 #endif

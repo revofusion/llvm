@@ -78,8 +78,7 @@ static CIRGenCXXABI *createCXXABI(CIRGenModule &cgm) {
     return CreateCIRGenItaniumCXXABI(cgm);
 
   case TargetCXXABI::Microsoft:
-    cgm.errorNYI("C++ ABI kind not yet implemented");
-    return nullptr;
+    return CreateCIRGenMicrosoftCXXABI(cgm);
   }
 
   llvm_unreachable("invalid C++ ABI kind");
@@ -821,11 +820,6 @@ CIRGenModule::getOrCreateCIRGlobal(StringRef mangledName, mlir::Type ty,
     }
 
     setGVProperties(gv, d);
-
-    // If required by the ABI, treat declarations of static data members with
-    // inline initializers as definitions.
-    if (astContext.isMSStaticDataMemberInlineDefinition(d))
-      errorNYI(d->getSourceRange(), "MS static data member inline definition");
 
     assert(!cir::MissingFeatures::opGlobalSection());
     gv.setGlobalVisibilityAttr(getGlobalVisibilityAttrFromDecl(d));
@@ -1886,6 +1880,8 @@ void CIRGenModule::emitTopLevelDecl(Decl *decl) {
   case Decl::CXXDeductionGuide:
   case Decl::Empty:
   case Decl::FunctionTemplate:
+  case Decl::PragmaComment:
+  case Decl::PragmaDetectMismatch:
   case Decl::StaticAssert:
   case Decl::TypeAliasTemplate:
   case Decl::UsingShadow:
@@ -2163,16 +2159,6 @@ bool CIRGenModule::isSelectedDeclRoot(GlobalDecl gd) {
 
 StringRef CIRGenModule::getMangledName(GlobalDecl gd) {
   GlobalDecl canonicalGd = gd.getCanonicalDecl();
-
-  // Some ABIs don't have constructor variants. Make sure that base and complete
-  // constructors get mangled the same.
-  if (const auto *cd = dyn_cast<CXXConstructorDecl>(canonicalGd.getDecl())) {
-    if (!getTarget().getCXXABI().hasConstructorVariants()) {
-      errorNYI(cd->getSourceRange(),
-               "getMangledName: C++ constructor without variants");
-      return cast<NamedDecl>(gd.getDecl())->getIdentifier()->getName();
-    }
-  }
 
   // Keep the first result in the case of a mangling collision.
   const auto *nd = cast<NamedDecl>(gd.getDecl());
