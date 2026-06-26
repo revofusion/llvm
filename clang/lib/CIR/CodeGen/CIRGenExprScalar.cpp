@@ -1393,8 +1393,7 @@ public:
 
   // Other Operators.
   mlir::Value VisitBlockExpr(const BlockExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(), "block literal runtime lowering");
-    return {};
+    return cgf.emitBlockLiteral(e);
   }
 
   mlir::Value VisitChooseExpr(ChooseExpr *e) {

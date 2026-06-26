@@ -10,10 +10,12 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "CIRGenBlockRuntime.h"
 #include "CIRGenModule.h"
 #include "CIRGenCXXABI.h"
 #include "CIRGenConstantEmitter.h"
 #include "CIRGenFunction.h"
+#include "CIRGenObjCRuntime.h"
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclBase.h"
@@ -205,9 +207,15 @@ CIRGenModule::CIRGenModule(mlir::MLIRContext &mlirContext,
                                                 /*line=*/0,
                                                 /*column=*/0));
   }
+
+  objcRuntime = createCIRGenObjCRuntime(*this);
+  blockRuntime = createCIRGenBlockRuntime(*this);
 }
 
 CIRGenModule::~CIRGenModule() = default;
+
+CIRGenObjCRuntime &CIRGenModule::getObjCRuntime() { return *objcRuntime; }
+CIRGenBlockRuntime &CIRGenModule::getBlockRuntime() { return *blockRuntime; }
 
 /// FIXME: this could likely be a common helper and not necessarily related
 /// with codegen.
@@ -525,12 +533,11 @@ void CIRGenModule::emitGlobalFunctionDefinition(clang::GlobalDecl gd,
   assert(!cir::MissingFeatures::setLLVMFunctionFEnvAttributes());
 
   CIRGenFunction cgf(*this, builder);
-  curCGF = &cgf;
+  CurCGFGuard curCGFGuard(*this, cgf);
   {
     mlir::OpBuilder::InsertionGuard guard(builder);
     cgf.generateCode(gd, funcOp, funcType);
   }
-  curCGF = nullptr;
 
   setNonAliasAttributes(gd, funcOp);
   setCIRFunctionAttributesForDefinition(funcDecl, funcOp);

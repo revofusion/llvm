@@ -451,6 +451,30 @@ CIRGenTypes::arrangeFreeFunctionCall(const CallArgList &args,
   return arrangeFreeFunctionLikeCall(*this, cgm, args, fnType);
 }
 
+const CIRGenFunctionInfo &
+CIRGenTypes::arrangeBlockFunctionCall(const CallArgList &args,
+                                      const FunctionType *fnType) {
+  // Block ABI calls are normal calls whose first lowered argument is the block
+  // object. The AST function type for a block pointer does not include that
+  // implicit self parameter, so arrange from the already-built argument list.
+  RequiredArgs required = RequiredArgs::All;
+  if (const auto *proto = dyn_cast<FunctionProtoType>(fnType)) {
+    if (proto->isVariadic())
+      required = RequiredArgs::getFromProtoWithExtraSlots(proto, 1);
+    diagnoseUnsupportedExtParameterInfos(*this, proto);
+  } else if (cgm.getTargetCIRGenInfo().isNoProtoCallVariadic(
+                 cast<FunctionNoProtoType>(fnType))) {
+    cgm.errorNYI("block call to function without a prototype");
+  }
+
+  SmallVector<CanQualType, 16> argTypes;
+  for (const CallArg &arg : args)
+    argTypes.push_back(astContext.getCanonicalParamType(arg.ty));
+  return arrangeCIRFunctionInfo(
+      fnType->getReturnType()->getCanonicalTypeUnqualified(), argTypes,
+      required);
+}
+
 /// Arrange the argument and result information for a declaration or definition
 /// of the given C++ non-static member function. The member function must be an
 /// ordinary function, i.e. not a constructor or destructor.

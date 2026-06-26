@@ -35,6 +35,7 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/TargetParser/Triple.h"
+#include <memory>
 
 namespace clang {
 class ASTContext;
@@ -51,6 +52,8 @@ namespace CIRGen {
 
 class CIRGenFunction;
 class CIRGenCXXABI;
+class CIRGenBlockRuntime;
+class CIRGenObjCRuntime;
 
 enum ForDefinition_t : bool { NotForDefinition = false, ForDefinition = true };
 
@@ -87,6 +90,8 @@ private:
   const clang::TargetInfo &target;
 
   std::unique_ptr<CIRGenCXXABI> abi;
+  std::unique_ptr<CIRGenObjCRuntime> objcRuntime;
+  std::unique_ptr<CIRGenBlockRuntime> blockRuntime;
 
   CIRGenTypes genTypes;
 
@@ -298,6 +303,17 @@ public:
   cir::GlobalOp createOrReplaceCXXRuntimeVariable(
       mlir::Location loc, llvm::StringRef name, mlir::Type ty,
       cir::GlobalLinkageKind linkage, clang::CharUnits alignment);
+
+  /// Runtime-neutral spelling for compiler/runtime support globals.
+  cir::GlobalOp createOrReplaceRuntimeVariable(
+      mlir::Location loc, llvm::StringRef name, mlir::Type ty,
+      cir::GlobalLinkageKind linkage, clang::CharUnits alignment) {
+    return createOrReplaceCXXRuntimeVariable(loc, name, ty, linkage,
+                                             alignment);
+  }
+
+  CIRGenObjCRuntime &getObjCRuntime();
+  CIRGenBlockRuntime &getBlockRuntime();
 
   void emitVTable(const CXXRecordDecl *rd);
 
@@ -614,6 +630,19 @@ public:
   cir::FuncOp createRuntimeFunction(cir::FuncType ty, llvm::StringRef name,
                                     mlir::ArrayAttr = {}, bool isLocal = false,
                                     bool assumeConvergent = false);
+
+  /// Scoped update of the active function used for helper-function insertion.
+  class CurCGFGuard {
+    CIRGenModule &cgm;
+    CIRGenFunction *oldCGF;
+
+  public:
+    CurCGFGuard(CIRGenModule &cgm, CIRGenFunction &cgf)
+        : cgm(cgm), oldCGF(cgm.curCGF) {
+      cgm.curCGF = &cgf;
+    }
+    ~CurCGFGuard() { cgm.curCGF = oldCGF; }
+  };
 
   static constexpr const char *builtinCoroId = "__builtin_coro_id";
   static constexpr const char *builtinCoroAlloc = "__builtin_coro_alloc";

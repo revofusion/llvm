@@ -10,6 +10,7 @@ add_clang_library(clangCIR
   CIRGenerator.cpp
   CIRGenAsm.cpp
   CIRGenAtomic.cpp
+  CIRGenBlockRuntime.cpp
   CIRGenBuilder.cpp
   CIRGenBuiltin.cpp
   CIRGenBuiltinAArch64.cpp
@@ -34,6 +35,7 @@ add_clang_library(clangCIR
   CIRGenFunction.cpp
   CIRGenItaniumCXXABI.cpp
   CIRGenModule.cpp
+  CIRGenObjCRuntime.cpp
   CIRGenOpenACC.cpp
   CIRGenOpenACCClause.cpp
   CIRGenOpenACCRecipe.cpp

@@ -216,6 +216,8 @@ public:
 
   const CIRGenFunctionInfo &arrangeFreeFunctionCall(const CallArgList &args,
                                                     const FunctionType *fnType);
+  const CIRGenFunctionInfo &arrangeBlockFunctionCall(const CallArgList &args,
+                                                     const FunctionType *fnType);
 
   const CIRGenFunctionInfo &
   arrangeCIRFunctionInfo(CanQualType returnType,

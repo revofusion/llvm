@@ -52,6 +52,7 @@ class LoopOp;
 namespace clang::CIRGen {
 
 struct CGCoroData;
+struct CIRGenBlockInfo;
 
 template <class T> struct InvariantValue {
   using saved_type = T;
@@ -213,6 +214,12 @@ public:
   const clang::Decl *curFuncDecl = nullptr;
   /// This is the inner-most code context, which includes blocks.
   const clang::Decl *curCodeDecl = nullptr;
+
+  /// Non-null while emitting a block invoke helper. Owned by CIRGenBlockRuntime.
+  const CIRGenBlockInfo *curBlockInfo = nullptr;
+
+  /// The current block invoke helper's implicit block parameter.
+  mlir::Value blockPointer = nullptr;
 
   /// The current function or global initializer that is generated code for.
   /// This is usually a cir::FuncOp, but it can also be a cir::GlobalOp for
@@ -1483,6 +1490,14 @@ public:
   RValue emitObjCMessageExpr(const clang::ObjCMessageExpr *e,
                              ReturnValueSlot returnValue = ReturnValueSlot());
   mlir::Value emitObjCStringLiteral(const clang::ObjCStringLiteral *e);
+
+  /// Block runtime lowering entry points. Expression visitors must not know
+  /// Darwin block literal layout; they dispatch here and CIRGenBlockRuntime
+  /// owns ABI-specific layout and helper generation.
+  mlir::Value emitBlockLiteral(const clang::BlockExpr *e);
+  RValue emitBlockCallExpr(const clang::CallExpr *e,
+                           ReturnValueSlot returnValue = ReturnValueSlot());
+  Address getAddrOfBlockDecl(const clang::VarDecl *variable);
 
   /// Emits the code necessary to evaluate an arbitrary expression into the
   /// given memory location.
