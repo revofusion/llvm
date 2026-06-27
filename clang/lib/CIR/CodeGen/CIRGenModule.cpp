@@ -1772,7 +1772,10 @@ mlir::Value CIRGenModule::emitMemberPointerConstant(const UnaryOperator *e) {
       return {};
     }
     auto ty = mlir::cast<cir::MethodType>(convertType(e->getType()));
-    cir::FuncOp func = getAddrOfFunction(GlobalDecl(methodDecl));
+    const CIRGenFunctionInfo &fnInfo =
+        getTypes().arrangeCXXMethodDeclaration(methodDecl);
+    cir::FuncOp func = getAddrOfFunction(GlobalDecl(methodDecl),
+                                         getTypes().getFunctionType(fnInfo));
     return cir::ConstantOp::create(
         builder, loc,
         cir::MethodAttr::get(

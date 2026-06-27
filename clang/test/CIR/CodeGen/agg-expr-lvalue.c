@@ -96,12 +96,45 @@ void test_string_array_in_array(void) {
   
 // CIR-LABEL: cir.func{{.*}} @test_string_array_in_array
 // CIR:   %[[MATRIX:.*]] = cir.alloca !cir.array<!cir.array<!s8i x 6> x 2>, {{.*}}, ["matrix", init]
-// CIR:   %[[CONST:.*]] = cir.const #cir.const_array<[#cir.const_array<[#cir.int<104> : !s8i, #cir.int<101> : !s8i, #cir.int<108> : !s8i, #cir.int<108> : !s8i, #cir.int<111> : !s8i, #cir.int<0> : !s8i]> : !cir.array<!s8i x 6>, #cir.const_array<[#cir.int<119> : !s8i, #cir.int<111> : !s8i, #cir.int<114> : !s8i, #cir.int<108> : !s8i, #cir.int<100> : !s8i, #cir.int<0> : !s8i]> : !cir.array<!s8i x 6>]>
-// CIR:   cir.store{{.*}} %[[CONST]], %[[MATRIX]]
+// CIR:   %{{.*}} = cir.const #cir.int<104> : !s8i
+// CIR:   cir.store align(1) %{{.*}}, %{{.*}} : !s8i, !cir.ptr<!s8i>
+// CIR:   %{{.*}} = cir.const #cir.int<101> : !s8i
+// CIR:   cir.store align(1) %{{.*}}, %{{.*}} : !s8i, !cir.ptr<!s8i>
+// CIR:   %{{.*}} = cir.const #cir.int<108> : !s8i
+// CIR:   cir.store align(1) %{{.*}}, %{{.*}} : !s8i, !cir.ptr<!s8i>
+// CIR:   %{{.*}} = cir.const #cir.int<108> : !s8i
+// CIR:   cir.store align(1) %{{.*}}, %{{.*}} : !s8i, !cir.ptr<!s8i>
+// CIR:   %{{.*}} = cir.const #cir.int<111> : !s8i
+// CIR:   cir.store align(1) %{{.*}}, %{{.*}} : !s8i, !cir.ptr<!s8i>
+// CIR:   %{{.*}} = cir.const #cir.int<0> : !s8i
+// CIR:   cir.store align(1) %{{.*}}, %{{.*}} : !s8i, !cir.ptr<!s8i>
+// CIR:   %{{.*}} = cir.const #cir.int<119> : !s8i
+// CIR:   cir.store align(1) %{{.*}}, %{{.*}} : !s8i, !cir.ptr<!s8i>
+// CIR:   %{{.*}} = cir.const #cir.int<111> : !s8i
+// CIR:   cir.store align(1) %{{.*}}, %{{.*}} : !s8i, !cir.ptr<!s8i>
+// CIR:   %{{.*}} = cir.const #cir.int<114> : !s8i
+// CIR:   cir.store align(1) %{{.*}}, %{{.*}} : !s8i, !cir.ptr<!s8i>
+// CIR:   %{{.*}} = cir.const #cir.int<108> : !s8i
+// CIR:   cir.store align(1) %{{.*}}, %{{.*}} : !s8i, !cir.ptr<!s8i>
+// CIR:   %{{.*}} = cir.const #cir.int<100> : !s8i
+// CIR:   cir.store align(1) %{{.*}}, %{{.*}} : !s8i, !cir.ptr<!s8i>
+// CIR:   %{{.*}} = cir.const #cir.int<0> : !s8i
+// CIR:   cir.store align(1) %{{.*}}, %{{.*}} : !s8i, !cir.ptr<!s8i>
 
 // LLVM-LABEL: define{{.*}} @test_string_array_in_array
-// LLVM:   %[[MATRIX:.*]] = alloca [2 x [6 x i8]]
-// LLVM:   store [2 x [6 x i8]] {{\[}}[6 x i8] c"hello\00", [6 x i8] c"world\00"], ptr %[[MATRIX]]
+// LLVM:   %[[MATRIX:.*]] = alloca [2 x [6 x i8]], i64 1, align 1
+// LLVM-DAG: store i8 104, ptr %{{.*}}, align 1
+// LLVM-DAG: store i8 101, ptr %{{.*}}, align 1
+// LLVM-DAG: store i8 108, ptr %{{.*}}, align 1
+// LLVM-DAG: store i8 108, ptr %{{.*}}, align 1
+// LLVM-DAG: store i8 111, ptr %{{.*}}, align 1
+// LLVM-DAG: store i8 0, ptr %{{.*}}, align 1
+// LLVM-DAG: store i8 119, ptr %{{.*}}, align 1
+// LLVM-DAG: store i8 111, ptr %{{.*}}, align 1
+// LLVM-DAG: store i8 114, ptr %{{.*}}, align 1
+// LLVM-DAG: store i8 108, ptr %{{.*}}, align 1
+// LLVM-DAG: store i8 100, ptr %{{.*}}, align 1
+// LLVM-DAG: store i8 0, ptr %{{.*}}, align 1
 
 // OGCG-LABEL: define{{.*}} @test_string_array_in_array
 // OGCG:   alloca [2 x [6 x i8]]

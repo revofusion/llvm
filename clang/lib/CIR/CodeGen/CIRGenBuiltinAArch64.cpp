@@ -782,7 +782,9 @@ emitSimpleNeonBuiltin(CIRGenFunction &cgf, unsigned builtinID,
   }
 
   case NEON::BI__builtin_neon_vget_lane_i64:
-  case NEON::BI__builtin_neon_vgetq_lane_i64: {
+  case NEON::BI__builtin_neon_vdupd_lane_i64:
+  case NEON::BI__builtin_neon_vgetq_lane_i64:
+  case NEON::BI__builtin_neon_vdupd_laneq_i64: {
     mlir::Value vec = cgf.emitScalarExpr(expr->getArg(0));
     if (!vec)
       return emitAArch64BuiltinNYI(cgf, expr, builtinID,
@@ -798,6 +800,12 @@ emitSimpleNeonBuiltin(CIRGenFunction &cgf, unsigned builtinID,
 
     mlir::Value result = cir::VecExtractOp::create(builder, loc, vec, index);
     mlir::Type resultTy = cgf.convertType(expr->getType());
+    if (auto resultVecTy = mlir::dyn_cast<cir::VectorType>(resultTy)) {
+      if (resultVecTy.getElementType() != result.getType())
+        return emitAArch64BuiltinNYI(cgf, expr, builtinID,
+                                     "lane vector result type mismatch");
+      return cir::VecSplatOp::create(builder, loc, resultVecTy, result);
+    }
     if (result.getType() != resultTy) {
       if (!builder.isInt(result.getType()) || !builder.isInt(resultTy))
         return emitAArch64BuiltinNYI(cgf, expr, builtinID,
@@ -1372,11 +1380,7 @@ CIRGenFunction::emitAArch64BuiltinExpr(unsigned builtinID, const CallExpr *expr,
   case NEON::BI__builtin_neon_vdups_lane_f32:
   case NEON::BI__builtin_neon_vgetq_lane_i32:
   case NEON::BI__builtin_neon_vdups_laneq_i32:
-  case NEON::BI__builtin_neon_vget_lane_i64:
-  case NEON::BI__builtin_neon_vdupd_lane_i64:
   case NEON::BI__builtin_neon_vdupd_lane_f64:
-  case NEON::BI__builtin_neon_vgetq_lane_i64:
-  case NEON::BI__builtin_neon_vdupd_laneq_i64:
   case NEON::BI__builtin_neon_vget_lane_f32:
   case NEON::BI__builtin_neon_vget_lane_f64:
   case NEON::BI__builtin_neon_vgetq_lane_f32:
@@ -1633,10 +1637,6 @@ CIRGenFunction::emitAArch64BuiltinExpr(unsigned builtinID, const CallExpr *expr,
   case NEON::BI__builtin_neon_vsraq_n_v:
   case NEON::BI__builtin_neon_vrsra_n_v:
   case NEON::BI__builtin_neon_vrsraq_n_v:
-  case NEON::BI__builtin_neon_vld1_v:
-  case NEON::BI__builtin_neon_vld1q_v:
-  case NEON::BI__builtin_neon_vst1_v:
-  case NEON::BI__builtin_neon_vst1q_v:
   case NEON::BI__builtin_neon_vld1_lane_v:
   case NEON::BI__builtin_neon_vld1q_lane_v:
   case NEON::BI__builtin_neon_vldap1_lane_s64:

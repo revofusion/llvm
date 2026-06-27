@@ -21,6 +21,7 @@
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/StmtVisitor.h"
 #include <cstdint>
+#include <utility>
 
 using namespace clang;
 using namespace clang::CIRGen;
@@ -244,10 +245,31 @@ public:
              "Implicit cast types must be compatible");
       Visit(e->getSubExpr());
       break;
-    case CK_AtomicToNonAtomic:
     case CK_NonAtomicToAtomic:
-      Visit(e->getSubExpr());
+    case CK_AtomicToNonAtomic: {
+      bool isToAtomic = e->getCastKind() == CK_NonAtomicToAtomic;
+      QualType atomicType = e->getSubExpr()->getType();
+      QualType valueType = e->getType();
+      if (isToAtomic)
+        std::swap(atomicType, valueType);
+
+      assert(atomicType->isAtomicType());
+      assert(cgf.getContext().hasSameUnqualifiedType(
+          valueType, atomicType->castAs<AtomicType>()->getValueType()));
+
+      if (dest.isIgnored() ||
+          (cgf.getContext().getTypeSize(atomicType) ==
+               cgf.getContext().getTypeSize(valueType) &&
+           cgf.getContext().getTypeAlign(atomicType) ==
+               cgf.getContext().getTypeAlign(valueType))) {
+        Visit(e->getSubExpr());
+        break;
+      }
+
+      cgf.cgm.errorNYI(e->getSourceRange(),
+                       "AggExprEmitter: padded atomic aggregate cast");
       break;
+    }
     default:
       cgf.cgm.errorNYI(e->getSourceRange(),
                        std::string("AggExprEmitter: VisitCastExpr: ") +
@@ -279,10 +301,37 @@ public:
                      "AggExprEmitter: VisitSubstNonTypeTemplateParmExpr");
   }
   void VisitConstantExpr(ConstantExpr *e) {
-    // TODO(cir): classic CodeGen first tries to emit the wrapped constant
-    // directly into the destination slot (ConstantEmitter::tryEmitConstantExpr
-    // + a coerced store). That is an optimization; emitting the underlying
-    // expression is always semantically correct and is what we do here.
+    if (mlir::Attribute result = ConstantEmitter(cgf).tryEmitConstantExpr(e)) {
+      if (e->isGLValue()) {
+        cgf.cgm.errorNYI(e->getSourceRange(),
+                         "AggExprEmitter: constant expr GLValue");
+        return;
+      }
+
+      auto typedResult = mlir::dyn_cast<mlir::TypedAttr>(result);
+      if (!typedResult) {
+        cgf.cgm.errorNYI(e->getSourceRange(),
+                         "AggExprEmitter: untyped constant expr");
+        return;
+      }
+
+      mlir::Location loc = cgf.getLoc(e->getSourceRange());
+      AggValueSlot slot = ensureSlot(loc, e->getType());
+      Address addr = slot.getAddress();
+      if (addr.getElementType() != typedResult.getType())
+        addr = addr.withElementType(cgf.getBuilder(), typedResult.getType());
+      cgf.getBuilder().createStore(
+          loc, cgf.getBuilder().getConstant(loc, typedResult), addr,
+          slot.isVolatile());
+      return;
+    }
+
+    if (e->hasAPValueResult()) {
+      cgf.cgm.errorNYI(e->getSourceRange(),
+                       "AggExprEmitter: constant expr");
+      return;
+    }
+
     Visit(e->getSubExpr());
   }
   void VisitMemberExpr(MemberExpr *e) { emitAggLoadOfLValue(e); }
@@ -411,6 +460,12 @@ public:
     CIRGenFunction::OpaqueValueMapping binding(cgf, e->getCommonExpr());
 
     Address destPtr = ensureSlot(loc, e->getType()).getAddress();
+    if (!destPtr.isValid()) {
+      cgf.cgm.errorNYI(e->getSourceRange(),
+                       "AggExprEmitter: array init destination unavailable");
+      return;
+    }
+
     uint64_t numElements = e->getArraySize().getZExtValue();
     if (!numElements)
       return;
@@ -665,6 +720,11 @@ void AggExprEmitter::VisitAbstractConditionalOperator(
                                destructNonTrivialCStruct);
 
   mlir::Value condValue = cgf.emitOpOnBoolExpr(loc, condExpr);
+  if (!condValue) {
+    cgf.cgm.errorNYI(condExpr->getSourceRange(),
+                     "aggregate conditional: condition unavailable");
+    return;
+  }
   CIRGenFunction::ConditionalEvaluation eval(cgf);
   CIRGenBuilderTy &builder = cgf.getBuilder();
 

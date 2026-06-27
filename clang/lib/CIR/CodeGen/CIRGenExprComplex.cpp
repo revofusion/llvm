@@ -141,9 +141,7 @@ public:
   }
 
   mlir::Value VisitPseudoObjectExpr(PseudoObjectExpr *e) {
-    cgf.cgm.errorNYI(e->getExprLoc(),
-                     "ComplexExprEmitter VisitPseudoObjectExpr");
-    return {};
+    return cgf.emitPseudoObjectRValue(e).getComplexValue();
   }
 
   mlir::Value emitCast(CastKind ck, Expr *op, QualType destTy);

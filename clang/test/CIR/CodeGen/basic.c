@@ -16,7 +16,7 @@ enum A a;
 enum B : int;
 enum B b;
 
-// CHECK:   cir.global external @b = #cir.int<0> : !u32i
+// CHECK:   cir.global external @b = #cir.int<0> : !s32i
 
 
 enum C : int {
@@ -25,7 +25,7 @@ enum C : int {
 };
 enum C c;
 
-// CHECK:   cir.global external @c = #cir.int<0> : !u32i
+// CHECK:   cir.global external @c = #cir.int<0> : !s32i
 
 int f1(int i);
 
@@ -34,10 +34,10 @@ int f1(int i) {
   return i;
 }
 
-// CIR:      cir.func{{.*}} @f1(%arg0: !s32i loc({{.*}})) -> !s32i
+// CIR:      cir.func{{.*}} @f1(%{{.*}}: !s32i loc({{.*}})) -> !s32i
 // CIR-NEXT:   %[[I_PTR:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["i", init] {alignment = 4 : i64}
 // CIR-NEXT:   %[[RV:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["__retval"] {alignment = 4 : i64}
-// CIR-NEXT:   cir.store{{.*}} %arg0, %[[I_PTR]] : !s32i, !cir.ptr<!s32i>
+// CIR-NEXT:   cir.store{{.*}} %arg{{[0-9]+}}, %[[I_PTR]] : !s32i, !cir.ptr<!s32i>
 // CIR-NEXT:   %[[I_IGNORED:.*]] = cir.load{{.*}} %[[I_PTR]] : !cir.ptr<!s32i>, !s32i
 // CIR-NEXT:   %[[I:.*]] = cir.load{{.*}} %[[I_PTR]] : !cir.ptr<!s32i>, !s32i
 // CIR-NEXT:   cir.store{{.*}} %[[I]], %[[RV]] : !s32i, !cir.ptr<!s32i>
@@ -68,7 +68,7 @@ int f2(void) { return 3; }
 // CIR-NEXT:   %[[RV:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["__retval"] {alignment = 4 : i64}
 // CIR-NEXT:   %[[THREE:.*]] = cir.const #cir.int<3> : !s32i
 // CIR-NEXT:   cir.store{{.*}} %[[THREE]], %[[RV]] : !s32i, !cir.ptr<!s32i>
-// CIR-NEXT:   %[[R:.*]] = cir.load{{.*}} %0 : !cir.ptr<!s32i>, !s32i
+// CIR-NEXT:   %[[R:.*]] = cir.load{{.*}} %[[RV]] : !cir.ptr<!s32i>, !s32i
 // CIR-NEXT:   cir.return %[[R]] : !s32i
 
 //      LLVM: define{{.*}} i32 @f2()
@@ -136,8 +136,8 @@ void f5(void) {
 //      CIR: cir.func{{.*}} @f5()
 // CIR-NEXT:   cir.scope {
 // CIR-NEXT:      cir.for : cond {
-// CIR-NEXT:        %0 = cir.const #true
-// CIR-NEXT:        cir.condition(%0)
+// CIR-NEXT:        %{{.*}} = cir.const #true
+// CIR-NEXT:        cir.condition(%{{.*}})
 // CIR-NEXT:      } body {
 // CIR-NEXT:        cir.yield
 // CIR-NEXT:      } step {
@@ -269,9 +269,9 @@ void f9() {}
 
 void f10(int arg0, ...) {}
 
-//      CIR: cir.func{{.*}} @f10(%[[ARG0:.*]]: !s32i loc({{.*}}), ...)
+//      CIR: cir.func{{.*}} @f10(%arg{{.*}}: !s32i loc({{.*}}), ...)
 // CIR-NEXT:   %[[ARG0_PTR:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["arg0", init] {alignment = 4 : i64}
-// CIR-NEXT:   cir.store{{.*}} %[[ARG0]], %[[ARG0_PTR]] : !s32i, !cir.ptr<!s32i>
+// CIR-NEXT:   cir.store{{.*}} %arg{{.*}}, %[[ARG0_PTR]] : !s32i, !cir.ptr<!s32i>
 // CIR-NEXT:   cir.return
 
 //      LLVM: define{{.*}} void @f10(i32 %[[ARG0:.*]], ...)
@@ -302,9 +302,10 @@ size_type max_size(void) {
 
 // OGCG: define{{.*}} i64 @max_size()
 // OGCG:   ret i64 2305843009213693951
-// CHECK:   cir.store{{.*}} %5, %0 : !u64i, !cir.ptr<!u64i>
-// CHECK:   %6 = cir.load{{.*}} %0 : !cir.ptr<!u64i>, !u64i
-// CHECK:   cir.return %6 : !u64i
+// CHECK:   %[[RES:.*]] = cir.binop(div, %{{.*}}, %{{.*}}) : !u64i
+// CHECK:   cir.store{{.*}} %[[RES]], %[[RET:.*]] : !u64i, !cir.ptr<!u64i>
+// CHECK:   %[[R:.*]] = cir.load{{.*}} %[[RET]] : !cir.ptr<!u64i>, !u64i
+// CHECK:   cir.return %[[R]] : !u64i
 // CHECK:   }
 
 void test_char_literal() {

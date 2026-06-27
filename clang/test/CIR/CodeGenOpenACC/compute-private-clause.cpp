@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | FileCheck %s
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
 
 struct NoCopyConstruct {};
 
@@ -101,7 +101,7 @@ struct HasDtor {
 // CHECK-NEXT: cir.call @_ZN14NonDefaultCtorC1Ev(%[[STRIDE]]) : (!cir.ptr<!rec_NonDefaultCtor>) -> ()
 // CHECK-NEXT: cir.yield
 // CHECK-NEXT: } step {
-// CHECK-NEXT: %[[ITR_LOAD]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
+// CHECK-NEXT: %[[ITR_LOAD:.*]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[INC:.*]] = cir.unary(inc, %[[ITR_LOAD]]) : !u64i, !u64i
 // CHECK-NEXT: cir.store %[[INC]], %[[ITR]] : !u64i, !cir.ptr<!u64i>
 // CHECK-NEXT: cir.yield
@@ -136,7 +136,7 @@ struct HasDtor {
 // CHECK-NEXT: cir.call @_ZN7HasDtorD1Ev(%[[STRIDE]]) nothrow : (!cir.ptr<!rec_HasDtor>) -> ()
 // CHECK-NEXT: cir.yield
 // CHECK-NEXT: } step {
-// CHECK-NEXT: %[[ITR_LOAD]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
+// CHECK-NEXT: %[[ITR_LOAD:.*]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[DEC:.*]] = cir.unary(dec, %[[ITR_LOAD]]) : !u64i, !u64i
 // CHECK-NEXT: cir.store %[[DEC]], %[[ITR]] : !u64i, !cir.ptr<!u64i>
 // CHECK-NEXT: cir.yield
@@ -179,38 +179,38 @@ extern "C" void acc_compute() {
   // CHECK: %[[PRIVATE:.*]] = acc.private varPtr(%[[SOMEINT]] : !cir.ptr<!s32i>) recipe(@privatization__ZTSi) -> !cir.ptr<!s32i> {name = "someInt"}
   // CHECK-NEXT: acc.parallel private(%[[PRIVATE]] : !cir.ptr<!s32i>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc serial private(someFloat)
   ;
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[SOMEFLOAT]] : !cir.ptr<!cir.float>) recipe(@privatization__ZTSf) -> !cir.ptr<!cir.float> {name = "someFloat"}
   // CHECK-NEXT: acc.serial private(%[[PRIVATE]] : !cir.ptr<!cir.float>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 
 #pragma acc parallel private(noCopy)
   ;
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[NOCOPY]] : !cir.ptr<!rec_NoCopyConstruct>) recipe(@privatization__ZTS15NoCopyConstruct) -> !cir.ptr<!rec_NoCopyConstruct> {name = "noCopy"}
   // CHECK-NEXT: acc.parallel private(%[[PRIVATE]] : !cir.ptr<!rec_NoCopyConstruct>
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc serial private(hasCopy)
   ;
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[HASCOPY]] : !cir.ptr<!rec_CopyConstruct>) recipe(@privatization__ZTS13CopyConstruct) -> !cir.ptr<!rec_CopyConstruct> {name = "hasCopy"}
   // CHECK-NEXT: acc.serial private(%[[PRIVATE]] : !cir.ptr<!rec_CopyConstruct>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc serial private(notDefCtor)
   ;
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[NOTDEFCTOR]] : !cir.ptr<!rec_NonDefaultCtor>) recipe(@privatization__ZTS14NonDefaultCtor) -> !cir.ptr<!rec_NonDefaultCtor> {name = "notDefCtor"}
   // CHECK-NEXT: acc.serial private(%[[PRIVATE]] : !cir.ptr<!rec_NonDefaultCtor>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc serial private(dtor)
   ;
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[DTOR]] : !cir.ptr<!rec_HasDtor>) recipe(@privatization__ZTS7HasDtor) -> !cir.ptr<!rec_HasDtor> {name = "dtor"}
   // CHECK-NEXT: acc.serial private(%[[PRIVATE]] : !cir.ptr<!rec_HasDtor>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 
 #pragma acc parallel private(someInt, someFloat, noCopy, hasCopy, notDefCtor, dtor)
   ;
@@ -227,7 +227,7 @@ extern "C" void acc_compute() {
   // CHECK-SAME: !cir.ptr<!rec_NonDefaultCtor>,
   // CHECK-SAME: !cir.ptr<!rec_HasDtor>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 
 #pragma acc serial private(someIntArr[1])
   ;
@@ -240,7 +240,7 @@ extern "C" void acc_compute() {
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[INTARR]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS]]) recipe(@privatization__Bcnt1__ZTSA5_i) -> !cir.ptr<!cir.array<!s32i x 5>> {name = "someIntArr[1]"}
   // CHECK-NEXT: acc.serial private(%[[PRIVATE]] : !cir.ptr<!cir.array<!s32i x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc parallel private(someFloatArr[1])
   ;
   // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -252,7 +252,7 @@ extern "C" void acc_compute() {
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[FLOATARR]] : !cir.ptr<!cir.array<!cir.float x 5>>) bounds(%[[BOUNDS]]) recipe(@privatization__Bcnt1__ZTSA5_f) -> !cir.ptr<!cir.array<!cir.float x 5>> {name = "someFloatArr[1]"}
   // CHECK-NEXT: acc.parallel private(%[[PRIVATE]] : !cir.ptr<!cir.array<!cir.float x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc serial private(noCopyArr[1])
   ;
   // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -264,7 +264,7 @@ extern "C" void acc_compute() {
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[NOCOPYARR]] : !cir.ptr<!cir.array<!rec_NoCopyConstruct x 5>>) bounds(%[[BOUNDS]]) recipe(@privatization__Bcnt1__ZTSA5_15NoCopyConstruct) -> !cir.ptr<!cir.array<!rec_NoCopyConstruct x 5>> {name = "noCopyArr[1]"}
   // CHECK-NEXT: acc.serial private(%[[PRIVATE]] : !cir.ptr<!cir.array<!rec_NoCopyConstruct x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc parallel private(hasCopyArr[1])
   ;
   // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -276,7 +276,7 @@ extern "C" void acc_compute() {
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[HASCOPYARR]] : !cir.ptr<!cir.array<!rec_CopyConstruct x 5>>) bounds(%[[BOUNDS]]) recipe(@privatization__Bcnt1__ZTSA5_13CopyConstruct) -> !cir.ptr<!cir.array<!rec_CopyConstruct x 5>> {name = "hasCopyArr[1]"}
   // CHECK-NEXT: acc.parallel private(%[[PRIVATE]] : !cir.ptr<!cir.array<!rec_CopyConstruct x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc parallel private(notDefCtorArr[1])
   ;
   // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -288,7 +288,7 @@ extern "C" void acc_compute() {
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[NOTDEFCTORARR]] : !cir.ptr<!cir.array<!rec_NonDefaultCtor x 5>>) bounds(%[[BOUNDS]]) recipe(@privatization__Bcnt1__ZTSA5_14NonDefaultCtor) -> !cir.ptr<!cir.array<!rec_NonDefaultCtor x 5>> {name = "notDefCtorArr[1]"}
   // CHECK-NEXT: acc.parallel private(%[[PRIVATE]] : !cir.ptr<!cir.array<!rec_NonDefaultCtor x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc parallel private(dtorArr[1])
   ;
   // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -300,7 +300,7 @@ extern "C" void acc_compute() {
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[DTORARR]] : !cir.ptr<!cir.array<!rec_HasDtor x 5>>) bounds(%[[BOUNDS]]) recipe(@privatization__Bcnt1__ZTSA5_7HasDtor) -> !cir.ptr<!cir.array<!rec_HasDtor x 5>> {name = "dtorArr[1]"}
   // CHECK-NEXT: acc.parallel private(%[[PRIVATE]] : !cir.ptr<!cir.array<!rec_HasDtor x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc serial private(someIntArr[1], someFloatArr[1], noCopyArr[1], hasCopyArr[1], notDefCtorArr[1], dtorArr[1])
   ;
   // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -352,7 +352,7 @@ extern "C" void acc_compute() {
   // CHECK-SAME: !cir.ptr<!cir.array<!rec_NonDefaultCtor x 5>>,
   // CHECK-SAME: !cir.ptr<!cir.array<!rec_HasDtor x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 
 #pragma acc parallel private(someIntArr[1:1])
   ;
@@ -366,7 +366,7 @@ extern "C" void acc_compute() {
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[INTARR]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS]]) recipe(@privatization__Bcnt1__ZTSA5_i) -> !cir.ptr<!cir.array<!s32i x 5>> {name = "someIntArr[1:1]"}
   // CHECK-NEXT: acc.parallel private(%[[PRIVATE]] : !cir.ptr<!cir.array<!s32i x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc serial private(someFloatArr[1:1])
   ;
   // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -379,7 +379,7 @@ extern "C" void acc_compute() {
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[FLOATARR]] : !cir.ptr<!cir.array<!cir.float x 5>>) bounds(%[[BOUNDS]]) recipe(@privatization__Bcnt1__ZTSA5_f) -> !cir.ptr<!cir.array<!cir.float x 5>> {name = "someFloatArr[1:1]"}
   // CHECK-NEXT: acc.serial private(%[[PRIVATE]] : !cir.ptr<!cir.array<!cir.float x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc parallel private(noCopyArr[1:1])
   ;
   // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -392,7 +392,7 @@ extern "C" void acc_compute() {
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[NOCOPYARR]] : !cir.ptr<!cir.array<!rec_NoCopyConstruct x 5>>) bounds(%[[BOUNDS]]) recipe(@privatization__Bcnt1__ZTSA5_15NoCopyConstruct) -> !cir.ptr<!cir.array<!rec_NoCopyConstruct x 5>> {name = "noCopyArr[1:1]"}
   // CHECK-NEXT: acc.parallel private(%[[PRIVATE]] : !cir.ptr<!cir.array<!rec_NoCopyConstruct x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc serial private(hasCopyArr[1:1])
   ;
   // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -405,7 +405,7 @@ extern "C" void acc_compute() {
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[HASCOPYARR]] : !cir.ptr<!cir.array<!rec_CopyConstruct x 5>>) bounds(%[[BOUNDS]]) recipe(@privatization__Bcnt1__ZTSA5_13CopyConstruct) -> !cir.ptr<!cir.array<!rec_CopyConstruct x 5>> {name = "hasCopyArr[1:1]"}
   // CHECK-NEXT: acc.serial private(%[[PRIVATE]] : !cir.ptr<!cir.array<!rec_CopyConstruct x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc parallel private(notDefCtorArr[1:1])
   ;
   // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -418,7 +418,7 @@ extern "C" void acc_compute() {
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[NOTDEFCTORARR]] : !cir.ptr<!cir.array<!rec_NonDefaultCtor x 5>>) bounds(%[[BOUNDS]]) recipe(@privatization__Bcnt1__ZTSA5_14NonDefaultCtor) -> !cir.ptr<!cir.array<!rec_NonDefaultCtor x 5>> {name = "notDefCtorArr[1:1]"}
   // CHECK-NEXT: acc.parallel private(%[[PRIVATE]] : !cir.ptr<!cir.array<!rec_NonDefaultCtor x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc parallel private(dtorArr[1:1])
   ;
   // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -431,7 +431,7 @@ extern "C" void acc_compute() {
   // CHECK-NEXT: %[[PRIVATE:.*]] = acc.private varPtr(%[[DTORARR]] : !cir.ptr<!cir.array<!rec_HasDtor x 5>>) bounds(%[[BOUNDS]]) recipe(@privatization__Bcnt1__ZTSA5_7HasDtor) -> !cir.ptr<!cir.array<!rec_HasDtor x 5>> {name = "dtorArr[1:1]"}
   // CHECK-NEXT: acc.parallel private(%[[PRIVATE]] : !cir.ptr<!cir.array<!rec_HasDtor x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 #pragma acc parallel private(someIntArr[1:1], someFloatArr[1:1], noCopyArr[1:1], hasCopyArr[1:1], notDefCtorArr[1:1], dtorArr[1:1])
   ;
   // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -489,5 +489,5 @@ extern "C" void acc_compute() {
   // CHECK-SAME: !cir.ptr<!cir.array<!rec_NonDefaultCtor x 5>>,
   // CHECK-SAME: !cir.ptr<!cir.array<!rec_HasDtor x 5>>)
   // CHECK-NEXT: acc.yield
-  // CHECK-NEXT: } loc
+  // CHECK-NEXT: }
 }

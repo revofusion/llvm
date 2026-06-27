@@ -107,12 +107,20 @@ void foo4() {
 
 // CIR-LABEL: @_Z4foo4v
 // CIR:   %[[P:.*]] = cir.alloca !rec_Point, !cir.ptr<!rec_Point>, ["p", init]
-// CIR:   %[[CONST:.*]] = cir.const #cir.const_record<{#cir.int<5> : !s32i, #cir.int<10> : !s32i}> : !rec_Point
-// CIR:   cir.store{{.*}} %[[CONST]], %[[P]] : !rec_Point, !cir.ptr<!rec_Point>
+// CIR:   %[[X:.*]] = cir.get_member %[[P]][0] {name = "x"} : !cir.ptr<!rec_Point> -> !cir.ptr<!s32i>
+// CIR:   %[[FIVE:.*]] = cir.const #cir.int<5> : !s32i
+// CIR:   cir.store align(4) %[[FIVE]], %[[X]] : !s32i, !cir.ptr<!s32i>
+// CIR:   %[[Y:.*]] = cir.get_member %[[P]][1] {name = "y"} : !cir.ptr<!rec_Point> -> !cir.ptr<!s32i>
+// CIR:   %[[TEN:.*]] = cir.const #cir.int<10> : !s32i
+// CIR:   cir.store align(4) %[[TEN]], %[[Y]] : !s32i, !cir.ptr<!s32i>
 
 // LLVM-LABEL: @_Z4foo4v
 // LLVM:   %[[P:.*]] = alloca %struct.Point
-// LLVM:   store %struct.Point { i32 5, i32 10 }, ptr %[[P]], align 4
+// LLVM:   %[[X:.*]] = getelementptr %struct.Point, ptr %[[P]], i32 0, i32 0
+// LLVM:   store i32 5, ptr %[[X]], align 4
+// LLVM:   %[[Y:.*]] = getelementptr %struct.Point, ptr %[[P]], i32 0, i32 1
+// LLVM:   store i32 10, ptr %[[Y]], align 4
+// LLVM:   ret void
 
 // OGCG-LABEL: @_Z4foo4v
 // OGCG:   %[[P:.*]] = alloca %struct.Point

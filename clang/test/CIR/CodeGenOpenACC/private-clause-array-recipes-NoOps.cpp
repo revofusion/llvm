@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | FileCheck %s
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g; s/ ,/,/g; s/ \)/)/g' | FileCheck %s
 
 struct NoOps { int i = 0; };
 
@@ -7,7 +7,7 @@ void do_things(unsigned A, unsigned B) {
   T OneArr[5];
 #pragma acc parallel private(OneArr[A:B])
 // CHECK: acc.private.recipe @privatization__Bcnt1__ZTSA5_5NoOps : !cir.ptr<!cir.array<!rec_NoOps x 5>> init {
-// CHECK-NEXT: ^bb0(%arg0: !cir.ptr<!cir.array<!rec_NoOps x 5>> {{.*}}, %[[BOUND1:.*]]: !acc.data_bounds_ty {{.*}}):
+// CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!rec_NoOps x 5>>, %[[BOUND1:.*]]: !acc.data_bounds_ty):
 // CHECK-NEXT: %[[TL_ALLOCA:.*]] = cir.alloca !cir.array<!rec_NoOps x 5>, !cir.ptr<!cir.array<!rec_NoOps x 5>>, ["openacc.private.init"] {alignment = 4 : i64}
 //
 // Init Section.
@@ -30,7 +30,7 @@ void do_things(unsigned A, unsigned B) {
 // CHECK-NEXT: cir.call @_ZN5NoOpsC1Ev(%[[STRIDE]]) nothrow : (!cir.ptr<!rec_NoOps>) -> ()
 // CHECK-NEXT: cir.yield
 // CHECK-NEXT: } step {
-// CHECK-NEXT: %[[ITR1_LOAD]] = cir.load %[[ITR1]] : !cir.ptr<!u64i>, !u64i
+// CHECK-NEXT: %[[ITR1_LOAD:.*]] = cir.load %[[ITR1]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[INC:.*]] = cir.unary(inc, %[[ITR1_LOAD]]) : !u64i, !u64i
 // CHECK-NEXT: cir.store %[[INC]], %[[ITR1]] : !u64i, !cir.ptr<!u64i>
 // CHECK-NEXT: cir.yield
@@ -43,7 +43,7 @@ void do_things(unsigned A, unsigned B) {
   ;
 #pragma acc parallel private(OneArr)
 // CHECK-NEXT: acc.private.recipe @privatization__ZTSA5_5NoOps : !cir.ptr<!cir.array<!rec_NoOps x 5>> init {
-// CHECK-NEXT: ^bb0(%arg0: !cir.ptr<!cir.array<!rec_NoOps x 5>> {{.*}}):
+// CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!rec_NoOps x 5>>):
 // CHECK-NEXT: %[[TL_ALLOCA:.*]] = cir.alloca !cir.array<!rec_NoOps x 5>, !cir.ptr<!cir.array<!rec_NoOps x 5>>, ["openacc.private.init", init] {alignment = 16 : i64}
 // CHECK-NEXT: %[[ARR_SIZE:.*]] = cir.const #cir.int<5> : !u64i
 // CHECK-NEXT: %[[DECAY:.*]] = cir.cast array_to_ptrdecay %[[TL_ALLOCA]] : !cir.ptr<!cir.array<!rec_NoOps x 5>> -> !cir.ptr<!rec_NoOps>
@@ -69,7 +69,7 @@ void do_things(unsigned A, unsigned B) {
   T TwoArr[5][5];
 #pragma acc parallel private(TwoArr[B][B])
 // CHECK-NEXT: acc.private.recipe @privatization__Bcnt2__ZTSA5_A5_5NoOps : !cir.ptr<!cir.array<!cir.array<!rec_NoOps x 5> x 5>> init {
-// CHECK-NEXT: ^bb0(%arg0: !cir.ptr<!cir.array<!cir.array<!rec_NoOps x 5> x 5>> {{.*}}, %[[BOUND1:.*]]: !acc.data_bounds_ty {{.*}}, %[[BOUND2:.*]]: !acc.data_bounds_ty {{.*}}):
+// CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!cir.array<!rec_NoOps x 5> x 5>>, %[[BOUND1:.*]]: !acc.data_bounds_ty, %[[BOUND2:.*]]: !acc.data_bounds_ty):
 // CHECK-NEXT: %[[TL_ALLOCA:.*]] = cir.alloca !cir.array<!cir.array<!rec_NoOps x 5> x 5>, !cir.ptr<!cir.array<!cir.array<!rec_NoOps x 5> x 5>>, ["openacc.private.init"] {alignment = 4 : i64}
 //
 // Init Section:
@@ -109,7 +109,7 @@ void do_things(unsigned A, unsigned B) {
 // CHECK-NEXT: cir.call @_ZN5NoOpsC1Ev(%[[STRIDE]]) nothrow : (!cir.ptr<!rec_NoOps>) -> ()
 // CHECK-NEXT: cir.yield
 // CHECK-NEXT: } step {
-// CHECK-NEXT: %[[ITR1_LOAD]] = cir.load %[[ITR1]] : !cir.ptr<!u64i>, !u64i
+// CHECK-NEXT: %[[ITR1_LOAD:.*]] = cir.load %[[ITR1]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[INC:.*]] = cir.unary(inc, %[[ITR1_LOAD]]) : !u64i, !u64i
 // CHECK-NEXT: cir.store %[[INC]], %[[ITR1]] : !u64i, !cir.ptr<!u64i>
 // CHECK-NEXT: cir.yield
@@ -117,7 +117,7 @@ void do_things(unsigned A, unsigned B) {
 // CHECK-NEXT: }
 // CHECK-NEXT: cir.yield
 // CHECK-NEXT: } step {
-// CHECK-NEXT: %[[ITR2_LOAD]] = cir.load %[[ITR2]] : !cir.ptr<!u64i>, !u64i
+// CHECK-NEXT: %[[ITR2_LOAD:.*]] = cir.load %[[ITR2]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[INC:.*]] = cir.unary(inc, %[[ITR2_LOAD]]) : !u64i, !u64i
 // CHECK-NEXT: cir.store %[[INC]], %[[ITR2]] : !u64i, !cir.ptr<!u64i>
 // CHECK-NEXT: cir.yield
@@ -132,7 +132,7 @@ void do_things(unsigned A, unsigned B) {
   ;
 #pragma acc parallel private(TwoArr)
 // CHECK-NEXT: acc.private.recipe @privatization__ZTSA5_A5_5NoOps : !cir.ptr<!cir.array<!cir.array<!rec_NoOps x 5> x 5>> init {
-// CHECK-NEXT: ^bb0(%arg0: !cir.ptr<!cir.array<!cir.array<!rec_NoOps x 5> x 5>> {{.*}}):
+// CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!cir.array<!rec_NoOps x 5> x 5>>):
 // CHECK-NEXT: %[[TL_ALLOCA:.*]] = cir.alloca !cir.array<!cir.array<!rec_NoOps x 5> x 5>, !cir.ptr<!cir.array<!cir.array<!rec_NoOps x 5> x 5>>, ["openacc.private.init", init] {alignment = 16 : i64}
 // CHECK-NEXT: %[[BITCAST:.*]] = cir.cast bitcast %[[TL_ALLOCA]] : !cir.ptr<!cir.array<!cir.array<!rec_NoOps x 5> x 5>> -> !cir.ptr<!cir.array<!rec_NoOps x 25>>
 // CHECK-NEXT: %[[ARR_SIZE:.*]] = cir.const #cir.int<25> : !u64i
@@ -159,7 +159,7 @@ void do_things(unsigned A, unsigned B) {
   T ThreeArr[5][5][5];
 #pragma acc parallel private(ThreeArr[B][B][B])
 // CHECK-NEXT:acc.private.recipe @privatization__Bcnt3__ZTSA5_A5_A5_5NoOps : !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>> init {
-// CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>> {{.*}}, %[[BOUND1:.*]]: !acc.data_bounds_ty {{.*}}, %[[BOUND2:.*]]: !acc.data_bounds_ty {{.*}}, %[[BOUND3:.*]]: !acc.data_bounds_ty {{.*}}):
+// CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>>, %[[BOUND1:.*]]: !acc.data_bounds_ty, %[[BOUND2:.*]]: !acc.data_bounds_ty, %[[BOUND3:.*]]: !acc.data_bounds_ty):
 // CHECK-NEXT: %[[TL_ALLOCA:.*]] = cir.alloca !cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>, !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>>, ["openacc.private.init"] {alignment = 4 : i64}
 //
 // Init Section:
@@ -211,7 +211,7 @@ void do_things(unsigned A, unsigned B) {
 // CHECK-NEXT: cir.call @_ZN5NoOpsC1Ev(%[[BOUND1_STRIDE]]) nothrow : (!cir.ptr<!rec_NoOps>) -> ()
 // CHECK-NEXT: cir.yield
 // CHECK-NEXT: } step {
-// CHECK-NEXT: %[[ITR1_LOAD]] = cir.load %[[ITR1]] : !cir.ptr<!u64i>, !u64i
+// CHECK-NEXT: %[[ITR1_LOAD:.*]] = cir.load %[[ITR1]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[INC:.*]] = cir.unary(inc, %[[ITR1_LOAD]]) : !u64i, !u64i
 // CHECK-NEXT: cir.store %[[INC]], %[[ITR1]] : !u64i, !cir.ptr<!u64i>
 // CHECK-NEXT: cir.yield
@@ -219,7 +219,7 @@ void do_things(unsigned A, unsigned B) {
 // CHECK-NEXT: }
 // CHECK-NEXT: cir.yield
 // CHECK-NEXT: } step {
-// CHECK-NEXT: %[[ITR2_LOAD]] = cir.load %[[ITR2]] : !cir.ptr<!u64i>, !u64i
+// CHECK-NEXT: %[[ITR2_LOAD:.*]] = cir.load %[[ITR2]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[INC:.*]] = cir.unary(inc, %[[ITR2_LOAD]]) : !u64i, !u64i
 // CHECK-NEXT: cir.store %[[INC]], %[[ITR2]] : !u64i, !cir.ptr<!u64i>
 // CHECK-NEXT: cir.yield
@@ -227,7 +227,7 @@ void do_things(unsigned A, unsigned B) {
 // CHECK-NEXT: }
 // CHECK-NEXT: cir.yield
 // CHECK-NEXT: } step {
-// CHECK-NEXT: %[[ITR3_LOAD]] = cir.load %[[ITR3]] : !cir.ptr<!u64i>, !u64i
+// CHECK-NEXT: %[[ITR3_LOAD:.*]] = cir.load %[[ITR3]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[INC:.*]] = cir.unary(inc, %[[ITR3_LOAD]]) : !u64i, !u64i
 // CHECK-NEXT: cir.store %[[INC]], %[[ITR3]] : !u64i, !cir.ptr<!u64i>
 // CHECK-NEXT: cir.yield
@@ -244,7 +244,7 @@ void do_things(unsigned A, unsigned B) {
   ;
 #pragma acc parallel private(ThreeArr[B][B])
 // CHECK-NEXT: acc.private.recipe @privatization__Bcnt2__ZTSA5_A5_A5_5NoOps : !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>> init {
-// CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>> {{.*}}, %[[BOUND1:.*]]: !acc.data_bounds_ty {{.*}}, %[[BOUND2:.*]]: !acc.data_bounds_ty {{.*}}):
+// CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>>, %[[BOUND1:.*]]: !acc.data_bounds_ty, %[[BOUND2:.*]]: !acc.data_bounds_ty):
 // CHECK-NEXT: %[[TL_ALLOCA:.*]] = cir.alloca !cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>, !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>>, ["openacc.private.init"] {alignment = 4 : i64}
 // Init Section:
 // CHECK-NEXT: cir.scope {
@@ -299,7 +299,7 @@ void do_things(unsigned A, unsigned B) {
 // CHECK-NEXT: }
 // CHECK-NEXT: cir.yield
 // CHECK-NEXT: } step {
-// CHECK-NEXT: %[[ITR1_LOAD]] = cir.load %[[ITR1]] : !cir.ptr<!u64i>, !u64i
+// CHECK-NEXT: %[[ITR1_LOAD:.*]] = cir.load %[[ITR1]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[INC:.*]] = cir.unary(inc, %[[ITR1_LOAD]]) : !u64i, !u64i
 // CHECK-NEXT: cir.store %[[INC]], %[[ITR1]] : !u64i, !cir.ptr<!u64i>
 // CHECK-NEXT: cir.yield
@@ -307,7 +307,7 @@ void do_things(unsigned A, unsigned B) {
 // CHECK-NEXT: }
 // CHECK-NEXT: cir.yield
 // CHECK-NEXT: } step {
-// CHECK-NEXT: %[[ITR2_LOAD]] = cir.load %[[ITR2]] : !cir.ptr<!u64i>, !u64i
+// CHECK-NEXT: %[[ITR2_LOAD:.*]] = cir.load %[[ITR2]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[INC:.*]] = cir.unary(inc, %[[ITR2_LOAD]]) : !u64i, !u64i
 // CHECK-NEXT: cir.store %[[INC]], %[[ITR2]] : !u64i, !cir.ptr<!u64i>
 // CHECK-NEXT: cir.yield
@@ -322,7 +322,7 @@ void do_things(unsigned A, unsigned B) {
   ;
 #pragma acc parallel private(ThreeArr)
 // CHECK-NEXT: acc.private.recipe @privatization__ZTSA5_A5_A5_5NoOps : !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>> init {
-// CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>> {{.*}}):
+// CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>>):
 // CHECK-NEXT: %[[TL_ALLOCA:.*]] = cir.alloca !cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>, !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>>, ["openacc.private.init", init] {alignment = 16 : i64}
 // CHECK-NEXT: %[[BITCAST:.*]] = cir.cast bitcast %[[TL_ALLOCA]] : !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NoOps x 5> x 5> x 5>> -> !cir.ptr<!cir.array<!rec_NoOps x 125>>
 // CHECK-NEXT: %[[ARR_SIZE:.*]] = cir.const #cir.int<125> : !u64i

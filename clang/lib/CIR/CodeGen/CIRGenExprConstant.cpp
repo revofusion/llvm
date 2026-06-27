@@ -195,6 +195,35 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
           }
           return true;
         };
+    auto sourceMemberOverlapsRange = [&](CharUnits offset, CharUnits size) {
+      if (size.isZero())
+        return false;
+
+      CharUnits end = offset + size;
+      for (unsigned index = 0; index < sourceRecord.getNumElements(); ++index) {
+        auto typedMember =
+            mlir::dyn_cast<mlir::TypedAttr>(record.getMembers()[index]);
+        if (!typedMember)
+          continue;
+
+        CharUnits sourceBegin = getSourceOffset(index);
+        CharUnits sourceEnd = sourceBegin + utils.getSize(typedMember);
+        if (sourceBegin < end && offset < sourceEnd)
+          return true;
+      }
+      return false;
+    };
+    std::function<bool(mlir::Type)> isPaddingStorageType;
+    isPaddingStorageType = [&](mlir::Type type) {
+      if (auto intTy = mlir::dyn_cast<cir::IntTypeInterface>(type))
+        return intTy.isUnsigned() && intTy.getWidth() == 8;
+
+      if (auto arrayTy = mlir::dyn_cast<cir::ArrayType>(type))
+        return arrayTy.getSize() > 0 &&
+               isPaddingStorageType(arrayTy.getElementType());
+
+      return false;
+    };
     auto retargetSourceMemberAtOffset =
         [&](CharUnits offset, mlir::Type memberType,
             SmallVectorImpl<bool> &used) -> std::optional<mlir::TypedAttr> {
@@ -219,82 +248,37 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
       return std::nullopt;
     };
     std::function<std::optional<mlir::TypedAttr>(
-        CharUnits, mlir::Type, SmallVectorImpl<bool> &)>
+        CharUnits, mlir::Type, SmallVectorImpl<bool> &, bool)>
         retargetSourceRangeAtOffset;
     retargetSourceRangeAtOffset =
         [&](CharUnits offset, mlir::Type memberType,
-            SmallVectorImpl<bool> &used) -> std::optional<mlir::TypedAttr> {
+            SmallVectorImpl<bool> &used,
+            bool allowPaddingFill) -> std::optional<mlir::TypedAttr> {
       if (auto retargeted =
               retargetSourceMemberAtOffset(offset, memberType, used))
         return retargeted;
 
-      if (auto desiredInt = mlir::dyn_cast<cir::IntTypeInterface>(memberType)) {
-        unsigned charWidth = cgm.getASTContext().getCharWidth();
-        CharUnits memberSize = utils.getSize(memberType);
-        if (!memberSize.isZero() &&
-            static_cast<uint64_t>(memberSize.getQuantity()) * charWidth ==
-                desiredInt.getWidth()) {
-          SmallVector<unsigned, 8> byteMembers;
-          llvm::APInt value(desiredInt.getWidth(), 0);
-          bool matchedAllBytes = true;
+      if (allowPaddingFill &&
+          !sourceMemberOverlapsRange(offset, utils.getSize(memberType)))
+        return builder.getZeroInitAttr(memberType);
 
-          for (uint64_t byteIndex = 0;
-               byteIndex < static_cast<uint64_t>(memberSize.getQuantity());
-               ++byteIndex) {
-            CharUnits byteOffset =
-                offset + CharUnits::fromQuantity(
-                             static_cast<int64_t>(byteIndex));
-            std::optional<unsigned> byteMember;
-            for (unsigned sourceIndex = 0;
-                 sourceIndex < sourceRecord.getNumElements(); ++sourceIndex) {
-              if (used[sourceIndex] || getSourceOffset(sourceIndex) != byteOffset)
-                continue;
-              auto intMember = mlir::dyn_cast<cir::IntAttr>(
-                  record.getMembers()[sourceIndex]);
-              if (!intMember || intMember.getBitWidth() != charWidth ||
-                  utils.getSize(intMember) != CharUnits::One())
-                continue;
-              byteMember = sourceIndex;
-              break;
-            }
-            if (!byteMember) {
-              matchedAllBytes = false;
-              break;
-            }
+      if (auto nestedRecord = mlir::dyn_cast<cir::RecordType>(memberType)) {
+        if (nestedRecord.isUnion())
+          return std::nullopt;
 
-            auto byteValue = mlir::cast<cir::IntAttr>(
-                                 record.getMembers()[*byteMember])
-                                 .getValue()
-                                 .zextOrTrunc(desiredInt.getWidth());
-            uint64_t shiftByte = cgm.getDataLayout().isBigEndian()
-                                     ? static_cast<uint64_t>(
-                                           memberSize.getQuantity()) -
-                                           byteIndex - 1
-                                     : byteIndex;
-            value |= byteValue.shl(shiftByte * charWidth);
-            byteMembers.push_back(*byteMember);
-          }
-
-          if (matchedAllBytes) {
-            for (unsigned byteMember : byteMembers)
-              used[byteMember] = true;
-            return cir::IntAttr::get(memberType, value);
-          }
-        }
-      }
-
-      if (auto desiredRecord = mlir::dyn_cast<cir::RecordType>(memberType);
-          desiredRecord && !desiredRecord.isUnion()) {
         SmallVector<bool, 16> trialUsed(used.begin(), used.end());
         SmallVector<mlir::Attribute, 16> members;
-        members.reserve(desiredRecord.getNumElements());
-        for (unsigned index = 0; index < desiredRecord.getNumElements();
+        members.reserve(nestedRecord.getNumElements());
+        for (unsigned index = 0; index < nestedRecord.getNumElements();
              ++index) {
+          mlir::Type elementType = nestedRecord.getElementType(index);
           CharUnits memberOffset =
-              offset + CharUnits::fromQuantity(desiredRecord.getElementOffset(
+              offset + CharUnits::fromQuantity(nestedRecord.getElementOffset(
                            utils.dataLayout.layout, index));
+          bool allowElementPaddingFill =
+              nestedRecord.getPadded() && isPaddingStorageType(elementType);
           auto retargeted = retargetSourceRangeAtOffset(
-              memberOffset, desiredRecord.getElementType(index), trialUsed);
+              memberOffset, elementType, trialUsed, allowElementPaddingFill);
           if (!retargeted)
             return std::nullopt;
           members.push_back(*retargeted);
@@ -302,8 +286,44 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
 
         used.assign(trialUsed.begin(), trialUsed.end());
         return cir::ConstRecordAttr::get(
-            desiredRecord,
+            nestedRecord,
             mlir::ArrayAttr::get(builder.getContext(), members));
+      }
+
+      if (auto desiredInt = mlir::dyn_cast<cir::IntTypeInterface>(memberType)) {
+        unsigned charWidth = cgm.getASTContext().getCharWidth();
+        unsigned intWidth = desiredInt.getWidth();
+        if (charWidth == 0 || intWidth % charWidth != 0)
+          return std::nullopt;
+
+        uint64_t byteCount = intWidth / charWidth;
+        if (byteCount == 0)
+          return std::nullopt;
+
+        mlir::Type byteType = builder.getUIntNTy(charWidth);
+        SmallVector<bool, 16> trialUsed(used.begin(), used.end());
+        llvm::APInt value(intWidth, 0);
+        for (uint64_t byteIndex = 0; byteIndex < byteCount; ++byteIndex) {
+          CharUnits byteOffset =
+              offset + CharUnits::fromQuantity(static_cast<int64_t>(byteIndex));
+          auto byteAttr =
+              retargetSourceMemberAtOffset(byteOffset, byteType, trialUsed);
+          if (!byteAttr)
+            return std::nullopt;
+
+          auto byteInt = mlir::dyn_cast<cir::IntAttr>(*byteAttr);
+          if (!byteInt || byteInt.getBitWidth() != charWidth)
+            return std::nullopt;
+
+          uint64_t storageIndex = cgm.getDataLayout().isBigEndian()
+                                      ? byteCount - byteIndex - 1
+                                      : byteIndex;
+          llvm::APInt extended = byteInt.getValue().zextOrTrunc(intWidth);
+          value |= extended.shl(storageIndex * charWidth);
+        }
+
+        used.assign(trialUsed.begin(), trialUsed.end());
+        return cir::IntAttr::get(memberType, value);
       }
 
       auto desiredVector = mlir::dyn_cast<cir::VectorType>(memberType);
@@ -366,7 +386,7 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
       return std::nullopt;
     }
 
-    if (utils.getSize(attr) == utils.getSize(desiredType)) {
+    if (utils.getSize(attr) <= utils.getSize(desiredType)) {
       SmallVector<bool, 16> used(sourceRecord.getNumElements(), false);
       SmallVector<mlir::Attribute> members;
       members.reserve(desiredRecord.getNumElements());
@@ -374,8 +394,11 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
            ++index) {
         CharUnits desiredOffset = CharUnits::fromQuantity(
             desiredRecord.getElementOffset(utils.dataLayout.layout, index));
+        mlir::Type elementType = desiredRecord.getElementType(index);
+        bool allowElementPaddingFill =
+            desiredRecord.getPadded() && isPaddingStorageType(elementType);
         auto retargeted = retargetSourceRangeAtOffset(
-            desiredOffset, desiredRecord.getElementType(index), used);
+            desiredOffset, elementType, used, allowElementPaddingFill);
         if (!retargeted) {
           members.clear();
           break;
@@ -1082,6 +1105,8 @@ void ConstantAggregateBuilder::condense(CharUnits offset,
   mlir::Attribute replacement =
       buildFrom(cgm, subElems, offset, desiredSize,
                 /*naturalLayout=*/false, desiredTy, false);
+  if (!replacement)
+    return;
 
   // Replace the range with the condensed constant.
   Element newElt(mlir::cast<mlir::TypedAttr>(replacement), offset);
@@ -1314,8 +1339,10 @@ ConstantAggregateBuilder::buildFrom(CIRGenModule &cgm, ArrayRef<Element> elems,
     // If we're using the packed layout, pad it out to the desired size if
     // necessary.
     if (packed) {
-      assert(sizeSoFar <= desiredSize &&
-             "requested size is too small for contents");
+      if (sizeSoFar > desiredSize) {
+        cgm.errorNYI("aggregate constant packed size exceeds target type size");
+        return {};
+      }
 
       if (sizeSoFar < desiredSize)
         packedElems.push_back(utils.getPadding(desiredSize - sizeSoFar));
@@ -2041,7 +2068,11 @@ emitArrayConstant(CIRGenModule &cgm, mlir::Type desiredType,
     return cir::ZeroAttr::get(desiredType);
 
   const unsigned trailingZeroes = arrayBound - nonzeroLength;
-  auto arrayType = mlir::cast<cir::ArrayType>(desiredType);
+  auto arrayType = mlir::dyn_cast<cir::ArrayType>(desiredType);
+  if (!arrayType) {
+    cgm.errorNYI("array constant with non-array CIR type");
+    return {};
+  }
   mlir::Type elementType = arrayType.getElementType();
   if (elements.size() < nonzeroLength)
     elements.resize(nonzeroLength, filler);
@@ -2203,6 +2234,8 @@ mlir::Attribute ConstantLValueEmitter::tryEmit() {
   // Apply the offset if necessary and not already done.
   if (!result.hasOffsetApplied)
     value = applyOffset(result).value;
+  if (!value)
+    return {};
 
   // Convert to the appropriate type; this could be an lvalue for
   // an integer. FIXME: performAddrSpaceCast
@@ -2863,16 +2896,34 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
                      "to method");
         return {};
       }
-      auto methodTy = mlir::cast<cir::MethodType>(cirTy);
-      cir::FuncOp func = cgm.getAddrOfFunction(GlobalDecl(methodDecl));
+      auto methodTy = mlir::dyn_cast<cir::MethodType>(cirTy);
+      if (!methodTy) {
+        cgm.errorNYI("ConstExprEmitter::tryEmitPrivate member function pointer "
+                     "with unsupported CIR type");
+        return {};
+      }
+      const CIRGenFunctionInfo &fnInfo =
+          cgm.getTypes().arrangeCXXMethodDeclaration(methodDecl);
+      cir::FuncOp func = cgm.getAddrOfFunction(
+          GlobalDecl(methodDecl), cgm.getTypes().getFunctionType(fnInfo));
       return cir::MethodAttr::get(
           methodTy, mlir::FlatSymbolRefAttr::get(func.getSymNameAttr()),
           /*this_adjustment=*/0);
     }
 
-    auto dataMemberTy = mlir::cast<cir::DataMemberType>(cirTy);
+    auto dataMemberTy = mlir::dyn_cast<cir::DataMemberType>(cirTy);
+    if (!dataMemberTy) {
+      cgm.errorNYI("ConstExprEmitter::tryEmitPrivate data member pointer with "
+                   "unsupported CIR type");
+      return {};
+    }
 
-    const auto *fieldDecl = cast<FieldDecl>(memberDecl);
+    const auto *fieldDecl = dyn_cast<FieldDecl>(memberDecl);
+    if (!fieldDecl) {
+      cgm.errorNYI("ConstExprEmitter::tryEmitPrivate unsupported member pointer "
+                   "declaration");
+      return {};
+    }
     return builder.getDataMemberAttr(dataMemberTy, fieldDecl->getFieldIndex());
   }
   case APValue::LValue:
@@ -2884,6 +2935,11 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
   case APValue::ComplexFloat: {
     mlir::Type desiredType = cgm.convertType(destType);
     auto complexType = mlir::dyn_cast<cir::ComplexType>(desiredType);
+    if (!complexType) {
+      cgm.errorNYI("ConstExprEmitter::tryEmitPrivate complex with non-complex "
+                   "CIR type");
+      return {};
+    }
 
     mlir::Type complexElemTy = complexType.getElementType();
     if (isa<cir::IntType>(complexElemTy)) {

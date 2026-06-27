@@ -26,9 +26,11 @@ void test_cleanup_ifelse(bool b) {
   }
 }
 
-// CHECK: cir.func{{.*}} @_Z19test_cleanup_ifelseb(%arg0: !cir.bool
+// CHECK: cir.func{{.*}} @_Z19test_cleanup_ifelseb(%arg{{.*}}: !cir.bool
+// CHECK:   %[[B_ADDR:.*]] = cir.alloca !cir.bool, !cir.ptr<!cir.bool>, ["b", init]
+// CHECK:   cir.store %arg{{.*}}, %[[B_ADDR]] : !cir.bool, !cir.ptr<!cir.bool>
 // CHECK:   cir.scope {
-// CHECK:     %[[B:.*]] = cir.load{{.*}} %0 : !cir.ptr<!cir.bool>
+// CHECK:     %[[B:.*]] = cir.load{{.*}} %[[B_ADDR]] : !cir.ptr<!cir.bool>, !cir.bool
 // CHECK:     cir.if %[[B]] {
 // CHECK:       %[[S:.*]] = cir.alloca !rec_Struk, !cir.ptr<!rec_Struk>, ["s"]
 // CHECK:       cir.call @_ZN5StrukD1Ev(%[[S]]) nothrow : (!cir.ptr<!rec_Struk>) -> ()
@@ -47,7 +49,14 @@ void test_cleanup_for() {
 
 // CHECK: cir.func{{.*}} @_Z16test_cleanup_forv()
 // CHECK:   cir.scope {
+// CHECK:     %[[I:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["i", init]
+// CHECK:     %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
+// CHECK:     cir.store{{.*}} %[[ZERO]], %[[I]] : !s32i, !cir.ptr<!s32i>
 // CHECK:     cir.for : cond {
+// CHECK:       %[[IV:.*]] = cir.load{{.*}} %[[I]] : !cir.ptr<!s32i>, !s32i
+// CHECK:       %[[TEN:.*]] = cir.const #cir.int<10> : !s32i
+// CHECK:       %[[COND:.*]] = cir.cmp(lt, %[[IV]], %[[TEN]]) : !s32i, !cir.bool
+// CHECK:       cir.condition(%[[COND]])
 // CHECK:     } body {
 // CHECK:       cir.scope {
 // CHECK:         %[[S:.*]] = cir.alloca !rec_Struk, !cir.ptr<!rec_Struk>, ["s"]
@@ -55,6 +64,10 @@ void test_cleanup_for() {
 // CHECK:       }
 // CHECK:       cir.yield
 // CHECK:     } step {
+// CHECK:       %[[IV:.*]] = cir.load{{.*}} %[[I]] : !cir.ptr<!s32i>, !s32i
+// CHECK:       %[[INC:.*]] = cir.unary(inc, %[[IV]]) nsw : !s32i, !s32i
+// CHECK:       cir.store{{.*}} %[[INC]], %[[I]] : !s32i, !cir.ptr<!s32i>
+// CHECK:       cir.yield
 // CHECK:     }
 // CHECK:   }
 // CHECK:   cir.return

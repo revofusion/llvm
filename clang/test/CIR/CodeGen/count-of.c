@@ -31,13 +31,13 @@ unsigned long vla_with_array_element_type_non_const_size() {
   return _Countof(int[size][size]);
 }
 
-// CIR: %[[REET_ADDR:.*]] = cir.alloca !u64i, !cir.ptr<!u64i>, ["__retval"]
-// CIR: %[[SIZE_ADDR:.*]] = cir.alloca !s64i, !cir.ptr<!s64i>, ["size"]
-// CIR: %[[TMP_SIZE:.*]] = cir.load {{.*}} %[[SIZE_ADDR]] : !cir.ptr<!s64i>, !s64i
-// CIR: %[[TMP_SIZE_U64:.*]] = cir.cast integral %[[TMP_SIZE]] : !s64i -> !u64i
-// CIR: cir.store %[[TMP_SIZE_U64]], %[[RET_ADDR]] : !u64i, !cir.ptr<!u64i>
-// CIR: %[[TMP_RET:.*]] = cir.load %[[RET_ADDR]] : !cir.ptr<!u64i>, !u64i
-// CIR: cir.return %[[TMP_RET]] : !u64i
+// CIR: %[[RET_ADDR2:.*]] = cir.alloca !u64i, !cir.ptr<!u64i>, ["__retval"]
+// CIR: %[[SIZE_ADDR2:.*]] = cir.alloca !s64i, !cir.ptr<!s64i>, ["size"]
+// CIR: %[[TMP_SIZE2:.*]] = cir.load {{.*}} %[[SIZE_ADDR2]] : !cir.ptr<!s64i>, !s64i
+// CIR: %[[TMP_SIZE_U642:.*]] = cir.cast integral %[[TMP_SIZE2]] : !s64i -> !u64i
+// CIR: cir.store %[[TMP_SIZE_U642]], %[[RET_ADDR2]] : !u64i, !cir.ptr<!u64i>
+// CIR: %[[TMP_RET2:.*]] = cir.load %[[RET_ADDR2]] : !cir.ptr<!u64i>, !u64i
+// CIR: cir.return %[[TMP_RET2]] : !u64i
 
 // LLVM: %[[RET_ADDR:.*]] = alloca i64, i64 1, align 8
 // LLVM: %[[SIZE_ADDR:.*]] = alloca i64, i64 1, align 8

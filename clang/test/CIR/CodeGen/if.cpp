@@ -14,16 +14,23 @@ int if0(bool a) {
 
 }
 
-// CIR: cir.func{{.*}} @_Z3if0b(%arg0: !cir.bool loc({{.*}})) -> !s32i
+// CIR: cir.func{{.*}} @_Z3if0b(%arg{{.*}}: !cir.bool loc({{.*}})) -> !s32i
+// CIR: %[[A:.*]] = cir.alloca !cir.bool, !cir.ptr<!cir.bool>, ["a", init]
+// CIR: %[[RETVAL:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["__retval"]
+// CIR: cir.store %arg{{.*}}, %[[A]] : !cir.bool, !cir.ptr<!cir.bool>
 // CIR: cir.scope {
-// CIR:   %4 = cir.load{{.*}} %0 : !cir.ptr<!cir.bool>, !cir.bool
-// CIR-NEXT: cir.if %4 {
-// CIR-NEXT:   %5 = cir.const #cir.int<2> : !s32i
-// CIR-NEXT:   cir.store{{.*}} %5, %1 : !s32i, !cir.ptr<!s32i>
-// CIR-NEXT:   %6 = cir.load{{.*}} %1 : !cir.ptr<!s32i>, !s32i
-// CIR-NEXT:   cir.return %6 : !s32i
-// CIR-NEXT:   }
-// CIR-NEXT:  }
+// CIR:   %[[A_VAL:.*]] = cir.load{{.*}} %[[A]] : !cir.ptr<!cir.bool>, !cir.bool
+// CIR:   cir.if %[[A_VAL]] {
+// CIR:     %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
+// CIR:     cir.store{{.*}} %[[TWO]], %[[RETVAL]] : !s32i, !cir.ptr<!s32i>
+// CIR:     %[[RET:.*]] = cir.load{{.*}} %[[RETVAL]] : !cir.ptr<!s32i>, !s32i
+// CIR:     cir.return %[[RET]] : !s32i
+// CIR:   }
+// CIR: }
+// CIR: %[[THREE:.*]] = cir.const #cir.int<3> : !s32i
+// CIR: cir.store{{.*}} %[[THREE]], %[[RETVAL]] : !s32i, !cir.ptr<!s32i>
+// CIR: %[[RET:.*]] = cir.load{{.*}} %[[RETVAL]] : !cir.ptr<!s32i>, !s32i
+// CIR: cir.return %[[RET]] : !s32i
 
 
 // LLVM: define{{.*}} i32 @_Z3if0b(i1 %0)
@@ -71,18 +78,24 @@ void if1(int a) {
   }
 }
 
-// CIR: cir.func{{.*}} @_Z3if1i(%arg0: !s32i loc({{.*}}))
+// CIR: cir.func{{.*}} @_Z3if1i(%arg{{.*}}: !s32i loc({{.*}}))
+// CIR: %[[A:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["a", init]
+// CIR: %[[X:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["x", init]
+// CIR: cir.store %arg{{.*}}, %[[A]] : !s32i, !cir.ptr<!s32i>
+// CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
+// CIR: cir.store{{.*}} %[[ZERO]], %[[X]] : !s32i, !cir.ptr<!s32i>
 // CIR: cir.scope {
-// CIR:   %3 = cir.load{{.*}} %0 : !cir.ptr<!s32i>, !s32i
-// CIR:   %4 = cir.cast int_to_bool %3 : !s32i -> !cir.bool
-// CIR-NEXT:   cir.if %4 {
-// CIR-NEXT:     %5 = cir.const #cir.int<3> : !s32i
-// CIR-NEXT:     cir.store{{.*}} %5, %1 : !s32i, !cir.ptr<!s32i>
-// CIR-NEXT:   } else {
-// CIR-NEXT:     %5 = cir.const #cir.int<4> : !s32i
-// CIR-NEXT:     cir.store{{.*}} %5, %1 : !s32i, !cir.ptr<!s32i>
-// CIR-NEXT:   }
+// CIR:   %[[A_VAL:.*]] = cir.load{{.*}} %[[A]] : !cir.ptr<!s32i>, !s32i
+// CIR:   %[[COND:.*]] = cir.cast int_to_bool %[[A_VAL]] : !s32i -> !cir.bool
+// CIR:   cir.if %[[COND]] {
+// CIR:     %[[THREE:.*]] = cir.const #cir.int<3> : !s32i
+// CIR:     cir.store{{.*}} %[[THREE]], %[[X]] : !s32i, !cir.ptr<!s32i>
+// CIR:   } else {
+// CIR:     %[[FOUR:.*]] = cir.const #cir.int<4> : !s32i
+// CIR:     cir.store{{.*}} %[[FOUR]], %[[X]] : !s32i, !cir.ptr<!s32i>
+// CIR:   }
 // CIR: }
+// CIR: cir.return
 
 // LLVM: define{{.*}} void @_Z3if1i(i32 %0)
 // LLVM: %[[A:.*]] = alloca i32, i64 1, align 4
@@ -138,32 +151,42 @@ void if2(int a, bool b, bool c) {
   }
 }
 
-// CIR: cir.func{{.*}} @_Z3if2ibb(%arg0: !s32i loc({{.*}}), %arg1: !cir.bool loc({{.*}}), %arg2: !cir.bool loc({{.*}}))
+// CIR: cir.func{{.*}} @_Z3if2ibb(%arg{{.*}}: !s32i loc({{.*}}), %arg{{.*}}: !cir.bool loc({{.*}}), %arg{{.*}}: !cir.bool loc({{.*}}))
+// CIR: %[[A:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["a", init]
+// CIR: %[[B:.*]] = cir.alloca !cir.bool, !cir.ptr<!cir.bool>, ["b", init]
+// CIR: %[[C:.*]] = cir.alloca !cir.bool, !cir.ptr<!cir.bool>, ["c", init]
+// CIR: %[[X:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["x", init]
+// CIR: cir.store %arg{{.*}}, %[[A]] : !s32i, !cir.ptr<!s32i>
+// CIR: cir.store %arg{{.*}}, %[[B]] : !cir.bool, !cir.ptr<!cir.bool>
+// CIR: cir.store %arg{{.*}}, %[[C]] : !cir.bool, !cir.ptr<!cir.bool>
+// CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
+// CIR: cir.store{{.*}} %[[ZERO]], %[[X]] : !s32i, !cir.ptr<!s32i>
 // CIR: cir.scope {
-// CIR:   %5 = cir.load{{.*}} %0 : !cir.ptr<!s32i>, !s32i
-// CIR:   %6 = cir.cast int_to_bool %5 : !s32i -> !cir.bool
-// CIR:   cir.if %6 {
-// CIR:     %7 = cir.const #cir.int<3> : !s32i
-// CIR:     cir.store{{.*}} %7, %3 : !s32i, !cir.ptr<!s32i>
+// CIR:   %[[A_VAL:.*]] = cir.load{{.*}} %[[A]] : !cir.ptr<!s32i>, !s32i
+// CIR:   %[[COND:.*]] = cir.cast int_to_bool %[[A_VAL]] : !s32i -> !cir.bool
+// CIR:   cir.if %[[COND]] {
+// CIR:     %[[THREE:.*]] = cir.const #cir.int<3> : !s32i
+// CIR:     cir.store{{.*}} %[[THREE]], %[[X]] : !s32i, !cir.ptr<!s32i>
 // CIR:     cir.scope {
-// CIR:       %8 = cir.load{{.*}} %1 : !cir.ptr<!cir.bool>, !cir.bool
-// CIR-NEXT:       cir.if %8 {
-// CIR-NEXT:         %9 = cir.const #cir.int<8> : !s32i
-// CIR-NEXT:         cir.store{{.*}} %9, %3 : !s32i, !cir.ptr<!s32i>
-// CIR-NEXT:       }
+// CIR:       %[[B_VAL:.*]] = cir.load{{.*}} %[[B]] : !cir.ptr<!cir.bool>, !cir.bool
+// CIR:       cir.if %[[B_VAL]] {
+// CIR:         %[[EIGHT:.*]] = cir.const #cir.int<8> : !s32i
+// CIR:         cir.store{{.*}} %[[EIGHT]], %[[X]] : !s32i, !cir.ptr<!s32i>
+// CIR:       }
 // CIR:     }
 // CIR:   } else {
 // CIR:     cir.scope {
-// CIR:       %8 = cir.load{{.*}} %2 : !cir.ptr<!cir.bool>, !cir.bool
-// CIR-NEXT:       cir.if %8 {
-// CIR-NEXT:         %9 = cir.const #cir.int<14> : !s32i
-// CIR-NEXT:         cir.store{{.*}} %9, %3 : !s32i, !cir.ptr<!s32i>
-// CIR-NEXT:       }
+// CIR:       %[[C_VAL:.*]] = cir.load{{.*}} %[[C]] : !cir.ptr<!cir.bool>, !cir.bool
+// CIR:       cir.if %[[C_VAL]] {
+// CIR:         %[[FOURTEEN:.*]] = cir.const #cir.int<14> : !s32i
+// CIR:         cir.store{{.*}} %[[FOURTEEN]], %[[X]] : !s32i, !cir.ptr<!s32i>
+// CIR:       }
 // CIR:     }
-// CIR:     %7 = cir.const #cir.int<4> : !s32i
-// CIR:     cir.store{{.*}} %7, %3 : !s32i, !cir.ptr<!s32i>
+// CIR:     %[[FOUR:.*]] = cir.const #cir.int<4> : !s32i
+// CIR:     cir.store{{.*}} %[[FOUR]], %[[X]] : !s32i, !cir.ptr<!s32i>
 // CIR:   }
 // CIR: }
+// CIR: cir.return
 
 // LLVM: define{{.*}} void @_Z3if2ibb(i32 %[[A:.*]], i1 %[[B:.*]], i1 %[[C:.*]])
 // LLVM:   %[[VARA:.*]] = alloca i32, i64 1, align 4
@@ -261,9 +284,9 @@ int if_init() {
 }
 
 // CIR: cir.func{{.*}} @_Z7if_initv() -> !s32i
-// CIR: %[[RETVAL:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>
+// CIR: %[[RETVAL:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["__retval"]
 // CIR: cir.scope {
-// CIR:   %[[X:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>,
+// CIR:   %[[X:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["x", init]
 // CIR:   %[[CONST42:.*]] = cir.const #cir.int<42> : !s32i
 // CIR:   cir.store{{.*}} %[[CONST42]], %[[X]] : !s32i, !cir.ptr<!s32i>
 // CIR:   %[[X_VAL:.*]] = cir.load{{.*}} %[[X]] : !cir.ptr<!s32i>, !s32i

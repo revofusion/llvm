@@ -1341,16 +1341,20 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
   case Expr::DeclRefExprClass:
     return emitDeclRefLValue(cast<DeclRefExpr>(e));
   case Expr::CStyleCastExprClass:
+  case Expr::CXXFunctionalCastExprClass:
   case Expr::CXXStaticCastExprClass:
   case Expr::CXXDynamicCastExprClass:
+  case Expr::CXXReinterpretCastExprClass:
   case Expr::CXXConstCastExprClass:
-  case Expr::CXXFunctionalCastExprClass:
+  case Expr::CXXAddrspaceCastExprClass:
   case Expr::ImplicitCastExprClass:
     return emitCastLValue(cast<CastExpr>(e));
   case Expr::MaterializeTemporaryExprClass:
     return emitMaterializeTemporaryExpr(cast<MaterializeTemporaryExpr>(e));
   case Expr::OpaqueValueExprClass:
     return emitOpaqueValueLValue(cast<OpaqueValueExpr>(e));
+  case Expr::PseudoObjectExprClass:
+    return emitPseudoObjectLValue(cast<PseudoObjectExpr>(e));
   case Expr::ChooseExprClass:
     return emitLValue(cast<ChooseExpr>(e)->getChosenSubExpr());
   }

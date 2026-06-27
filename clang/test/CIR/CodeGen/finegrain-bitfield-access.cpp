@@ -46,7 +46,7 @@ unsigned read8_1() {
 }
 
 // CIR-LABEL: @_Z7read8_1v
-// CIR: [[MEMBER:%.*]] = cir.get_member %1[1] {name = "f3"} : !cir.ptr<!rec_S1> -> !cir.ptr<!u8i>
+// CIR: [[MEMBER:%.*]] = cir.get_member %{{.*}}[1] {name = "f3"} : !cir.ptr<!rec_S1> -> !cir.ptr<!u8i>
 // CIR: [[BITFI:%.*]] = cir.get_bitfield align(1) (#bfi_f3, [[MEMBER]] : !cir.ptr<!u8i>) -> !u32i
 // CIR: cir.store [[BITFI]], {{.*}} : !u32i, !cir.ptr<!u32i>
 // CIR: [[RET:%.*]] = cir.load {{.*}} : !cir.ptr<!u32i>, !u32i

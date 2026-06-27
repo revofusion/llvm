@@ -363,7 +363,7 @@ struct A {
 // CIR:   %[[THIS_ADDR:.*]] = cir.alloca !cir.ptr<!rec_A>, !cir.ptr<!cir.ptr<!rec_A>>, ["this", init]
 // CIR:   %[[RETVAL:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["__retval"]
 // CIR:   cir.store %[[THIS_ARG]], %[[THIS_ADDR]]
-// CIR:   %[[THIS]] = cir.load deref %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_A>>, !cir.ptr<!rec_A>
+// CIR:   %[[THIS:.*]] = cir.load deref %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_A>>, !cir.ptr<!rec_A>
 // CIR:   cir.scope {
 // CIR:     %[[LAM_ADDR:.*]] = cir.alloca ![[REC_LAM_A]], !cir.ptr<![[REC_LAM_A]]>, ["ref.tmp0"]
 // CIR:     %[[STRUCT_A:.*]] = cir.get_member %[[LAM_ADDR]][0] {name = "this"} : !cir.ptr<![[REC_LAM_A]]> -> !cir.ptr<!rec_A>
@@ -405,7 +405,7 @@ struct A {
 // CIR: cir.func {{.*}} @_ZZN1A3barEvENKUlvE_clEv(%[[THIS_ARG2:.*]]: !cir.ptr<![[REC_LAM_PTR_A:.*]]> {{.*}}) -> !s32i
 // CIR:   %[[THIS_ADDR:.*]] = cir.alloca !cir.ptr<![[REC_LAM_PTR_A]]>, !cir.ptr<!cir.ptr<![[REC_LAM_PTR_A]]>>, ["this", init]
 // CIR:   %[[RETVAL:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["__retval"]
-// CIR:   cir.store{{.*}} %[[THIS_ARG]], %[[THIS_ADDR]]
+// CIR:   cir.store{{.*}} %[[THIS_ARG2]], %[[THIS_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load{{.*}} %[[THIS_ADDR]]
 // CIR:   %[[STRUCT_A_ADDR_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "this"}
 // CIR:   %[[STRUCT_A_ADDR:.*]] = cir.load{{.*}} %[[STRUCT_A_ADDR_ADDR]]
@@ -435,7 +435,7 @@ struct A {
 // CIR:   %[[THIS_ADDR:.*]] = cir.alloca !cir.ptr<!rec_A>, !cir.ptr<!cir.ptr<!rec_A>>, ["this", init]
 // CIR:   %[[RETVAL:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["__retval"]
 // CIR:   cir.store %[[THIS_ARG]], %[[THIS_ADDR]]
-// CIR:   %[[THIS]] = cir.load %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_A>>, !cir.ptr<!rec_A>
+// CIR:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_A>>, !cir.ptr<!rec_A>
 // CIR:   cir.scope {
 // CIR:     %[[LAM_ADDR:.*]] = cir.alloca ![[REC_LAM_PTR_A]], !cir.ptr<![[REC_LAM_PTR_A]]>, ["ref.tmp0"]
 // CIR:     %[[A_ADDR_ADDR:.*]] = cir.get_member %[[LAM_ADDR]][0] {name = "this"} : !cir.ptr<![[REC_LAM_PTR_A]]> -> !cir.ptr<!cir.ptr<!rec_A>>

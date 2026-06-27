@@ -9,15 +9,15 @@
 // checks are at the top.
 // CIR-DAG: !rec_IncompleteS = !cir.record<struct "IncompleteS" incomplete>
 // CIR-DAG: !rec_CompleteS = !cir.record<struct "CompleteS" {!s32i, !s8i}>
-// CIR-DAG: !rec_OuterS = !cir.record<struct "OuterS" {!rec_InnerS, !s32i}>  
-// CIR-DAG: !rec_InnerS = !cir.record<struct "InnerS" {!s32i, !s8i}>
+// CIR-DAG: !rec_OuterS = !cir.record<struct "OuterS" {!rec_InnerS, !s32i}>
+// CIR-DAG: !rec_InnerS = !cir.record<struct "InnerS" {!cir.int<s, 32>, !cir.int<s, 8>}>
 // CIR-DAG: !rec_PackedS = !cir.record<struct "PackedS" packed {!s32i, !s8i}>
 // CIR-DAG: !rec_PackedAndPaddedS = !cir.record<struct "PackedAndPaddedS" packed padded {!s32i, !s8i, !u8i}>
 // CIR-DAG: !rec_NodeS = !cir.record<struct "NodeS" {!cir.ptr<!cir.record<struct "NodeS">>}>
-// CIR-DAG: !rec_RightS = !cir.record<struct "RightS" {!cir.ptr<!cir.record<struct "LeftS" {!cir.ptr<!cir.record<struct "RightS">>}>>}>
+// CIR-DAG: !rec_RightS = !cir.record<struct "RightS" {!cir.ptr<!cir.record<struct "LeftS">>}>
 // CIR-DAG: !rec_LeftS = !cir.record<struct "LeftS" {!cir.ptr<!rec_RightS>}>
-// CIR-DAG: !rec_CycleEnd = !cir.record<struct "CycleEnd" {!cir.ptr<!cir.record<struct "CycleStart" {!cir.ptr<!cir.record<struct "CycleMiddle" {!cir.ptr<!cir.record<struct "CycleEnd">>}>>}>>}>
-// CIR-DAG: !rec_CycleMiddle = !cir.record<struct "CycleMiddle" {!cir.ptr<!rec_CycleEnd>}>
+// CIR-DAG: !rec_CycleEnd = !cir.record<struct "CycleEnd" {!cir.ptr<!rec_CycleStart>}>
+// CIR-DAG: !rec_CycleMiddle = !cir.record<struct "CycleMiddle" {!cir.ptr<!cir.record<struct "CycleEnd">>}>
 // CIR-DAG: !rec_CycleStart = !cir.record<struct "CycleStart" {!cir.ptr<!rec_CycleMiddle>}>
 // CIR-DAG: !rec_IncompleteArray = !cir.record<struct "IncompleteArray" {!cir.array<!s32i x 0>}>
 // LLVM-DAG: %struct.CompleteS = type { i32, i8 }
@@ -295,7 +295,11 @@ void f5(struct NodeS* a) {
 }
 
 // CIR: cir.func{{.*}} @f5
-// CIR:   %[[NEXT:.*]] = cir.get_member {{%.}}[0] {name = "next"} : !cir.ptr<!rec_NodeS> -> !cir.ptr<!cir.ptr<!rec_NodeS>>
+// CIR:   %[[A_PTR:.*]] = cir.alloca !cir.ptr<!rec_NodeS>, !cir.ptr<!cir.ptr<!rec_NodeS>>, ["a", init]
+// CIR:   cir.store {{.*}}, %[[A_PTR]]
+// CIR:   %[[NULL:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!rec_NodeS>
+// CIR:   %[[A:.*]] = cir.load {{.*}} %[[A_PTR]] : !cir.ptr<!cir.ptr<!rec_NodeS>>, !cir.ptr<!rec_NodeS>
+// CIR:   %[[NEXT:.*]] = cir.get_member %[[A]][0] {name = "next"} : !cir.ptr<!rec_NodeS> -> !cir.ptr<!cir.ptr<!rec_NodeS>>
 // CIR:   cir.store {{.*}}, %[[NEXT]]
 
 // LLVM: define{{.*}} void @f5
@@ -326,4 +330,3 @@ void f6(struct CycleStart *start) {
 // OGCG:   %[[MIDDLE:.*]] = getelementptr inbounds nuw %struct.CycleStart, ptr %{{.*}}, i32 0, i32 0
 // OGCG:   %[[END:.*]] = getelementptr inbounds nuw %struct.CycleMiddle, ptr %{{.*}}, i32 0, i32 0
 // OGCG:   %[[START2:.*]] = getelementptr inbounds nuw %struct.CycleEnd, ptr %{{.*}}, i32 0, i32 0
-

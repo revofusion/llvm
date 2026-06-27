@@ -365,6 +365,38 @@ static RValue errorBuiltinNYI(CIRGenFunction &cgf, const CallExpr *e,
   return cgf.getUndefRValue(e->getType());
 }
 
+static RValue emitSignBit(CIRGenFunction &cgf, const CallExpr *e) {
+  mlir::Value value = cgf.emitScalarExpr(e->getArg(0));
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
+  mlir::Type valueType = value.getType();
+
+  if (mlir::isa<cir::FP80Type>(valueType) ||
+      (mlir::isa<cir::LongDoubleType>(valueType) &&
+       mlir::isa<cir::FP80Type>(
+           mlir::cast<cir::LongDoubleType>(valueType).getUnderlying()))) {
+    cgf.cgm.errorNYI(e->getSourceRange(),
+                     "unsupported __builtin_signbit x87 long double operand");
+    return cgf.getUndefRValue(e->getType());
+  }
+
+  uint64_t width = cgf.cgm.getDataLayout().getTypeSizeInBits(valueType);
+  if (!cir::isValidFundamentalIntWidth(width) && width != 128) {
+    cgf.cgm.errorNYI(e->getSourceRange(),
+                     "unsupported __builtin_signbit operand width");
+    return cgf.getUndefRValue(e->getType());
+  }
+
+  mlir::Type intTy = builder.getSIntNTy(width);
+  mlir::Value bits = builder.createBitcast(loc, value, intTy);
+  mlir::Value zero = builder.getNullValue(intTy, loc);
+  mlir::Value signBit =
+      builder.createCompare(loc, cir::CmpOpKind::lt, bits, zero);
+  mlir::Value result =
+      builder.createBoolToInt(signBit, cgf.convertType(e->getType()));
+  return RValue::get(result);
+}
+
 /// Emit `__builtin_is_aligned(value, alignment)`, which evaluates to whether
 /// `value` is a multiple of `alignment` (a power of two), i.e.
 /// `(value & (alignment - 1)) == 0`.  The first argument may be either an
@@ -402,20 +434,6 @@ static RValue emitBuiltinIsAligned(CIRGenFunction &cgf, const CallExpr *e) {
   mlir::Value isAligned =
       builder.createCompare(loc, cir::CmpOpKind::eq, setBits, zero);
   return RValue::get(isAligned);
-}
-
-static RValue emitBuiltinSignBit(CIRGenFunction &cgf, const CallExpr *e) {
-  CIRGenBuilderTy &builder = cgf.getBuilder();
-  mlir::Location loc = cgf.getLoc(e->getSourceRange());
-
-  mlir::Value arg = cgf.emitScalarExpr(e->getArg(0));
-  unsigned width = cgf.getContext().getTypeSize(e->getArg(0)->getType());
-  mlir::Type intTy = builder.getSIntNTy(width);
-  mlir::Value bits = builder.createBitcast(loc, arg, intTy);
-  mlir::Value zero = builder.getNullValue(intTy, loc);
-  mlir::Value sign = builder.createCompare(loc, cir::CmpOpKind::lt, bits, zero);
-  return RValue::get(
-      builder.createBoolToInt(sign, cgf.convertType(e->getType())));
 }
 
 static RValue emitBuiltinAlloca(CIRGenFunction &cgf, const CallExpr *e,
@@ -957,6 +975,12 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
       return RValue::get(nullptr);
 
     mlir::Value argValue = emitCheckedArgForAssume(e->getArg(0));
+    if (!argValue) {
+      cgm.errorNYI(e->getSourceRange(),
+                   "__builtin_assume: condition unavailable");
+      return RValue::get(nullptr);
+    }
+
     cir::AssumeOp::create(builder, loc, argValue);
     return RValue::get(nullptr);
   }
@@ -1081,6 +1105,11 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_expect_with_probability: {
     mlir::Value argValue = emitScalarExpr(e->getArg(0));
     mlir::Value expectedValue = emitScalarExpr(e->getArg(1));
+    if (!argValue || !expectedValue) {
+      cgm.errorNYI(e->getSourceRange(),
+                   "__builtin_expect: argument unavailable");
+      return getUndefRValue(e->getType());
+    }
 
     mlir::FloatAttr probAttr;
     if (builtinIDIfNoAsmLabel == Builtin::BI__builtin_expect_with_probability) {
@@ -1581,6 +1610,8 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     return errorBuiltinNYI(*this, e, builtinID);
   case Builtin::BI__builtin_launder: {
     mlir::Value ptr = emitScalarExpr(e->getArg(0));
+    if (!ptr)
+      return errorBuiltinNYI(*this, e, builtinID);
     mlir::Type resultTy = convertType(e->getType());
     if (ptr && ptr.getType() != resultTy)
       ptr = builder.createBitcast(loc, ptr, resultTy);
@@ -1758,7 +1789,7 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_signbit:
   case Builtin::BI__builtin_signbitf:
   case Builtin::BI__builtin_signbitl:
-    return emitBuiltinSignBit(*this, e);
+    return emitSignBit(*this, e);
   case Builtin::BI__warn_memset_zero_len:
   case Builtin::BI__annotation:
   case Builtin::BI__builtin_annotation:

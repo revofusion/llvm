@@ -852,6 +852,15 @@ void CIRGenFunction::emitForwardingCallToLambda(
       callOperator->getType()->castAs<FunctionProtoType>();
   QualType resultType = fpt->getReturnType();
   ReturnValueSlot returnSlot;
+  if (!resultType->isVoidType() &&
+      getEvaluationKind(resultType) == cir::TEK_Aggregate) {
+    if (!returnValue.isValid()) {
+      cgm.errorNYI(callOperator->getSourceRange(),
+                   "emitForwardingCallToLambda: aggregate return without slot");
+      return;
+    }
+    returnSlot = ReturnValueSlot(returnValue);
+  }
 
   // We don't need to separately arrange the call arguments because
   // the call can't be variadic anyway --- it's impossible to forward
@@ -874,8 +883,12 @@ void CIRGenFunction::emitForwardingCallToLambda(
                    "emitForwardingCallToLambda: ObjCAutoRefCount");
     emitReturnOfRValue(*currSrcLoc, rv, resultType);
   } else {
-    cgm.errorNYI(callOperator->getSourceRange(),
-                 "emitForwardingCallToLambda: return slot is not null");
+    mlir::Location loc = getLoc(callOperator->getSourceRange());
+    mlir::Block *retBlock = curLexScope->getOrCreateRetBlock(*this, loc);
+    assert(!cir::MissingFeatures::emitBranchThroughCleanup());
+    cir::BrOp::create(builder, loc, retBlock);
+    if (ehStack.stable_begin() != currentCleanupStackDepth)
+      cgm.errorNYI(loc, "lambda forwarding return with cleanup stack");
   }
 }
 

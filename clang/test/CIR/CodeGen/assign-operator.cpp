@@ -26,11 +26,11 @@ void f(int i, int j) {
   (i += j) = 17;
 }
 
-// CIR: cir.func{{.*}} @_Z1fii(%arg0: !s32i {{.*}}, %arg1: !s32i {{.*}})
+// CIR: cir.func{{.*}} @_Z1fii(%{{.*}}: !s32i {{.*}}, %{{.*}}: !s32i {{.*}})
 // CIR:   %[[I_ADDR:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["i", init]
 // CIR:   %[[J_ADDR:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["j", init]
-// CIR:   cir.store %arg0, %[[I_ADDR]] : !s32i, !cir.ptr<!s32i>
-// CIR:   cir.store %arg1, %[[J_ADDR]] : !s32i, !cir.ptr<!s32i>
+// CIR:   cir.store %{{.*}}, %[[I_ADDR]] : !s32i, !cir.ptr<!s32i>
+// CIR:   cir.store %{{.*}}, %[[J_ADDR]] : !s32i, !cir.ptr<!s32i>
 // CIR:   %[[SEVENTEEN:.*]] = cir.const #cir.int<17> : !s32i
 // CIR:   %[[J_LOAD:.*]] = cir.load align(4) %[[J_ADDR]] : !cir.ptr<!s32i>, !s32i
 // CIR:   %[[I_LOAD:.*]] = cir.load align(4) %[[I_ADDR]] : !cir.ptr<!s32i>, !s32i
@@ -62,33 +62,33 @@ void copy_c(C &c1, C &c2) {
 
 // Implicit assignment operator for C.
 
-// CIR: cir.func {{.*}} @_ZN1CaSERKS_(%arg0: !cir.ptr<!rec_C> {{.*}}, %arg1: !cir.ptr<!rec_C> {{.*}}) -> !cir.ptr<!rec_C>
+// CIR: cir.func {{.*}} @_ZN1CaSERKS_(%{{.*}}: !cir.ptr<!rec_C> {{.*}}, %{{.*}}: !cir.ptr<!rec_C> {{.*}}) -> !cir.ptr<!rec_C>
 // CIR:   %[[THIS_ADDR:.*]] = cir.alloca !cir.ptr<!rec_C>, !cir.ptr<!cir.ptr<!rec_C>>, ["this", init]
 // CIR:   %[[ARG1_ADDR:.*]] = cir.alloca !cir.ptr<!rec_C>, !cir.ptr<!cir.ptr<!rec_C>>, ["", init, const]
 // CIR:   %[[RET_ADDR:.*]] = cir.alloca !cir.ptr<!rec_C>, !cir.ptr<!cir.ptr<!rec_C>>, ["__retval"]
-// CIR:   cir.store %arg0, %[[THIS_ADDR]]
-// CIR:   cir.store %arg1, %[[ARG1_ADDR]]
-// CIR:   %[[THIS:.*]] = cir.load{{.*}} %[[THIS_ADDR]]
-// CIR:   %[[A_MEMBER:.*]] = cir.get_member %[[THIS]][0] {name = "a"}
-// CIR:   %[[ARG1_LOAD:.*]] = cir.load{{.*}} %[[ARG1_ADDR]]
-// CIR:   %[[A_MEMBER_2:.*]] = cir.get_member %[[ARG1_LOAD]][0] {name = "a"}
-// CIR:   %[[C_A:.*]] = cir.call @_ZN1AaSERKS_(%[[A_MEMBER]], %[[A_MEMBER_2]])
+// CIR:   cir.store %{{.*}}, %[[THIS_ADDR]]
+// CIR:   cir.store %{{.*}}, %[[ARG1_ADDR]]
+// CIR:   %[[THIS:.*]] = cir.load deref %[[THIS_ADDR]]
+// CIR:   %[[A_THIS:.*]] = cir.cast bitcast %[[THIS]] : !cir.ptr<!rec_C> -> !cir.ptr<!rec_A>
+// CIR:   %[[ARG1:.*]] = cir.load %[[ARG1_ADDR]]
+// CIR:   %[[A_ARG:.*]] = cir.cast bitcast %[[ARG1]] : !cir.ptr<!rec_C> -> !cir.ptr<!rec_A>
+// CIR:   %[[C_A:.*]] = cir.call @_ZN1AaSERKS_(%[[A_THIS]], %[[A_ARG]])
 // CIR:   %[[B_MEMBER:.*]] = cir.get_member %[[THIS]][1] {name = "b"}
 // CIR:   %[[B_VOID_PTR:.*]] = cir.cast bitcast %[[B_MEMBER]] : !cir.ptr<!cir.array<!rec_B x 16>> -> !cir.ptr<!void>
-// CIR:   %[[RET_LOAD:.*]] = cir.load %[[ARG1_ADDR]]
-// CIR:   %[[B_MEMBER_2:.*]] = cir.get_member %[[RET_LOAD]][1] {name = "b"}
+// CIR:   %[[ARG1_2:.*]] = cir.load %[[ARG1_ADDR]]
+// CIR:   %[[B_MEMBER_2:.*]] = cir.get_member %[[ARG1_2]][1] {name = "b"}
 // CIR:   %[[B_VOID_PTR_2:.*]] = cir.cast bitcast %[[B_MEMBER_2]] : !cir.ptr<!cir.array<!rec_B x 16>> -> !cir.ptr<!void>
 // CIR:   %[[SIZE:.*]] = cir.const #cir.int<64> : !u64i
-// CIR:   %[[COUNT:.*]] = cir.call @memcpy(%[[B_VOID_PTR]], %[[B_VOID_PTR_2]], %[[SIZE]])
+// CIR:   %[[COUNT:.*]] = cir.call @memcpy(%[[B_VOID_PTR]], %[[B_VOID_PTR_2]], %[[SIZE]]){{.*}} : (!cir.ptr<!void>, !cir.ptr<!void>, !u64i) -> !cir.ptr<!void>
 // CIR:   cir.store %[[THIS]], %[[RET_ADDR]]
-// CIR:   %[[RET_VAL:.*]] = cir.load{{.*}} %[[RET_ADDR]]
+// CIR:   %[[RET_VAL:.*]] = cir.load %[[RET_ADDR]]
 // CIR:   cir.return %[[RET_VAL]]
 
-// CIR: cir.func{{.*}} @_Z6copy_cR1CS0_(%arg0: !cir.ptr<!rec_C> {{.*}}, %arg1: !cir.ptr<!rec_C> {{.*}})
+// CIR: cir.func{{.*}} @_Z6copy_cR1CS0_(%{{.*}}: !cir.ptr<!rec_C> {{.*}}, %{{.*}}: !cir.ptr<!rec_C> {{.*}})
 // CIR:   %[[C1_ADDR:.*]] = cir.alloca !cir.ptr<!rec_C>, !cir.ptr<!cir.ptr<!rec_C>>, ["c1", init, const]
 // CIR:   %[[C2_ADDR:.*]] = cir.alloca !cir.ptr<!rec_C>, !cir.ptr<!cir.ptr<!rec_C>>, ["c2", init, const]
-// CIR:   cir.store %arg0, %[[C1_ADDR]]
-// CIR:   cir.store %arg1, %[[C2_ADDR]]
+// CIR:   cir.store %{{.*}}, %[[C1_ADDR]]
+// CIR:   cir.store %{{.*}}, %[[C2_ADDR]]
 // CIR:   %[[C2_LOAD:.*]] = cir.load{{.*}} %[[C2_ADDR]]
 // CIR:   %[[C1_LOAD:.*]] = cir.load{{.*}} %[[C1_ADDR]]
 // CIR:   %[[RET:.*]] = cir.call @_ZN1CaSERKS_(%[[C1_LOAD]], %[[C2_LOAD]])
@@ -108,11 +108,11 @@ void copy_ref_to_ref(E &e1, E &e2) {
 
 // The call to e2.get_d_ref() must occur before the call to e1.get_d_ref().
 
-// CIR: cir.func{{.*}} @_Z15copy_ref_to_refR1ES0_(%arg0: !cir.ptr<!rec_E> {{.*}}, %arg1: !cir.ptr<!rec_E> {{.*}})
+// CIR: cir.func{{.*}} @_Z15copy_ref_to_refR1ES0_(%{{.*}}: !cir.ptr<!rec_E> {{.*}}, %{{.*}}: !cir.ptr<!rec_E> {{.*}})
 // CIR:   %[[E1_ADDR:.*]] = cir.alloca !cir.ptr<!rec_E>, !cir.ptr<!cir.ptr<!rec_E>>, ["e1", init, const]
 // CIR:   %[[E2_ADDR:.*]] = cir.alloca !cir.ptr<!rec_E>, !cir.ptr<!cir.ptr<!rec_E>>, ["e2", init, const]
-// CIR:   cir.store %arg0, %[[E1_ADDR]] : !cir.ptr<!rec_E>, !cir.ptr<!cir.ptr<!rec_E>>
-// CIR:   cir.store %arg1, %[[E2_ADDR]] : !cir.ptr<!rec_E>, !cir.ptr<!cir.ptr<!rec_E>>
+// CIR:   cir.store %{{.*}}, %[[E1_ADDR]] : !cir.ptr<!rec_E>, !cir.ptr<!cir.ptr<!rec_E>>
+// CIR:   cir.store %{{.*}}, %[[E2_ADDR]] : !cir.ptr<!rec_E>, !cir.ptr<!cir.ptr<!rec_E>>
 // CIR:   %[[E2:.*]] = cir.load %[[E2_ADDR]]
 // CIR:   %[[D2_REF:.*]] = cir.call @_ZN1E9get_d_refEv(%[[E2]])
 // CIR:   %[[E1:.*]] = cir.load %[[E1_ADDR]]

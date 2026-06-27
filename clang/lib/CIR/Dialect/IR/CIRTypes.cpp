@@ -373,11 +373,11 @@ RecordType::getTypeSizeInBits(const mlir::DataLayout &dataLayout,
                               mlir::DataLayoutEntryListRef params) const {
   if (isUnion()) {
     mlir::Type lm = getLargestMember(dataLayout);
-    // An empty union (no members at all) has a size of 0.
-    if (!lm)
-      return llvm::TypeSize::getFixed(0);
-    return llvm::TypeSize::getFixed(dataLayout.getTypeSizeInBits(lm));
-  }
+      // An empty union (no members at all) has a size of 0.
+      if (!lm)
+        return llvm::TypeSize::getFixed(0);
+      return llvm::TypeSize::getFixed(dataLayout.getTypeSizeInBits(lm));
+    }
 
   auto recordSize = static_cast<uint64_t>(computeStructSize(dataLayout));
   return llvm::TypeSize::getFixed(recordSize * 8);
@@ -799,6 +799,8 @@ MethodType::getABIAlignment(const mlir::DataLayout &dataLayout,
   return dataLayout.getTypeABIAlignment(getMethodLayoutType(getContext()));
 }
 
+bool MethodType::isSized() const { return true; }
+
 //===----------------------------------------------------------------------===//
 // BoolType
 //===----------------------------------------------------------------------===//
@@ -834,6 +836,8 @@ DataMemberType::getABIAlignment(const ::mlir::DataLayout &dataLayout,
   assert(!MissingFeatures::cxxABI());
   return 8;
 }
+
+bool DataMemberType::isSized() const { return true; }
 
 //===----------------------------------------------------------------------===//
 //  VPtrType Definitions

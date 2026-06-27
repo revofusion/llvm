@@ -50,9 +50,11 @@ public:
       return All;
 
     if (prototype->hasExtParameterInfos())
-      for (const auto &paramInfo : prototype->getExtParameterInfos())
-        if (paramInfo.hasPassObjectSize())
-          ++additional;
+      additional += llvm::count_if(
+          prototype->getExtParameterInfos(),
+          [](const FunctionProtoType::ExtParameterInfo &extInfo) {
+            return extInfo.hasPassObjectSize();
+          });
 
     return RequiredArgs(prototype->getNumParams() + additional);
   }

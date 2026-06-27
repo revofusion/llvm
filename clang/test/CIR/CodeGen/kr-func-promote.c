@@ -5,10 +5,10 @@
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c89 -emit-llvm %s -o %t.ll
 // RUN: FileCheck --input-file=%t.ll %s -check-prefix=OGCG
 
-// CIR: cir.func {{.*}}@foo(%arg0: !s32i
-// CIR:   %0 = cir.alloca !s16i, !cir.ptr<!s16i>, ["x", init]
-// CIR:   %1 = cir.cast integral %arg0 : !s32i -> !s16i
-// CIR:   cir.store %1, %0 : !s16i, !cir.ptr<!s16i>
+// CIR: cir.func {{.*}}@foo(%[[ARG:.*]]: !s32i
+// CIR:   %[[X_PTR:.*]] = cir.alloca !s16i, !cir.ptr<!s16i>, ["x", init]
+// CIR:   %[[X:.*]] = cir.cast integral %[[ARG]] : !s32i -> !s16i
+// CIR:   cir.store %[[X]], %[[X_PTR]] : !s16i, !cir.ptr<!s16i>
 // expected-warning@+1 {{a function definition without a prototype is deprecated}}
 void foo(x) short x; {}
 
@@ -23,10 +23,10 @@ void foo(x) short x; {}
 // OGCG:   %[[X:.*]] = trunc i32 %0 to i16
 // OGCG:   store i16 %[[X]], ptr %[[X_PTR]], align 2
 
-// CIR: cir.func{{.*}}no_proto dso_local @bar(%arg0: !cir.double
-// CIR:   %0 = cir.alloca !cir.float, !cir.ptr<!cir.float>, ["f", init]
-// CIR:   %1 = cir.cast floating %arg0 : !cir.double -> !cir.float
-// CIR:   cir.store %1, %0 : !cir.float, !cir.ptr<!cir.float>
+// CIR: cir.func{{.*}}no_proto dso_local @bar(%[[ARG:.*]]: !cir.double
+// CIR:   %[[F_PTR:.*]] = cir.alloca !cir.float, !cir.ptr<!cir.float>, ["f", init]
+// CIR:   %[[F:.*]] = cir.cast floating %[[ARG]] : !cir.double -> !cir.float
+// CIR:   cir.store %[[F]], %[[F_PTR]] : !cir.float, !cir.ptr<!cir.float>
 // expected-warning@+1 {{a function definition without a prototype is deprecated}}
 void bar(f) float f; {}
 

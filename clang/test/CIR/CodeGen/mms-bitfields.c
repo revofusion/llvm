@@ -67,7 +67,7 @@ union HEADER {
 
 #pragma pack(pop)
 
-// CIR-DAG: !rec_A = !cir.record<struct "A" {!s32i, !s32i, !s32i}>
+// CIR-DAG: !rec_A = !cir.record<struct "A" {!cir.int<s, 32>, !cir.int<s, 32>, !cir.int<s, 32>}>
 // CIR-DAG: !rec_HEADER = !cir.record<union "HEADER" {!rec_A}>
 // LLVM-DAG: %struct.A = type { i32, i32, i32 }
 // LLVM-DAG: %union.HEADER = type { %struct.A }

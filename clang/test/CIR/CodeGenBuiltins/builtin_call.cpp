@@ -28,7 +28,8 @@ int is_constant_evaluated() {
 }
 
 // CIR: cir.func{{.*}} @_Z21is_constant_evaluatedv() -> !s32i
-// CIR: %[[ZERO:.+]] = cir.const #cir.int<0>
+// CIR: %[[ZERO:.+]] = cir.const #false
+// CIR: %{{.*}} = cir.cast bool_to_int %[[ZERO]] : !cir.bool -> !s32i
 
 // LLVM: define {{.*}}i32 @_Z21is_constant_evaluatedv()
 // LLVM: %[[MEM:.+]] = alloca i32

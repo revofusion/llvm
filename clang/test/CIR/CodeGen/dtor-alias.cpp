@@ -15,9 +15,9 @@ B::~B() {
 
 // OGCG: @_ZN1BD1Ev = unnamed_addr alias void (ptr), ptr @_ZN1BD2Ev
 
-// CHECK: cir.func{{.*}} @_ZN1BD2Ev(%arg0: !cir.ptr<!rec_B>
+// CHECK: cir.func{{.*}} @_ZN1BD2Ev(%{{.*}}: !cir.ptr<!rec_B>
 // CHECK:   %[[THIS_ADDR:.*]] = cir.alloca !cir.ptr<!rec_B>, !cir.ptr<!cir.ptr<!rec_B>>, ["this", init]
-// CHECK:   cir.store %arg0, %[[THIS_ADDR]]
+// CHECK:   cir.store %{{.*}}, %[[THIS_ADDR]]
 // CHECK:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_B>>, !cir.ptr<!rec_B>
 
 // CHECK: cir.func{{.*}} private dso_local @_ZN1BD1Ev(!cir.ptr<!rec_B>) alias(@_ZN1BD2Ev)
@@ -41,9 +41,9 @@ void baz() {
   Struk s;
 }
 
-// CHECK:   cir.func{{.*}} @_ZN5StrukD2Ev(%arg0: !cir.ptr<!rec_Struk>
+// CHECK:   cir.func{{.*}} @_ZN5StrukD2Ev(%{{.*}}: !cir.ptr<!rec_Struk>
 // CHECK:     %[[THIS_ADDR:.*]] = cir.alloca !cir.ptr<!rec_Struk>, !cir.ptr<!cir.ptr<!rec_Struk>>, ["this", init]
-// CHECK:     cir.store %arg0, %[[THIS_ADDR]] : !cir.ptr<!rec_Struk>, !cir.ptr<!cir.ptr<!rec_Struk>>
+// CHECK:     cir.store %{{.*}}, %[[THIS_ADDR]] : !cir.ptr<!rec_Struk>, !cir.ptr<!cir.ptr<!rec_Struk>>
 // CHECK:     %[[THIS:.*]] = cir.load %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_Struk>>, !cir.ptr<!rec_Struk>
 // CHECK:     cir.return
 

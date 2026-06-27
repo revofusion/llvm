@@ -1,5 +1,6 @@
 #include "CIRGenTypes.h"
 
+#include "CIRGenCXXABI.h"
 #include "CIRGenFunctionInfo.h"
 #include "CIRGenModule.h"
 
@@ -80,8 +81,12 @@ mlir::Type CIRGenTypes::convertFunctionTypeInternal(QualType qft) {
   // type depends on an incomplete type (e.g. a struct or enum), we cannot lower
   // the function type.
   if (!isFuncTypeConvertible(ft)) {
-    cgm.errorNYI(SourceLocation(), "function type involving an incomplete type",
-                 qft);
+    if (const auto *rd = ft->getReturnType()->getAsRecordDecl())
+      convertRecordDeclType(rd);
+    if (const auto *fpt = dyn_cast<FunctionProtoType>(ft))
+      for (QualType paramType : fpt->param_types())
+        if (const auto *rd = paramType->getAsRecordDecl())
+          convertRecordDeclType(rd);
     return cir::FuncType::get(SmallVector<mlir::Type, 1>{}, cgm.voidTy);
   }
 
@@ -126,6 +131,17 @@ std::string CIRGenTypes::getRecordTypeName(const clang::RecordDecl *recordDecl,
     outStream << suffix;
 
   return builder.getUniqueRecordName(std::string(typeName));
+}
+
+static std::string
+getObjCInterfaceTypeName(CIRGenBuilderTy &builder,
+                         const clang::ObjCInterfaceDecl *interfaceDecl) {
+  llvm::SmallString<256> typeName("objc_interface.");
+  if (interfaceDecl)
+    typeName += interfaceDecl->getObjCRuntimeNameAsString();
+  else
+    typeName += "unknown";
+  return builder.getUniqueRecordName(typeName.str().str());
 }
 
 /// Return true if the specified type is already completely laid out.
@@ -336,6 +352,12 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
       resultType = cgm.voidTy;
       break;
 
+    case BuiltinType::ObjCId:
+    case BuiltinType::ObjCClass:
+    case BuiltinType::ObjCSel:
+      resultType = builder.getUInt8Ty();
+      break;
+
     // bool
     case BuiltinType::Bool:
       resultType = cir::BoolType::get(&getMLIRContext());
@@ -506,6 +528,14 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
     break;
   }
 
+  case Type::ObjCObjectPointer: {
+    const auto *objPtrTy = cast<ObjCObjectPointerType>(ty);
+    QualType elemTy = objPtrTy->getPointeeType();
+    mlir::Type pointeeType = convertPointeeType(elemTy, false);
+    resultType = builder.getPointerTo(pointeeType, elemTy.getAddressSpace());
+    break;
+  }
+
   case Type::BlockPointer:
     // Blocks are Objective-C runtime objects, not plain function pointers.
     // Until CIRGen grows CGBlocks-style runtime layout and helper emission,
@@ -601,6 +631,16 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
     resultType = convertFunctionTypeInternal(type);
     break;
 
+  case Type::ObjCObject:
+    resultType = convertType(cast<ObjCObjectType>(ty)->getBaseType());
+    break;
+
+  case Type::ObjCInterface:
+    resultType = builder.getIncompleteRecordTy(
+        getObjCInterfaceTypeName(builder, cast<ObjCInterfaceType>(ty)->getDecl()),
+        nullptr);
+    break;
+
   case Type::BitInt: {
     const auto *bitIntTy = cast<BitIntType>(type);
     if (bitIntTy->getNumBits() > cir::IntType::maxBitwidth()) {
@@ -626,33 +666,6 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
 
     break;
   }
-
-  case Type::ObjCObject:
-    // The object type lowers to its base (interface) type. This mirrors
-    // classic CodeGen.
-    resultType = convertType(cast<ObjCObjectType>(ty)->getBaseType());
-    break;
-
-  case Type::ObjCInterface: {
-    // Objective-C interfaces are always opaque (outside of the runtime, which
-    // can do whatever it likes); we never refine these. Lower to a named
-    // incomplete record so that C++/Metal logic referencing ObjC objects only
-    // by-reference lowers without pulling in any ObjC runtime layout. Deep ObjC
-    // runtime handling remains a clean errorNYI elsewhere. The result is
-    // memoized in typeCache below, so each interface yields a single opaque
-    // record.
-    const auto *it = cast<ObjCInterfaceType>(ty);
-    resultType =
-        builder.getIncompleteRecordTy(it->getDecl()->getName(), /*rd=*/nullptr);
-    break;
-  }
-
-  case Type::ObjCObjectPointer:
-    // Objective-C object pointers are opaque pointers, matching classic
-    // CodeGen (which lowers them to an unqualified opaque pointer). This keeps
-    // ObjC objects strictly by-reference and out of any layout decisions.
-    resultType = builder.getVoidPtrTy();
-    break;
 
   default:
     cgm.errorNYI(SourceLocation(), "processing of type",
@@ -744,10 +757,15 @@ bool CIRGenTypes::isZeroInitializable(clang::QualType t) {
     if (const auto *cat = dyn_cast<ConstantArrayType>(at))
       if (astContext.getConstantArrayElementCount(cat) == 0)
         return true;
+
+    t = astContext.getBaseElementType(t);
   }
 
   if (const auto *rd = t->getAsRecordDecl())
     return isZeroInitializable(rd);
+
+  if (const auto *mpt = t->getAs<MemberPointerType>())
+    return theCXXABI.isZeroInitializable(mpt);
 
   return true;
 }

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | FileCheck %s
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/ loc\([^)]*\)//g; s/ ,/,/g; s/ \)/)/g' | FileCheck %s
 
 struct HasOps {
   operator float();
@@ -6,7 +6,7 @@ struct HasOps {
 };
 
 void use(int x, unsigned int y, float f, HasOps ops) {
-  // CHECK: cir.func{{.*}}(%[[X_ARG:.*]]: !s32i{{.*}}, %[[Y_ARG:.*]]: !u32i{{.*}}, %[[F_ARG:.*]]: !cir.float{{.*}}){{.*}}, %[[OPS_ARG:.*]]: !rec_HasOps{{.*}}) {
+  // CHECK: cir.func{{.*}}(%[[X_ARG:.*]]: !s32i, %[[Y_ARG:.*]]: !u32i, %[[F_ARG:.*]]: !cir.float, %[[OPS_ARG:.*]]: !rec_HasOps) {
   // CHECK-NEXT: %[[X_ALLOCA:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["x", init]
   // CHECK-NEXT: %[[Y_ALLOCA:.*]] = cir.alloca !u32i, !cir.ptr<!u32i>, ["y", init]
   // CHECK-NEXT: %[[F_ALLOCA:.*]] = cir.alloca !cir.float, !cir.ptr<!cir.float>, ["f", init]
@@ -17,7 +17,7 @@ void use(int x, unsigned int y, float f, HasOps ops) {
   // CHECK-NEXT: cir.store %[[OPS_ARG]], %[[OPS_ALLOCA]] : !rec_HasOps, !cir.ptr<!rec_HasOps>
 
   // CHECK-NEXT: acc.atomic.update %[[X_ALLOCA]] : !cir.ptr<!s32i> {
-  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !s32i{{.*}}):
+  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !s32i):
   // CHECK-NEXT: %[[TEMP_ALLOCA:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["x_var", init]
   // CHECK-NEXT: cir.store %[[RECIPE_ARG]], %[[TEMP_ALLOCA]] : !s32i, !cir.ptr<!s32i>
   //
@@ -32,7 +32,7 @@ void use(int x, unsigned int y, float f, HasOps ops) {
   ++x;
 
   // CHECK-NEXT: acc.atomic.update %[[Y_ALLOCA]] : !cir.ptr<!u32i> {
-  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !u32i{{.*}}):
+  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !u32i):
   // CHECK-NEXT: %[[TEMP_ALLOCA:.*]] = cir.alloca !u32i, !cir.ptr<!u32i>, ["x_var", init]
   // CHECK-NEXT: cir.store %[[RECIPE_ARG]], %[[TEMP_ALLOCA]] : !u32i, !cir.ptr<!u32i>
   //
@@ -47,7 +47,7 @@ void use(int x, unsigned int y, float f, HasOps ops) {
   y++;
 
   // CHECK-NEXT: acc.atomic.update %[[F_ALLOCA]] : !cir.ptr<!cir.float> {
-  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !cir.float{{.*}}):
+  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !cir.float):
   // CHECK-NEXT: %[[TEMP_ALLOCA:.*]] = cir.alloca !cir.float, !cir.ptr<!cir.float>, ["x_var", init]
   // CHECK-NEXT: cir.store %[[RECIPE_ARG]], %[[TEMP_ALLOCA]] : !cir.float, !cir.ptr<!cir.float>
   //
@@ -62,7 +62,7 @@ void use(int x, unsigned int y, float f, HasOps ops) {
   f--;
 
   // CHECK-NEXT: acc.atomic.update %[[X_ALLOCA]] : !cir.ptr<!s32i> {
-  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !s32i{{.*}}):
+  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !s32i):
   // CHECK-NEXT: %[[TEMP_ALLOCA:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["x_var", init]
   // CHECK-NEXT: cir.store %[[RECIPE_ARG]], %[[TEMP_ALLOCA]] : !s32i, !cir.ptr<!s32i>
   //
@@ -80,7 +80,7 @@ void use(int x, unsigned int y, float f, HasOps ops) {
   x += f;
 
   // CHECK-NEXT: acc.atomic.update %[[F_ALLOCA]] : !cir.ptr<!cir.float> {
-  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !cir.float{{.*}}):
+  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !cir.float):
   // CHECK-NEXT: %[[TEMP_ALLOCA:.*]] = cir.alloca !cir.float, !cir.ptr<!cir.float>, ["x_var", init]
   // CHECK-NEXT: cir.store %[[RECIPE_ARG]], %[[TEMP_ALLOCA]] : !cir.float, !cir.ptr<!cir.float>
   //
@@ -97,7 +97,7 @@ void use(int x, unsigned int y, float f, HasOps ops) {
   f /= y;
 
   // CHECK-NEXT: acc.atomic.update %[[Y_ALLOCA]] : !cir.ptr<!u32i> {
-  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !u32i{{.*}}):
+  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !u32i):
   // CHECK-NEXT: %[[TEMP_ALLOCA:.*]] = cir.alloca !u32i, !cir.ptr<!u32i>, ["x_var", init]
   // CHECK-NEXT: cir.store %[[RECIPE_ARG]], %[[TEMP_ALLOCA]] : !u32i, !cir.ptr<!u32i>
   //
@@ -115,13 +115,13 @@ void use(int x, unsigned int y, float f, HasOps ops) {
   y = y * ops.thing();
 
   // CHECK-NEXT: acc.atomic.update %[[X_ALLOCA]] : !cir.ptr<!s32i> {
-  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !s32i{{.*}}):
+  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !s32i):
   // CHECK-NEXT: %[[TEMP_ALLOCA:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["x_var", init]
   // CHECK-NEXT: cir.store %[[RECIPE_ARG]], %[[TEMP_ALLOCA]] : !s32i, !cir.ptr<!s32i>
   //
   // CHECK-NEXT: %[[CALL:.*]] = cir.call {{.*}}(%[[OPS_ALLOCA]]) : (!cir.ptr<!rec_HasOps>) -> !s32i
   // CHECK-NEXT: %[[TEMP_LOAD:.*]] = cir.load{{.*}} %[[TEMP_ALLOCA]] : !cir.ptr<!s32i>, !s32i
-  // CHECK-NEXT: %[[OR:.*]] = cir.binop(or, %[[CALL]], %[[INT_TO_F]]) : !s32i
+  // CHECK-NEXT: %[[OR:.*]] = cir.binop(or, %[[CALL]], %[[TEMP_LOAD]]) : !s32i
   // CHECK-NEXT: cir.store{{.*}} %[[OR]], %[[TEMP_ALLOCA]] : !s32i, !cir.ptr<!s32i>
   //
   // CHECK-NEXT: %[[TEMP_LOAD:.*]] = cir.load{{.*}} %[[TEMP_ALLOCA]] : !cir.ptr<!s32i>, !s32i
@@ -134,7 +134,7 @@ void use(int x, unsigned int y, float f, HasOps ops) {
   // CHECK-NEXT: %[[BOOL_CAST:.*]] = cir.cast int_to_bool %[[X_LOAD]] : !s32i -> !cir.bool
   // CHECK-NEXT: %[[X_CAST:.*]] = builtin.unrealized_conversion_cast %[[BOOL_CAST]] : !cir.bool to i1
   // CHECK-NEXT: acc.atomic.update if(%[[X_CAST]]) %[[F_ALLOCA]] : !cir.ptr<!cir.float> {
-  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !cir.float{{.*}}):
+  // CHECK-NEXT: ^bb0(%[[RECIPE_ARG:.*]]: !cir.float):
   // CHECK-NEXT: %[[TEMP_ALLOCA:.*]] = cir.alloca !cir.float, !cir.ptr<!cir.float>, ["x_var", init]
   // CHECK-NEXT: cir.store %[[RECIPE_ARG]], %[[TEMP_ALLOCA]] : !cir.float, !cir.ptr<!cir.float>
   //

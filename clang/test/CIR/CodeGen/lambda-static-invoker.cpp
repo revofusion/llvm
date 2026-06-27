@@ -72,7 +72,7 @@ int g3() {
 // CIR:   %[[LAM_ALLOCA:.*]] = cir.alloca ![[REC_LAM_G3]], !cir.ptr<![[REC_LAM_G3]]>, ["unused.capture"]
 // CIR:   cir.store %[[REF_I_ARG]], %[[REF_I_ALLOCA]]
 // CIR:   %[[REF_I:.*]] = cir.load{{.*}} %[[REF_I_ALLOCA]]
-// CIR:   %[[LAM_RESULT:.*]] = cir.call @_ZZ2g3vENK3$_0clERKi(%[[LAM_ALLOCA]], %[[REF_I]]) : (!cir.ptr<![[REC_LAM_G3]]>, !cir.ptr<!s32i>) -> !s32i
+// CIR:   %[[LAM_RESULT:.*]] = cir.call @_ZZ2g3vENK3$_0clERKi(%[[LAM_ALLOCA:.*]], %[[REF_I:.*]]) : (!cir.ptr<![[REC_LAM_G3]]>, !cir.ptr<!s32i>) -> !s32i
 // CIR:   cir.store{{.*}} %[[LAM_RESULT]], %[[RETVAL]]
 // CIR:   %[[RET:.*]] = cir.load %[[RETVAL]]
 // CIR:   cir.return %[[RET]]

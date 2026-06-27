@@ -149,7 +149,7 @@ mlir::LogicalResult CIRGenFunction::emitStmt(const Stmt *s,
   case Stmt::ContinueStmtClass:
   case Stmt::DeclStmtClass:
   case Stmt::ReturnStmtClass:
-    llvm_unreachable("should have emitted these statements as simple");
+    return mlir::failure();
 
 #define STMT(Type, Base)
 #define ABSTRACT_STMT(Op)
@@ -629,6 +629,13 @@ mlir::LogicalResult CIRGenFunction::emitReturnStmt(const ReturnStmt &s) {
         value = emitScalarExpr(rv);
         if (value) { // Change this to an assert once emitScalarExpr is complete
           builder.CIRBaseBuilderTy::createStore(loc, value, *fnRetAlloca);
+        } else {
+          cgm.errorNYI(loc, "emitReturnStmt: return value unavailable");
+          mlir::Type returnTy =
+              cast<cir::FuncOp>(curFn).getFunctionType().getReturnType();
+          mlir::Value poison =
+              builder.getConstant(loc, cir::PoisonAttr::get(returnTy));
+          builder.CIRBaseBuilderTy::createStore(loc, poison, *fnRetAlloca);
         }
         break;
       case cir::TEK_Complex:
@@ -884,7 +891,6 @@ mlir::LogicalResult CIRGenFunction::emitCaseStmt(const CaseStmt &s,
     cgm.errorNYI(s.getBeginLoc(), "switch case with non-integer condition type");
     return mlir::failure();
   }
-
   auto caseType = mlir::cast<cir::IntTypeInterface>(condType);
   auto normalizeCaseValue = [&](llvm::APSInt value) {
     value = value.extOrTrunc(caseType.getWidth());
@@ -1211,7 +1217,8 @@ mlir::LogicalResult CIRGenFunction::emitSwitchBody(const Stmt *s) {
 
   mlir::Block *swtichBlock = builder.getBlock();
   for (auto *c : compoundStmt->body()) {
-    if (auto *attributedStmt = dyn_cast<AttributedStmt>(c))
+    auto *attributedStmt = dyn_cast<AttributedStmt>(c);
+    if (attributedStmt)
       c = attributedStmt->getSubStmt();
 
     if (auto *switchCase = dyn_cast<SwitchCase>(c)) {

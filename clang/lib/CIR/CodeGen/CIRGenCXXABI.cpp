@@ -81,6 +81,10 @@ void CIRGenCXXABI::setCXXABIThisValue(CIRGenFunction &cgf,
   cgf.cxxabiThisValue = thisPtr;
 }
 
+bool CIRGenCXXABI::isZeroInitializable(const MemberPointerType *) {
+  return true;
+}
+
 CharUnits CIRGenCXXABI::getArrayCookieSize(const CXXNewExpr *e) {
   if (!requiresArrayCookie(e))
     return CharUnits::Zero();

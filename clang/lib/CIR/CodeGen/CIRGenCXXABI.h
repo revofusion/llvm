@@ -210,6 +210,10 @@ public:
   isVirtualOffsetNeededForVTableField(CIRGenFunction &cgf,
                                       CIRGenFunction::VPtr vptr) = 0;
 
+  /// Return true if the given member pointer can be zero-initialized with a CIR
+  /// zero attribute.
+  virtual bool isZeroInitializable(const MemberPointerType *mpt);
+
   /// Emits the VTable definitions required for the given record type.
   virtual void emitVTableDefinitions(CIRGenVTables &cgvt,
                                      const CXXRecordDecl *rd) = 0;

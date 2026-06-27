@@ -22,9 +22,9 @@ A::A() {}
 
 // OGCG: @_ZTV1A = external unnamed_addr constant { [3 x ptr] }
 
-// CIR: cir.func{{.*}} @_ZN1AC2Ev(%arg0: !cir.ptr<!rec_A> {{.*}})
+// CIR: cir.func{{.*}} @_ZN1AC2Ev(%[[ARG:.*]]: !cir.ptr<!rec_A> {{.*}})
 // CIR:    %[[THIS_ADDR:.*]] = cir.alloca !cir.ptr<!rec_A>, !cir.ptr<!cir.ptr<!rec_A>>, ["this", init]
-// CIR:    cir.store %arg0, %[[THIS_ADDR]] : !cir.ptr<!rec_A>, !cir.ptr<!cir.ptr<!rec_A>>
+// CIR:    cir.store %[[ARG]], %[[THIS_ADDR]] : !cir.ptr<!rec_A>, !cir.ptr<!cir.ptr<!rec_A>>
 // CIR:    %[[THIS:.*]] = cir.load %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_A>>, !cir.ptr<!rec_A>
 // CIR:    %[[VPTR:.*]] = cir.vtable.address_point(@_ZTV1A, address_point = <index = 0, offset = 2>) : !cir.vptr
 // CIR:    %[[THIS_VPTR_PTR:.*]] = cir.vtable.get_vptr %[[THIS]] : !cir.ptr<!rec_A> -> !cir.ptr<!cir.vptr>

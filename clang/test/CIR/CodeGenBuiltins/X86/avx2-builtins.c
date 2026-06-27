@@ -34,7 +34,7 @@ __m256i test0_mm256_inserti128_si256(__m256i a, __m128i b) {
   // CIR: %{{.*}} = cir.vec.shuffle(%{{.*}}, %{{.*}} : !cir.vector<4 x !s64i>) [#cir.int<4> : !s32i, #cir.int<5> : !s32i, #cir.int<2> : !s32i, #cir.int<3> : !s32i] : !cir.vector<4 x !s64i>
 
   // LLVM-LABEL: test0_mm256_inserti128_si256
-  // LLVM: shufflevector <2 x i64> %{{.*}}, <2 x i64> poison, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
+  // LLVM: shufflevector <2 x i64> %{{.*}}, <2 x i64> {{(poison|zeroinitializer)}}, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
   // LLVM: shufflevector <4 x i64> %{{.*}}, <4 x i64> %{{.*}}, <4 x i32> <i32 4, i32 5, i32 2, i32 3>
 
   // OGCG-LABEL: test0_mm256_inserti128_si256
@@ -49,7 +49,7 @@ __m256i test1_mm256_inserti128_si256(__m256i a, __m128i b) {
   // CIR: %{{.*}} = cir.vec.shuffle(%{{.*}}, %{{.*}} : !cir.vector<4 x !s64i>) [#cir.int<0> : !s32i, #cir.int<1> : !s32i, #cir.int<4> : !s32i, #cir.int<5> : !s32i] : !cir.vector<4 x !s64i>
 
   // LLVM-LABEL: test1_mm256_inserti128_si256
-  // LLVM: shufflevector <2 x i64> %{{.*}}, <2 x i64> poison, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
+  // LLVM: shufflevector <2 x i64> %{{.*}}, <2 x i64> {{(poison|zeroinitializer)}}, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
   // LLVM: shufflevector <4 x i64> %{{.*}}, <4 x i64> %{{.*}}, <4 x i32> <i32 0, i32 1, i32 4, i32 5>
 
   // OGCG-LABEL: test1_mm256_inserti128_si256

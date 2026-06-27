@@ -926,7 +926,7 @@ public:
   };
 
   /// Get the index of the current ArrayInitLoopExpr, if any.
-  mlir::Value getArrayInitIndex() { return arrayInitIndex; }
+  mlir::Value getArrayInitIndex() const { return arrayInitIndex; }
 
   LValue makeNaturalAlignPointeeAddrLValue(mlir::Value v, clang::QualType t);
   LValue makeNaturalAlignAddrLValue(mlir::Value val, QualType ty);

@@ -107,6 +107,7 @@ void foo() {
 
 // CIR-BEFORE-FULL: %{{.*}} = cir.complex.mul {{.*}}, {{.*}} range(full) : !cir.complex<!cir.float>
 
+// CIR-AFTER-FULL: cir.func {{.*}} @_Z3foov
 // CIR-AFTER-FULL: %[[A_ADDR:.*]] = cir.alloca !cir.complex<!cir.float>, !cir.ptr<!cir.complex<!cir.float>>, ["a"]
 // CIR-AFTER-FULL: %[[B_ADDR:.*]] = cir.alloca !cir.complex<!cir.float>, !cir.ptr<!cir.complex<!cir.float>>, ["b"]
 // CIR-AFTER-FULL: %[[C_ADDR:.*]] = cir.alloca !cir.complex<!cir.float>, !cir.ptr<!cir.complex<!cir.float>>, ["c", init]
@@ -285,11 +286,12 @@ void foo2() {
   float _Complex c = a * b;
 }
 
+// CIR-COMBINED: cir.func {{.*}} @_Z4foo2v
 // CIR-COMBINED: %[[A_ADDR:.*]] = cir.alloca !cir.complex<!cir.float>, !cir.ptr<!cir.complex<!cir.float>>, ["a"]
 // CIR-COMBINED: %[[B_ADDR:.*]] = cir.alloca !cir.float, !cir.ptr<!cir.float>, ["b"]
 // CIR-COMBINED: %[[C_ADDR:.*]] = cir.alloca !cir.complex<!cir.float>, !cir.ptr<!cir.complex<!cir.float>>, ["c", init]
-// CIR-COMBINED: %[[TMP_A:.*]] = cir.load{{.*}} %0 : !cir.ptr<!cir.complex<!cir.float>>, !cir.complex<!cir.float>
-// CIR-COMBINED: %[[TMP_B:.*]] = cir.load{{.*}} %1 : !cir.ptr<!cir.float>, !cir.float
+// CIR-COMBINED: %[[TMP_A:.*]] = cir.load{{.*}} %[[A_ADDR]] : !cir.ptr<!cir.complex<!cir.float>>, !cir.complex<!cir.float>
+// CIR-COMBINED: %[[TMP_B:.*]] = cir.load{{.*}} %[[B_ADDR]] : !cir.ptr<!cir.float>, !cir.float
 // CIR-COMBINED: %[[A_REAL:.*]] = cir.complex.real %[[TMP_A]] : !cir.complex<!cir.float> -> !cir.float
 // CIR-COMBINED: %[[A_IMAG:.*]] = cir.complex.imag %[[TMP_A]] : !cir.complex<!cir.float> -> !cir.float
 // CIR-COMBINED: %[[RESULT_REAL:.*]] = cir.binop(mul, %[[A_REAL]], %[[TMP_B]]) : !cir.float
@@ -639,6 +641,7 @@ void foo3() {
 
 // CIR-BEFORE-FULL: %{{.*}} = cir.complex.div {{.*}}, {{.*}} range(full) : !cir.complex<!cir.float>
 
+// CIR-AFTER-FULL: cir.func {{.*}} @_Z4foo3v
 // CIR-AFTER-FULL: %[[A_ADDR:.*]] = cir.alloca !cir.complex<!cir.float>, !cir.ptr<!cir.complex<!cir.float>>, ["a"]
 // CIR-AFTER-FULL: %[[B_ADDR:.*]] = cir.alloca !cir.complex<!cir.float>, !cir.ptr<!cir.complex<!cir.float>>, ["b"]
 // CIR-AFTER-FULL: %[[C_ADDR:.*]] = cir.alloca !cir.complex<!cir.float>, !cir.ptr<!cir.complex<!cir.float>>, ["c", init]
@@ -700,6 +703,7 @@ void foo4() {
 
 // CIR-BEFORE-FULL: %{{.*}} = cir.complex.div {{.*}}, {{.*}} range(full) : !cir.complex<!s32i>
 
+// CIR-COMBINED: cir.func {{.*}} @_Z4foo4v
 // CIR-COMBINED: %[[A_ADDR:.*]] = cir.alloca !cir.complex<!s32i>, !cir.ptr<!cir.complex<!s32i>>, ["a"]
 // CIR-COMBINED: %[[B_ADDR:.*]] = cir.alloca !cir.complex<!s32i>, !cir.ptr<!cir.complex<!s32i>>, ["b"]
 // CIR-COMBINED: %[[C_ADDR:.*]] = cir.alloca !cir.complex<!s32i>, !cir.ptr<!cir.complex<!s32i>>, ["c", init]
@@ -719,7 +723,7 @@ void foo4() {
 // CIR-COMBINED: %[[MUL_AI_BR:.*]] = cir.binop(mul, %[[A_IMAG]], %[[B_REAL]]) : !s32i
 // CIR-COMBINED: %[[MUL_AR_BI:.*]] = cir.binop(mul, %[[A_REAL]], %[[B_IMAG]]) : !s32i
 // CIR-COMBINED: %[[SUB_AIBR_ARBI:.*]] = cir.binop(sub, %[[MUL_AI_BR]], %[[MUL_AR_BI]]) : !s32i
-// CIR-COMBINED: %[[RESULT_IMAG:.*]] = cir.binop(div, %[[SUB_AIBR_ARBI]], %14) : !s32i
+// CIR-COMBINED: %[[RESULT_IMAG:.*]] = cir.binop(div, %[[SUB_AIBR_ARBI]], %[[ADD_BRBR_BIBI]]) : !s32i
 // CIR-COMBINED: %[[RESULT:.*]] = cir.complex.create %[[RESULT_REAL]], %[[RESULT_IMAG]] : !s32i -> !cir.complex<!s32i>
 // CIR-COMBINED: cir.store{{.*}} %[[RESULT]], %[[C_ADDR]] : !cir.complex<!s32i>, !cir.ptr<!cir.complex<!s32i>>
 
@@ -786,7 +790,7 @@ void foo5() {
 // CIR-COMBINED: %[[TMP_A:.*]] = cir.load{{.*}} %[[A_ADDR]] : !cir.ptr<!cir.complex<!cir.float>>, !cir.complex<!cir.float>
 // CIR-COMBINED: %[[TMP_B:.*]] = cir.load{{.*}} %[[B_ADDR]] : !cir.ptr<!cir.float>, !cir.float
 // CIR-COMBINED: %[[A_REAL:.*]] = cir.complex.real %[[TMP_A]] : !cir.complex<!cir.float> -> !cir.float
-// CIR-COMBINED: %[[A_IMGA:.*]] = cir.complex.imag %[[TMP_A]] : !cir.complex<!cir.float> -> !cir.float
+// CIR-COMBINED: %[[A_IMAG:.*]] = cir.complex.imag %[[TMP_A]] : !cir.complex<!cir.float> -> !cir.float
 // CIR-COMBINED: %[[RESULT_REAL:.*]] = cir.binop(div, %[[A_REAL]], %[[TMP_B]]) : !cir.float
 // CIR-COMBINED: %[[RESULT_IMAG:.*]] = cir.binop(div, %[[A_IMAG]], %[[TMP_B]]) : !cir.float
 // CIR-COMBINED: %[[RESULT:.*]] = cir.complex.create %[[RESULT_REAL]], %[[RESULT_IMAG]] : !cir.float -> !cir.complex<!cir.float>
@@ -1129,6 +1133,7 @@ void foo6() {
 
 // CIR-BEFORE-FULL: %{{.*}} = cir.complex.div {{.*}}, {{.*}} range(full) : !cir.complex<!cir.float>
 
+// CIR-AFTER-FULL: cir.func {{.*}} @_Z4foo6v
 // CIR-AFTER-FULL: %[[A_ADDR:.*]] = cir.alloca !cir.float, !cir.ptr<!cir.float>, ["a"]
 // CIR-AFTER-FULL: %[[B_ADDR:.*]] = cir.alloca !cir.complex<!cir.float>, !cir.ptr<!cir.complex<!cir.float>>, ["b"]
 // CIR-AFTER-FULL: %[[C_ADDR:.*]] = cir.alloca !cir.complex<!cir.float>, !cir.ptr<!cir.complex<!cir.float>>, ["c", init]

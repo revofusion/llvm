@@ -512,6 +512,8 @@ public:
                            cir::MemOrderAttr order = {}) {
     if (!align)
       align = getAlignmentAttr(dst.getAlignment());
+    if (val.getType() != dst.getElementType())
+      dst = dst.withElementType(*this, val.getType());
     return CIRBaseBuilderTy::createStore(loc, val, dst.getPointer(), isVolatile,
                                          align, scope, order);
   }

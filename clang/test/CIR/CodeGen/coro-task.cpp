@@ -119,15 +119,15 @@ co_invoke_fn co_invoke;
 
 }} // namespace folly::coro
 
-// CIR-DAG: ![[VoidTask:.*]] = !cir.record<struct "folly::coro::Task<void>" padded {!u8i}>
-// CIR-DAG: ![[IntTask:.*]] = !cir.record<struct "folly::coro::Task<int>" padded {!u8i}>
-// CIR-DAG: ![[VoidPromisse:.*]] = !cir.record<struct "folly::coro::Task<void>::promise_type" padded {!u8i}>
-// CIR-DAG: ![[IntPromisse:.*]] = !cir.record<struct "folly::coro::Task<int>::promise_type" padded {!u8i}>
-// CIR-DAG: ![[StdString:.*]] = !cir.record<struct "std::string" padded {!u8i}>
-// CIR-DAG: ![[CoroHandleVoid:.*]] = !cir.record<struct "std::coroutine_handle<void>" padded {!u8i}>
-// CIR-DAG: ![[CoroHandlePromiseVoid:rec_.*]]  = !cir.record<struct "std::coroutine_handle<folly::coro::Task<void>::promise_type>" padded {!u8i}>
-// CIR-DAG: ![[CoroHandlePromiseInt:rec_.*]] = !cir.record<struct "std::coroutine_handle<folly::coro::Task<int>::promise_type>" padded {!u8i}>
-// CIR-DAG: ![[SuspendAlways:.*]] = !cir.record<struct "std::suspend_always" padded {!u8i}>
+// CIR-DAG: ![[VoidTask:rec_folly3A3Acoro3A3ATask3Cvoid3E]] = !cir.record<struct "folly::coro::Task<void>" padded {!u8i}>
+// CIR-DAG: ![[IntTask:rec_folly3A3Acoro3A3ATask3Cint3E]] = !cir.record<struct "folly::coro::Task<int>" padded {!u8i}>
+// CIR-DAG: ![[VoidPromisse:rec_folly3A3Acoro3A3ATask3Cvoid3E3A3Apromise_type]] = !cir.record<struct "folly::coro::Task<void>::promise_type" padded {!u8i}>
+// CIR-DAG: ![[IntPromisse:rec_folly3A3Acoro3A3ATask3Cint3E3A3Apromise_type]] = !cir.record<struct "folly::coro::Task<int>::promise_type" padded {!u8i}>
+// CIR-DAG: ![[StdString:rec_std3A3Astring]] = !cir.record<struct "std::string" padded {!u8i}>
+// CIR-DAG: ![[CoroHandleVoid:rec_std3A3Acoroutine_handle3Cvoid3E]] = !cir.record<struct "std::coroutine_handle<void>" padded {!u8i}>
+// CIR-DAG: ![[CoroHandlePromiseVoid:rec_std3A3Acoroutine_handle3Cfolly3A3Acoro3A3ATask3Cvoid3E3A3Apromise_type3E]]  = !cir.record<struct "std::coroutine_handle<folly::coro::Task<void>::promise_type>" padded {!u8i}>
+// CIR-DAG: ![[CoroHandlePromiseInt:rec_std3A3Acoroutine_handle3Cfolly3A3Acoro3A3ATask3Cint3E3A3Apromise_type3E]] = !cir.record<struct "std::coroutine_handle<folly::coro::Task<int>::promise_type>" padded {!u8i}>
+// CIR-DAG: ![[SuspendAlways:rec_std3A3Asuspend_always]] = !cir.record<struct "std::suspend_always" padded {!u8i}>
 
 // CIR: module {{.*}} {
 // CIR-NEXT: cir.global external @_ZN5folly4coro9co_invokeE = #cir.zero : !rec_folly3A3Acoro3A3Aco_invoke_fn
@@ -266,7 +266,7 @@ folly::coro::Task<int> byRef(const std::string& s) {
 
 // CIR:    %[[LOAD:.*]] = cir.load %[[AllocaParam]] : !cir.ptr<!cir.ptr<![[StdString]]>>, !cir.ptr<![[StdString]]>
 // CIR:    cir.store {{.*}} %[[LOAD]], %[[AllocaFnUse]] : !cir.ptr<![[StdString]]>, !cir.ptr<!cir.ptr<![[StdString]]>>
-// CIR:    %[[RetObj:.*]] = cir.call @_ZN5folly4coro4TaskIiE12promise_type17get_return_objectEv(%4) nothrow : {{.*}} -> ![[IntTask]]
+// CIR:    %[[RetObj:.*]] = cir.call @_ZN5folly4coro4TaskIiE12promise_type17get_return_objectEv(%[[IntPromisseAddr]]) nothrow : {{.*}} -> ![[IntTask]]
 // CIR:    cir.store {{.*}} %[[RetObj]], %[[IntTaskAddr]] : ![[IntTask]]
 // CIR:    cir.scope {
 // CIR:      %[[SuspendAlwaysAddr:.*]] = cir.alloca ![[SuspendAlways]], {{.*}} ["ref.tmp0"] {alignment = 1 : i64}

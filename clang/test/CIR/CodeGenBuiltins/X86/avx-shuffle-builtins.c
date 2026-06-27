@@ -1,13 +1,13 @@
 // REQUIRES: x86-registered-target
 
-// RUN: %clang_cc1 -ffreestanding %s -triple=x86_64-unknown-linux -target-feature +avx -disable-O0-optnone -fclangir -emit-cir -o %t.cir | opt -S -passes=mem2reg
+// RUN: %clang_cc1 -ffreestanding %s -triple=x86_64-unknown-linux -target-feature +avx -disable-O0-optnone -fclangir -emit-cir -o - | cir-opt --mem2reg > %t.cir
 // RUN: FileCheck --check-prefixes=CIR --input-file=%t.cir %s
-// RUN: %clang_cc1 -ffreestanding %s -triple=i386-unknown-linux -target-feature +avx -disable-O0-optnone -fclangir -emit-cir -o %t.cir | opt -S -passes=mem2reg
+// RUN: %clang_cc1 -ffreestanding %s -triple=i386-unknown-linux -target-feature +avx -disable-O0-optnone -fclangir -emit-cir -o - | cir-opt --mem2reg > %t.cir
 // RUN: FileCheck --check-prefixes=CIR --input-file=%t.cir %s
 
-// RUN: %clang_cc1 -ffreestanding %s -triple=x86_64-unknown-linux -target-feature +avx -disable-O0-optnone -fclangir -emit-llvm -o %t.ll | opt -S -passes=mem2reg
+// RUN: %clang_cc1 -ffreestanding %s -triple=x86_64-unknown-linux -target-feature +avx -disable-O0-optnone -fclangir -emit-llvm -o - | opt -S -passes=mem2reg > %t.ll
 // RUN: FileCheck --check-prefixes=LLVM --input-file=%t.ll %s
-// RUN: %clang_cc1 -ffreestanding %s -triple=i386-unknown-linux -target-feature +avx -disable-O0-optnone -fclangir -emit-llvm -o %t.ll | opt -S -passes=mem2reg
+// RUN: %clang_cc1 -ffreestanding %s -triple=i386-unknown-linux -target-feature +avx -disable-O0-optnone -fclangir -emit-llvm -o - | opt -S -passes=mem2reg > %t.ll
 // RUN: FileCheck --check-prefixes=LLVM --input-file=%t.ll %s
 
 // RUN: %clang_cc1 -ffreestanding %s -triple=x86_64-unknown-linux -target-feature +avx -disable-O0-optnone -emit-llvm -o - | opt -S -passes=mem2reg | FileCheck %s --check-prefixes=OGCG
@@ -17,17 +17,17 @@
 
 __m256d test0_mm256_insertf128_pd(__m256d a, __m128d b) {
   // CIR-LABEL: @test0_mm256_insertf128_pd(
-  // CIR: [[A:%.*]] = cir.load align(32) %0 : !cir.ptr<!cir.vector<4 x !cir.double>>, !cir.vector<4 x !cir.double>
-  // CIR: [[B:%.*]] = cir.load align(16) %1 : !cir.ptr<!cir.vector<2 x !cir.double>>, !cir.vector<2 x !cir.double>
-  // CIR: %{{.*}} = cir.vec.shuffle([[B]], %{{.*}} : !cir.vector<2 x !cir.double>) [#cir.int<0> : !s32i, #cir.int<1> : !s32i, #cir.int<2> : !s32i, #cir.int<3> : !s32i] : !cir.vector<4 x !cir.double>
-  // CIR-NEXT: %{{.*}} = cir.vec.shuffle([[A]], %{{.*}} : !s32i, #cir.int<5> : !s32i, #cir.int<2> : !s32i, #cir.int<3> : !s32i] : !cir.vector<4 x !cir.double>
+  // CIR-SAME: %[[A:.*]]: !cir.vector<4 x !cir.double>, %[[B:.*]]: !cir.vector<2 x !cir.double>)
+  // CIR: %{{.*}} = cir.const #cir.int<0> : !s32i
+  // CIR: %{{.*}} = cir.const #cir.zero : !cir.vector<2 x !cir.double>
+  // CIR: %{{.*}} = cir.vec.shuffle(%[[B]], %{{.*}} : !cir.vector<2 x !cir.double>) [#cir.int<0> : !s32i, #cir.int<1> : !s32i, #cir.int<2> : !s32i, #cir.int<3> : !s32i] : !cir.vector<4 x !cir.double>
+  // CIR-NEXT: %{{.*}} = cir.vec.shuffle(%[[A]], %{{.*}} : !cir.vector<4 x !cir.double>) [#cir.int<4> : !s32i, #cir.int<5> : !s32i, #cir.int<2> : !s32i, #cir.int<3> : !s32i] : !cir.vector<4 x !cir.double>
   // CIR: cir.return %{{.*}} : !cir.vector<4 x !cir.double>
 
   // LLVM-LABEL: @test0_mm256_insertf128_pd
-  // LLVM:    [[A:%.*]] = load <4 x double>, ptr %{{.*}}, align 32
-  // LLVM:    [[B:%.*]] = load <2 x double>, ptr %{{.*}}, align 16
-  // LLVM-NEXT:    [[WIDEN:%.*]] = shufflevector <2 x double> [[B]], <2 x double> poison, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  // LLVM-NEXT:    [[INSERT:%.*]] = shufflevector <4 x double> [[A]], <4 x double> [[WIDEN]], <4 x i32> <i32 4, i32 5, i32 2, i32 3>
+  // LLVM-SAME: <4 x double> %[[A:.*]], <2 x double> %[[B:.*]])
+  // LLVM-NEXT:    [[WIDEN:%.*]] = shufflevector <2 x double> %[[B]], <2 x double> {{(poison|zeroinitializer)}}, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
+  // LLVM-NEXT:    [[INSERT:%.*]] = shufflevector <4 x double> %[[A]], <4 x double> [[WIDEN]], <4 x i32> <i32 4, i32 5, i32 2, i32 3>
   // LLVM:    ret <4 x double>
 
   // OGCG-LABEL: define dso_local <4 x double> @test0_mm256_insertf128_pd(
@@ -41,17 +41,17 @@ __m256d test0_mm256_insertf128_pd(__m256d a, __m128d b) {
 
 __m256d test1_mm256_insertf128_pd(__m256d a, __m128d b) {
   // CIR-LABEL: @test1_mm256_insertf128_pd(
-  // CIR: [[A:%.*]] = cir.load align(32) %0 : !cir.ptr<!cir.vector<4 x !cir.double>>, !cir.vector<4 x !cir.double>
-  // CIR: [[B:%.*]] = cir.load align(16) %1 : !cir.ptr<!cir.vector<2 x !cir.double>>, !cir.vector<2 x !cir.double>
-  // CIR: %{{.*}} = cir.vec.shuffle([[B]], %{{.*}} : !cir.vector<2 x !cir.double>) [#cir.int<0> : !s32i, #cir.int<1> : !s32i, #cir.int<2> : !s32i, #cir.int<3> : !s32i] : !cir.vector<4 x !cir.double>
-  // CIR-NEXT: %{{.*}} = cir.vec.shuffle([[A]], %{{.*}} : !cir.vector<4 x !cir.double>) [#cir.int<0> : !s32i, #cir.int<1> : !s32i, #cir.int<4> : !s32i, #cir.int<5> : !s32i] : !cir.vector<4 x !cir.double>
+  // CIR-SAME: %[[A:.*]]: !cir.vector<4 x !cir.double>, %[[B:.*]]: !cir.vector<2 x !cir.double>)
+  // CIR: %{{.*}} = cir.const #cir.int<1> : !s32i
+  // CIR: %{{.*}} = cir.const #cir.zero : !cir.vector<2 x !cir.double>
+  // CIR: %{{.*}} = cir.vec.shuffle(%[[B]], %{{.*}} : !cir.vector<2 x !cir.double>) [#cir.int<0> : !s32i, #cir.int<1> : !s32i, #cir.int<2> : !s32i, #cir.int<3> : !s32i] : !cir.vector<4 x !cir.double>
+  // CIR-NEXT: %{{.*}} = cir.vec.shuffle(%[[A]], %{{.*}} : !cir.vector<4 x !cir.double>) [#cir.int<0> : !s32i, #cir.int<1> : !s32i, #cir.int<4> : !s32i, #cir.int<5> : !s32i] : !cir.vector<4 x !cir.double>
   // CIR: cir.return %{{.*}} : !cir.vector<4 x !cir.double>
 
   // LLVM-LABEL: @test1_mm256_insertf128_pd
-  // LLVM:    [[A:%.*]] = load <4 x double>, ptr %{{.*}}, align 32
-  // LLVM:    [[B:%.*]] = load <2 x double>, ptr %{{.*}}, align 16
-  // LLVM-NEXT:    [[WIDEN:%.*]] = shufflevector <2 x double> [[B]], <2 x double> poison, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
-  // LLVM-NEXT:    [[INSERT:%.*]] = shufflevector <4 x double> [[A]], <4 x double> [[WIDEN]], <4 x i32> <i32 0, i32 1, i32 4, i32 5>
+  // LLVM-SAME: <4 x double> %[[A:.*]], <2 x double> %[[B:.*]])
+  // LLVM-NEXT:    [[WIDEN:%.*]] = shufflevector <2 x double> %[[B]], <2 x double> {{(poison|zeroinitializer)}}, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
+  // LLVM-NEXT:    [[INSERT:%.*]] = shufflevector <4 x double> %[[A]], <4 x double> [[WIDEN]], <4 x i32> <i32 0, i32 1, i32 4, i32 5>
   // LLVM:    ret <4 x double>
 
   // OGCG-LABEL: define dso_local <4 x double> @test1_mm256_insertf128_pd(
@@ -70,7 +70,7 @@ __m256 test0_mm256_insertf128_ps(__m256 a, __m128 b) {
   // CIR: cir.return %{{.*}} : !cir.vector<8 x !cir.float>
 
   // LLVM-LABEL: @test0_mm256_insertf128_ps(
-  // LLVM:    %{{.*}} = shufflevector <4 x float> %{{.*}}, <4 x float> poison, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
+  // LLVM:    %{{.*}} = shufflevector <4 x float> %{{.*}}, <4 x float> {{(poison|zeroinitializer)}}, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
   // LLVM-NEXT:    %{{.*}} = shufflevector <8 x float> %{{.*}}, <8 x float> %{{.*}}, <8 x i32> <i32 8, i32 9, i32 10, i32 11, i32 4, i32 5, i32 6, i32 7>
   // LLVM:    ret <8 x float> %{{.*}}
 
@@ -90,7 +90,7 @@ __m256 test1_mm256_insertf128_ps(__m256 a, __m128 b) {
   // CIR: cir.return %{{.*}} : !cir.vector<8 x !cir.float>
 
   // LLVM-LABEL: define dso_local <8 x float> @test1_mm256_insertf128_ps(
-  // LLVM:    %{{.*}} = shufflevector <4 x float> %{{.*}}, <4 x float> poison, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
+  // LLVM:    %{{.*}} = shufflevector <4 x float> %{{.*}}, <4 x float> {{(poison|zeroinitializer)}}, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
   // LLVM-NEXT:    %{{.*}} = shufflevector <8 x float> %{{.*}}, <8 x float> %{{.*}}, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 8, i32 9, i32 10, i32 11>
   // LLVM:    ret <8 x float> %{{.*}}
 
@@ -115,7 +115,7 @@ __m256i test0_mm256_insertf128_si256(__m256i a, __m128i b) {
   // LLVM-LABEL: @test0_mm256_insertf128_si256
   // LLVM:    [[TMP0:%.*]] = bitcast <4 x i64> %{{.*}} to <8 x i32>
   // LLVM:    [[TMP1:%.*]] = bitcast <2 x i64> %{{.*}} to <4 x i32>
-  // LLVM:    [[WIDEN:%.*]] = shufflevector <4 x i32> [[TMP1]], <4 x i32> poison, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
+  // LLVM:    [[WIDEN:%.*]] = shufflevector <4 x i32> [[TMP1]], <4 x i32> {{(poison|zeroinitializer)}}, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
   // LLVM-NEXT:    [[INSERT:%.*]] = shufflevector <8 x i32> [[TMP0]], <8 x i32> [[WIDEN]], <8 x i32> <i32 8, i32 9, i32 10, i32 11, i32 4, i32 5, i32 6, i32 7>
   // LLVM:    [[TMP2:%.*]] = bitcast <8 x i32> [[INSERT]] to <4 x i64>
   // LLVM:    ret <4 x i64> %{{.*}}
@@ -144,7 +144,7 @@ __m256i test1_mm256_insertf128_si256(__m256i a, __m128i b) {
   // LLVM-LABEL: @test1_mm256_insertf128_si256
   // LLVM:    [[TMP0:%.*]] = bitcast <4 x i64> %{{.*}} to <8 x i32>
   // LLVM:    [[TMP1:%.*]] = bitcast <2 x i64> %{{.*}} to <4 x i32>
-  // LLVM:    [[WIDEN:%.*]] = shufflevector <4 x i32> [[TMP1]], <4 x i32> poison, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
+  // LLVM:    [[WIDEN:%.*]] = shufflevector <4 x i32> [[TMP1]], <4 x i32> {{(poison|zeroinitializer)}}, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
   // LLVM-NEXT:    [[INSERT:%.*]] = shufflevector <8 x i32> [[TMP0]], <8 x i32> [[WIDEN]], <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 8, i32 9, i32 10, i32 11>
   // LLVM:    [[TMP2:%.*]] = bitcast <8 x i32> [[INSERT]] to <4 x i64>
   // LLVM:    ret <4 x i64> %{{.*}}

@@ -825,7 +825,11 @@ void CIRRecordLowering::lowerUnion() {
 
   if (layoutSize < getSize(storageType))
     storageType = getByteArrayType(layoutSize);
-  else
+  if (!zeroInitializable) {
+    fieldTypes.clear();
+    fieldTypes.push_back(storageType);
+  }
+  if (layoutSize >= getSize(storageType))
     appendPaddingBytes(layoutSize - getSize(storageType));
 
   // Set packed if we need it.

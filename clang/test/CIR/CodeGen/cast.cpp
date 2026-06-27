@@ -7,14 +7,14 @@ unsigned char cxxstaticcast_0(unsigned int x) {
   return static_cast<unsigned char>(x);
 }
 
-// CIR: cir.func{{.*}} @_Z15cxxstaticcast_0j
-// CIR:    %[[XPTR:[0-9]+]] = cir.alloca !u32i, !cir.ptr<!u32i>, ["x", init] {alignment = 4 : i64}
-// CIR:    %[[RV:[0-9]+]] = cir.alloca !u8i, !cir.ptr<!u8i>, ["__retval"] {alignment = 1 : i64}
-// CIR:    cir.store %arg0, %[[XPTR]] : !u32i, !cir.ptr<!u32i>
-// CIR:    %[[XVAL:[0-9]+]] = cir.load{{.*}} %[[XPTR]] : !cir.ptr<!u32i>, !u32i
-// CIR:    %[[CASTED:[0-9]+]] = cir.cast integral %[[XVAL]] : !u32i -> !u8i
+// CIR: cir.func{{.*}} @_Z15cxxstaticcast_0j([[ARG:%.*]]: !u32i
+// CIR:    %[[XPTR:.*]] = cir.alloca !u32i, !cir.ptr<!u32i>, ["x", init]
+// CIR:    %[[RV:.*]] = cir.alloca !u8i, !cir.ptr<!u8i>, ["__retval"]
+// CIR:    cir.store [[ARG]], %[[XPTR]] : !u32i, !cir.ptr<!u32i>
+// CIR:    %[[XVAL:.*]] = cir.load{{.*}} %[[XPTR]] : !cir.ptr<!u32i>, !u32i
+// CIR:    %[[CASTED:.*]] = cir.cast integral %[[XVAL]] : !u32i -> !u8i
 // CIR:    cir.store %[[CASTED]], %[[RV]] : !u8i, !cir.ptr<!u8i>
-// CIR:    %[[R:[0-9]+]] = cir.load{{.*}} %1 : !cir.ptr<!u8i>, !u8i
+// CIR:    %[[R:.*]] = cir.load{{.*}} %[[RV]] : !cir.ptr<!u8i>, !u8i
 // CIR:    cir.return %[[R]] : !u8i
 // CIR:  }
 
@@ -89,11 +89,11 @@ bool cptr(void *d) {
   return x;
 }
 
-// CIR: cir.func{{.*}} @_Z4cptrPv(%arg0: !cir.ptr<!void>
-// CIR:   %[[DPTR:[0-9]+]] = cir.alloca !cir.ptr<!void>, !cir.ptr<!cir.ptr<!void>>, ["d", init] {alignment = 8 : i64}
+// CIR: cir.func{{.*}} @_Z4cptrPv([[ARG:%.*]]: !cir.ptr<!void>
+// CIR:   %[[DPTR:.*]] = cir.alloca !cir.ptr<!void>, !cir.ptr<!cir.ptr<!void>>, ["d", init]
 
-// CIR:   %[[DVAL:[0-9]+]] = cir.load{{.*}} %[[DPTR]] : !cir.ptr<!cir.ptr<!void>>, !cir.ptr<!void>
-// CIR:   %{{[0-9]+}} = cir.cast ptr_to_bool %[[DVAL]] : !cir.ptr<!void> -> !cir.bool
+// CIR:   %[[DVAL:.*]] = cir.load{{.*}} %[[DPTR]] : !cir.ptr<!cir.ptr<!void>>, !cir.ptr<!void>
+// CIR:   %{{.*}} = cir.cast ptr_to_bool %[[DVAL]] : !cir.ptr<!void> -> !cir.bool
 
 // LLVM-LABEL: define{{.*}} i1 @_Z4cptrPv(ptr %0)
 // LLVM:         %[[ARG_STORAGE:.*]] = alloca ptr, i64 1

@@ -723,6 +723,8 @@ void CIRGenFunction::emitNewArrayInitializer(
               [&](mlir::OpBuilder &, mlir::Location loc) {
                 cir::LoadOp current = builder.createLoad(loc, tmpAddr);
                 Address curAddr(current, elementTy, elementAlign);
+                if (cce->requiresZeroInitialization())
+                  emitNullInitialization(loc, curAddr, elementType);
                 auto currAVS = AggValueSlot::forAddr(
                     curAddr, elementType.getQualifiers(),
                     AggValueSlot::IsDestructed, AggValueSlot::IsNotAliased,

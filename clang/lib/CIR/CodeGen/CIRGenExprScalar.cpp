@@ -19,10 +19,12 @@
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "clang/CIR/MissingFeatures.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Value.h"
 
 #include <cassert>
+#include <string>
 #include <utility>
 
 using namespace clang;
@@ -77,6 +79,14 @@ struct BinOpInfo {
   }
 };
 
+static bool hasUnavailableBinOpOperand(CIRGenFunction &cgf,
+                                       const BinOpInfo &ops) {
+  if (ops.lhs && ops.rhs)
+    return false;
+  cgf.cgm.errorNYI(ops.loc, "binary operator: operand unavailable");
+  return true;
+}
+
 class ScalarExprEmitter : public StmtVisitor<ScalarExprEmitter, mlir::Value> {
   CIRGenFunction &cgf;
   CIRGenBuilderTy &builder;
@@ -101,6 +111,11 @@ public:
 
   mlir::Value emitNullValue(QualType ty, mlir::Location loc) {
     return cgf.cgm.emitNullConstant(ty, loc);
+  }
+
+  mlir::Value emitPoisonBool(mlir::Location loc) {
+    return builder.getConstant(
+        loc, cir::PoisonAttr::get(builder.getContext(), builder.getBoolTy()));
   }
 
   mlir::Value emitPromotedValue(mlir::Value result, QualType promotionType) {
@@ -431,18 +446,33 @@ public:
 
   /// Perform a pointer to boolean conversion.
   mlir::Value emitPointerToBoolConversion(mlir::Value v, QualType qt) {
+    if (!v) {
+      cgf.cgm.errorNYI(SourceLocation(),
+                       "pointer to bool conversion: source unavailable", qt);
+      return {};
+    }
     // TODO(cir): comparing the ptr to null is done when lowering CIR to LLVM.
     // We might want to have a separate pass for these types of conversions.
     return cgf.getBuilder().createPtrToBoolCast(v);
   }
 
   mlir::Value emitFloatToBoolConversion(mlir::Value src, mlir::Location loc) {
+    if (!src) {
+      cgf.getCIRGenModule().errorNYI(loc,
+                                     "float to bool conversion: source unavailable");
+      return {};
+    }
     cir::BoolType boolTy = builder.getBoolTy();
     return cir::CastOp::create(builder, loc, boolTy,
                                cir::CastKind::float_to_bool, src);
   }
 
   mlir::Value emitIntToBoolConversion(mlir::Value srcVal, mlir::Location loc) {
+    if (!srcVal) {
+      cgf.getCIRGenModule().errorNYI(loc,
+                                     "integer to bool conversion: source unavailable");
+      return {};
+    }
     // The source may already have boolean representation -- e.g. an
     // enumeration with a fixed `bool` underlying type, which CIR models
     // directly as a `cir.bool` value.  In that case there is nothing to
@@ -466,6 +496,11 @@ public:
   mlir::Value emitConversionToBool(mlir::Value src, QualType srcType,
                                    mlir::Location loc) {
     assert(srcType.isCanonical() && "EmitScalarConversion strips typedefs");
+    if (!src) {
+      cgf.getCIRGenModule().errorNYI(loc,
+                                     "conversion to bool: source unavailable");
+      return {};
+    }
 
     // If the source already has boolean representation (e.g. an enumeration
     // with a fixed boolean underlying type), it is already modeled as a
@@ -938,6 +973,12 @@ public:
       return {};
     }
 
+    if (!src) {
+      cgf.getCIRGenModule().errorNYI(loc,
+                                     "scalar conversion: source unavailable");
+      return {};
+    }
+
     srcType = srcType.getCanonicalType();
     dstType = dstType.getCanonicalType();
     if (srcType == dstType) {
@@ -1171,9 +1212,15 @@ public:
       assert(e->getOpcode() == BO_EQ || e->getOpcode() == BO_NE);
       mlir::Value lhs = cgf.emitScalarExpr(e->getLHS());
       mlir::Value rhs = cgf.emitScalarExpr(e->getRHS());
+      if (!lhs || !rhs) {
+        cgf.cgm.errorNYI(loc, "comparison operator: operand unavailable");
+        return {};
+      }
       result = builder.createCompare(loc, kind, lhs, rhs);
     } else if (!lhsTy->isAnyComplexType() && !rhsTy->isAnyComplexType()) {
       BinOpInfo boInfo = emitBinOps(e);
+      if (hasUnavailableBinOpOperand(cgf, boInfo))
+        return {};
       mlir::Value lhs = boInfo.lhs;
       mlir::Value rhs = boInfo.rhs;
 
@@ -1209,8 +1256,13 @@ public:
       assert(e->getOpcode() == BO_EQ || e->getOpcode() == BO_NE);
 
       BinOpInfo boInfo = emitBinOps(e);
+      if (hasUnavailableBinOpOperand(cgf, boInfo))
+        return {};
       result = cir::CmpOp::create(builder, loc, kind, boInfo.lhs, boInfo.rhs);
     }
+
+    if (!result)
+      return {};
 
     return emitScalarConversion(result, cgf.getContext().BoolTy, e->getType(),
                                 e->getExprLoc());
@@ -1296,6 +1348,11 @@ public:
 
       mlir::Value lhs = Visit(e->getLHS());
       mlir::Value rhs = Visit(e->getRHS());
+      if (!lhs || !rhs) {
+        cgf.cgm.errorNYI(e->getSourceRange(),
+                         "logical and: vector operand unavailable");
+        return {};
+      }
 
       auto cmpOpKind = cir::CmpOpKind::ne;
       lhs = cir::VecCmpOp::create(builder, loc, vecTy, cmpOpKind, lhs, zeroVec);
@@ -1311,6 +1368,11 @@ public:
     CIRGenFunction::ConditionalEvaluation eval(cgf);
 
     mlir::Value lhsCondV = cgf.evaluateExprAsBool(e->getLHS());
+    if (!lhsCondV) {
+      cgf.cgm.errorNYI(e->getLHS()->getSourceRange(),
+                       "logical and: lhs condition unavailable");
+      return {};
+    }
     auto resOp = cir::TernaryOp::create(
         builder, loc, lhsCondV, /*trueBuilder=*/
         [&](mlir::OpBuilder &b, mlir::Location loc) {
@@ -1320,6 +1382,11 @@ public:
           eval.beginEvaluation();
           mlir::Value res = cgf.evaluateExprAsBool(e->getRHS());
           eval.endEvaluation();
+          if (!res) {
+            cgf.cgm.errorNYI(e->getRHS()->getSourceRange(),
+                             "logical and: rhs condition unavailable");
+            res = emitPoisonBool(loc);
+          }
           lexScope.forceCleanup();
           cir::YieldOp::create(b, loc, res);
         },
@@ -1344,6 +1411,11 @@ public:
 
       mlir::Value lhs = Visit(e->getLHS());
       mlir::Value rhs = Visit(e->getRHS());
+      if (!lhs || !rhs) {
+        cgf.cgm.errorNYI(e->getSourceRange(),
+                         "logical or: vector operand unavailable");
+        return {};
+      }
 
       auto cmpOpKind = cir::CmpOpKind::ne;
       lhs = cir::VecCmpOp::create(builder, loc, vecTy, cmpOpKind, lhs, zeroVec);
@@ -1359,6 +1431,11 @@ public:
     CIRGenFunction::ConditionalEvaluation eval(cgf);
 
     mlir::Value lhsCondV = cgf.evaluateExprAsBool(e->getLHS());
+    if (!lhsCondV) {
+      cgf.cgm.errorNYI(e->getLHS()->getSourceRange(),
+                       "logical or: lhs condition unavailable");
+      return {};
+    }
     auto resOp = cir::TernaryOp::create(
         builder, loc, lhsCondV, /*trueBuilder=*/
         [&](mlir::OpBuilder &b, mlir::Location loc) {
@@ -1376,6 +1453,11 @@ public:
           eval.beginEvaluation();
           mlir::Value res = cgf.evaluateExprAsBool(e->getRHS());
           eval.endEvaluation();
+          if (!res) {
+            cgf.cgm.errorNYI(e->getRHS()->getSourceRange(),
+                             "logical or: rhs condition unavailable");
+            res = emitPoisonBool(loc);
+          }
           lexScope.forceCleanup();
           cir::YieldOp::create(b, loc, res);
         });
@@ -1831,6 +1913,9 @@ static mlir::Value emitPointerArithmetic(CIRGenFunction &cgf,
 }
 
 mlir::Value ScalarExprEmitter::emitMul(const BinOpInfo &ops) {
+  if (hasUnavailableBinOpOperand(cgf, ops))
+    return {};
+
   const mlir::Location loc = cgf.getLoc(ops.loc);
   if (!ops.fullType->isVectorType() &&
       ops.compType->isSignedIntegerOrEnumerationType()) {
@@ -1875,17 +1960,26 @@ mlir::Value ScalarExprEmitter::emitMul(const BinOpInfo &ops) {
                             ops.lhs, ops.rhs);
 }
 mlir::Value ScalarExprEmitter::emitDiv(const BinOpInfo &ops) {
+  if (hasUnavailableBinOpOperand(cgf, ops))
+    return {};
+
   return cir::BinOp::create(builder, cgf.getLoc(ops.loc),
                             cgf.convertType(ops.fullType), cir::BinOpKind::Div,
                             ops.lhs, ops.rhs);
 }
 mlir::Value ScalarExprEmitter::emitRem(const BinOpInfo &ops) {
+  if (hasUnavailableBinOpOperand(cgf, ops))
+    return {};
+
   return cir::BinOp::create(builder, cgf.getLoc(ops.loc),
                             cgf.convertType(ops.fullType), cir::BinOpKind::Rem,
                             ops.lhs, ops.rhs);
 }
 
 mlir::Value ScalarExprEmitter::emitAdd(const BinOpInfo &ops) {
+  if (hasUnavailableBinOpOperand(cgf, ops))
+    return {};
+
   if (mlir::isa<cir::PointerType>(ops.lhs.getType()) ||
       mlir::isa<cir::PointerType>(ops.rhs.getType()))
     return emitPointerArithmetic(cgf, ops, /*isSubtraction=*/false);
@@ -1935,6 +2029,9 @@ mlir::Value ScalarExprEmitter::emitAdd(const BinOpInfo &ops) {
 }
 
 mlir::Value ScalarExprEmitter::emitSub(const BinOpInfo &ops) {
+  if (hasUnavailableBinOpOperand(cgf, ops))
+    return {};
+
   const mlir::Location loc = cgf.getLoc(ops.loc);
   // The LHS is always a pointer if either side is.
   if (!mlir::isa<cir::PointerType>(ops.lhs.getType())) {
@@ -2003,6 +2100,9 @@ mlir::Value ScalarExprEmitter::emitSub(const BinOpInfo &ops) {
 }
 
 mlir::Value ScalarExprEmitter::emitShl(const BinOpInfo &ops) {
+  if (hasUnavailableBinOpOperand(cgf, ops))
+    return {};
+
   // TODO: This misses out on the sanitizer check below.
   if (ops.isFixedPointOp()) {
     assert(cir::MissingFeatures::fixedPointType());
@@ -2035,6 +2135,9 @@ mlir::Value ScalarExprEmitter::emitShl(const BinOpInfo &ops) {
 }
 
 mlir::Value ScalarExprEmitter::emitShr(const BinOpInfo &ops) {
+  if (hasUnavailableBinOpOperand(cgf, ops))
+    return {};
+
   // TODO: This misses out on the sanitizer check below.
   if (ops.isFixedPointOp()) {
     assert(cir::MissingFeatures::fixedPointType());
@@ -2059,16 +2162,25 @@ mlir::Value ScalarExprEmitter::emitShr(const BinOpInfo &ops) {
 }
 
 mlir::Value ScalarExprEmitter::emitAnd(const BinOpInfo &ops) {
+  if (hasUnavailableBinOpOperand(cgf, ops))
+    return {};
+
   return cir::BinOp::create(builder, cgf.getLoc(ops.loc),
                             cgf.convertType(ops.fullType), cir::BinOpKind::And,
                             ops.lhs, ops.rhs);
 }
 mlir::Value ScalarExprEmitter::emitXor(const BinOpInfo &ops) {
+  if (hasUnavailableBinOpOperand(cgf, ops))
+    return {};
+
   return cir::BinOp::create(builder, cgf.getLoc(ops.loc),
                             cgf.convertType(ops.fullType), cir::BinOpKind::Xor,
                             ops.lhs, ops.rhs);
 }
 mlir::Value ScalarExprEmitter::emitOr(const BinOpInfo &ops) {
+  if (hasUnavailableBinOpOperand(cgf, ops))
+    return {};
+
   return cir::BinOp::create(builder, cgf.getLoc(ops.loc),
                             cgf.convertType(ops.fullType), cir::BinOpKind::Or,
                             ops.lhs, ops.rhs);
@@ -2237,8 +2349,12 @@ mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
     const auto *dce = cast<CXXDynamicCastExpr>(ce);
     return cgf.emitDynamicCast(v, dce);
   }
-  case CK_ArrayToPointerDecay:
-    return cgf.emitArrayToPointerDecay(subExpr).getPointer();
+  case CK_ArrayToPointerDecay: {
+    Address addr = cgf.emitArrayToPointerDecay(subExpr);
+    if (!addr.isValid())
+      return {};
+    return addr.getPointer();
+  }
 
   case CK_NullToPointer: {
     if (mustVisitNullValue(subExpr))
@@ -2508,6 +2624,11 @@ mlir::Value ScalarExprEmitter::VisitUnaryLNot(const UnaryOperator *e) {
           VectorKind::Generic) {
     mlir::Value oper = Visit(e->getSubExpr());
     mlir::Location loc = cgf.getLoc(e->getExprLoc());
+    if (!oper) {
+      cgf.cgm.errorNYI(e->getSubExpr()->getSourceRange(),
+                       "logical not: vector operand unavailable");
+      return {};
+    }
     auto operVecTy = mlir::cast<cir::VectorType>(oper.getType());
     auto exprVecTy = mlir::cast<cir::VectorType>(cgf.convertType(e->getType()));
     mlir::Value zeroVec = builder.getNullValue(operVecTy, loc);
@@ -2517,6 +2638,11 @@ mlir::Value ScalarExprEmitter::VisitUnaryLNot(const UnaryOperator *e) {
 
   // Compare operand to zero.
   mlir::Value boolVal = cgf.evaluateExprAsBool(e->getSubExpr());
+  if (!boolVal) {
+    cgf.cgm.errorNYI(e->getSubExpr()->getSourceRange(),
+                     "logical not: operand unavailable");
+    return {};
+  }
 
   // Invert value.
   boolVal = builder.createNot(boolVal);

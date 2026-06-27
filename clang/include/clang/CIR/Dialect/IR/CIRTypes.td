@@ -309,12 +309,10 @@ def CIR_PointerType : CIR_Type<"Pointer", "ptr", [
 // CIR_DataMemberType
 //===----------------------------------------------------------------------===//
 
-def CIR_DataMemberType : CIR_Type<"DataMember", "data_member",
-    [
-      DeclareTypeInterfaceMethods<DataLayoutTypeInterface>,
-      DeclareTypeInterfaceMethods<CIR_SizedTypeInterface>
-    ]
-> {
+def CIR_DataMemberType : CIR_Type<"DataMember", "data_member", [
+    DeclareTypeInterfaceMethods<DataLayoutTypeInterface>,
+    DeclareTypeInterfaceMethods<CIR_SizedTypeInterface, ["isSized"]>
+]> {
   let summary = "CIR type that represents a pointer-to-data-member in C++";
   let description = [{
     `cir.data_member` models a pointer-to-data-member in C++. Values of this
@@ -336,6 +334,7 @@ def CIR_DataMemberType : CIR_Type<"DataMember", "data_member",
   let assemblyFormat = [{
     `<` $member_ty `in` $class_ty `>`
   }];
+
 }
 
 //===----------------------------------------------------------------------===//
@@ -559,11 +558,10 @@ def CIR_FuncType : CIR_Type<"Func", "func"> {
 // MethodType
 //===----------------------------------------------------------------------===//
 
-def CIR_MethodType : CIR_Type<"Method", "method",
-    [
-      DeclareTypeInterfaceMethods<DataLayoutTypeInterface>,
-      DeclareTypeInterfaceMethods<CIR_SizedTypeInterface>
-    ]> {
+def CIR_MethodType : CIR_Type<"Method", "method", [
+    DeclareTypeInterfaceMethods<DataLayoutTypeInterface>,
+    DeclareTypeInterfaceMethods<CIR_SizedTypeInterface, ["isSized"]>
+]> {
   let summary = "CIR type that represents C++ pointer-to-member-function type";
   let description = [{
     `cir.method` models the pointer-to-member-function type in C++. The layout
@@ -584,6 +582,7 @@ def CIR_MethodType : CIR_Type<"Method", "method",
   let assemblyFormat = [{
     `<` qualified($member_func_ty) `in` $class_ty `>`
   }];
+
 }
 
 //===----------------------------------------------------------------------===//

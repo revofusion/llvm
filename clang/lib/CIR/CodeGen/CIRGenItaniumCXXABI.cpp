@@ -138,6 +138,8 @@ public:
   bool isVirtualOffsetNeededForVTableField(CIRGenFunction &cgf,
                                            CIRGenFunction::VPtr vptr) override;
 
+  bool isZeroInitializable(const MemberPointerType *mpt) override;
+
   cir::GlobalOp getAddrOfVTable(const CXXRecordDecl *rd,
                                 CharUnits vptrOffset) override;
   CIRGenCallee getVirtualFunctionPointer(CIRGenFunction &cgf,
@@ -275,6 +277,10 @@ void CIRGenItaniumCXXABI::emitInstanceFunctionProlog(SourceLocation loc,
     cgf.cgm.errorNYI(cgf.curFuncDecl->getLocation(),
                      "emitInstanceFunctionProlog: hasThisReturn");
   }
+}
+
+bool CIRGenItaniumCXXABI::isZeroInitializable(const MemberPointerType *mpt) {
+  return mpt->isMemberFunctionPointer();
 }
 
 CIRGenCXXABI::AddedStructorArgCounts

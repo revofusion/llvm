@@ -239,7 +239,7 @@ void foo6() {
 // CIR: cir.store{{.*}} %[[CONST_VAL]], %[[VAL]] : !s32i, !cir.ptr<!s32i>
 // CIR: %[[TMP1:.*]] = cir.load{{.*}} %[[VAL]] : !cir.ptr<!s32i>, !s32i
 // CIR: %[[TMP2:.*]] = cir.load{{.*}} %[[IDX]] : !cir.ptr<!s32i>, !s32i
-// CIR: %[[TMP3:.*]] = cir.load{{.*}} %0 : !cir.ptr<!cir.vector<4 x !s32i>>, !cir.vector<4 x !s32i>
+// CIR: %[[TMP3:.*]] = cir.load{{.*}} %[[VEC]] : !cir.ptr<!cir.vector<4 x !s32i>>, !cir.vector<4 x !s32i>
 // CIR: %[[NEW_VEC:.*]] = cir.vec.insert %[[TMP1]], %[[TMP3]][%[[TMP2]] : !s32i] : !cir.vector<4 x !s32i>
 // CIR: cir.store{{.*}} %[[NEW_VEC]], %[[VEC]] : !cir.vector<4 x !s32i>, !cir.ptr<!cir.vector<4 x !s32i>>
 

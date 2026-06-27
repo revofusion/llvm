@@ -13,20 +13,27 @@ err:
   return -1;
 }
 // CIR:  cir.func {{.*}} @_Z21shouldNotGenBranchReti
-// CIR:    cir.if {{.*}} {
-// CIR:      cir.goto "err"
+// CIR:    %[[X:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["x", init]
+// CIR:    %[[RETVAL:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["__retval"]
+// CIR:    cir.store %arg{{.*}}, %[[X]] : !s32i, !cir.ptr<!s32i>
+// CIR:    cir.scope {
+// CIR:      %[[X_VAL:.*]] = cir.load{{.*}} %[[X]] : !cir.ptr<!s32i>, !s32i
+// CIR:      %[[FIVE:.*]] = cir.const #cir.int<5> : !s32i
+// CIR:      %[[COND:.*]] = cir.cmp(gt, %[[X_VAL]], %[[FIVE]]) : !s32i, !cir.bool
+// CIR:      cir.if %[[COND]] {
+// CIR:        cir.goto "err"
+// CIR:      }
 // CIR:    }
-// CIR:    [[ZERO:%.*]] = cir.const #cir.int<0> : !s32i
-// CIR:    cir.store [[ZERO]], [[RETVAL:%.*]] : !s32i, !cir.ptr<!s32i>
-// CIR:    cir.br ^bb1
-// CIR:  ^bb1:
-// CIR:    [[RET:%.*]] = cir.load [[RETVAL]] : !cir.ptr<!s32i>, !s32i
-// CIR:    cir.return [[RET]] : !s32i
-// CIR:  ^bb2:
+// CIR:    %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
+// CIR:    cir.store %[[ZERO]], %[[RETVAL]] : !s32i, !cir.ptr<!s32i>
+// CIR:    %[[RET:.*]] = cir.load %[[RETVAL]] : !cir.ptr<!s32i>, !s32i
+// CIR:    cir.return %[[RET]] : !s32i
+// CIR:  ^bb[[#]]:
 // CIR:    cir.label "err"
-// CIR:    [[MINUS_ONE:%.*]] = cir.const #cir.int<-1> : !s32i
-// CIR:    cir.store [[MINUS_ONE]], [[RETVAL]] : !s32i, !cir.ptr<!s32i>
-// CIR:    cir.br ^bb1
+// CIR:    %[[MINUS_ONE:.*]] = cir.const #cir.int<-1> : !s32i
+// CIR:    cir.store %[[MINUS_ONE]], %[[RETVAL]] : !s32i, !cir.ptr<!s32i>
+// CIR:    %[[RET2:.*]] = cir.load %[[RETVAL]] : !cir.ptr<!s32i>, !s32i
+// CIR:    cir.return %[[RET2]] : !s32i
 
 // LLVM: define dso_local i32 @_Z21shouldNotGenBranchReti
 // LLVM:   [[COND:%.*]] = load i32, ptr {{.*}}, align 4
@@ -35,16 +42,15 @@ err:
 // LLVM: [[IFTHEN]]:
 // LLVM:   br label %[[ERR:.*]]
 // LLVM: [[IFEND]]:
-// LLVM:   br label %[[BB9:.*]]
-// LLVM: [[BB9]]:
+// LLVM:   br label %[[BB:.*]]
+// LLVM: [[BB]]:
 // LLVM:   store i32 0, ptr %[[RETVAL:.*]], align 4
-// LLVM:   br label %[[BBRET:.*]]
-// LLVM: [[BBRET]]:
-// LLVM:   [[RET:%.*]] = load i32, ptr %[[RETVAL]], align 4
-// LLVM:   ret i32 [[RET]]
+// LLVM:   [[RET0:%.*]] = load i32, ptr %[[RETVAL]], align 4
+// LLVM:   ret i32 [[RET0]]
 // LLVM: [[ERR]]:
 // LLVM:   store i32 -1, ptr %[[RETVAL]], align 4
-// LLVM:   br label %10
+// LLVM:   [[RET1:%.*]] = load i32, ptr %[[RETVAL]], align 4
+// LLVM:   ret i32 [[RET1]]
 
 // OGCG: define dso_local noundef i32 @_Z21shouldNotGenBranchReti
 // OGCG: if.then:
@@ -63,12 +69,27 @@ err:
   return -1;
 }
 // CIR:  cir.func {{.*}} @_Z15shouldGenBranchi
-// CIR:    cir.if {{.*}} {
-// CIR:      cir.goto "err"
+// CIR:    %[[X:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["x", init]
+// CIR:    %[[RETVAL:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["__retval"]
+// CIR:    cir.store %arg{{.*}}, %[[X]] : !s32i, !cir.ptr<!s32i>
+// CIR:    cir.scope {
+// CIR:      %[[X_VAL:.*]] = cir.load{{.*}} %[[X]] : !cir.ptr<!s32i>, !s32i
+// CIR:      %[[FIVE:.*]] = cir.const #cir.int<5> : !s32i
+// CIR:      %[[COND:.*]] = cir.cmp(gt, %[[X_VAL]], %[[FIVE]]) : !s32i, !cir.bool
+// CIR:      cir.if %[[COND]] {
+// CIR:        cir.goto "err"
+// CIR:      }
 // CIR:    }
-// CIR:    cir.br ^bb1
-// CIR:  ^bb1:
+// CIR:    %[[X2:.*]] = cir.load{{.*}} %[[X]] : !cir.ptr<!s32i>, !s32i
+// CIR:    %[[INC:.*]] = cir.unary(inc, %[[X2]]) nsw : !s32i, !s32i
+// CIR:    cir.store{{.*}} %[[INC]], %[[X]] : !s32i, !cir.ptr<!s32i>
+// CIR:    cir.br ^bb[[#]]
+// CIR:  ^bb[[#]]:
 // CIR:    cir.label "err"
+// CIR:    %[[MINUS_ONE:.*]] = cir.const #cir.int<-1> : !s32i
+// CIR:    cir.store %[[MINUS_ONE]], %[[RETVAL]] : !s32i, !cir.ptr<!s32i>
+// CIR:    %[[RET:.*]] = cir.load %[[RETVAL]] : !cir.ptr<!s32i>, !s32i
+// CIR:    cir.return %[[RET]] : !s32i
 
 // LLVM: define dso_local i32 @_Z15shouldGenBranchi
 // LLVM:   br i1 [[CMP:%.*]], label %[[IFTHEN:.*]], label %[[IFEND:.*]]
@@ -99,14 +120,28 @@ end2:
   b = b + 2;
 }
 // CIR:  cir.func {{.*}} @_Z19severalLabelsInARowi
+// CIR:    %[[A:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["a", init]
+// CIR:    %[[B:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["b", init]
+// CIR:    cir.store %arg{{.*}}, %[[A]] : !s32i, !cir.ptr<!s32i>
+// CIR:    %[[A_VAL:.*]] = cir.load{{.*}} %[[A]] : !cir.ptr<!s32i>, !s32i
+// CIR:    cir.store{{.*}} %[[A_VAL]], %[[B]] : !s32i, !cir.ptr<!s32i>
 // CIR:    cir.goto "end1"
-// CIR:  ^bb[[#BLK1:]]
+// CIR:  ^bb[[#]]:
+// CIR:    %[[B_VAL:.*]] = cir.load{{.*}} %[[B]] : !cir.ptr<!s32i>, !s32i
+// CIR:    %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
+// CIR:    %[[ADD:.*]] = cir.binop(add, %[[B_VAL]], %[[ONE]]) nsw : !s32i
+// CIR:    cir.store{{.*}} %[[ADD]], %[[B]] : !s32i, !cir.ptr<!s32i>
 // CIR:    cir.goto "end2"
-// CIR:  ^bb[[#BLK2:]]:
+// CIR:  ^bb[[#]]:
 // CIR:    cir.label "end1"
-// CIR:    cir.br ^bb[[#BLK3:]]
-// CIR:  ^bb[[#BLK3]]:
+// CIR:    cir.br ^bb[[#]]
+// CIR:  ^bb[[#]]:
 // CIR:    cir.label "end2"
+// CIR:    %[[B_VAL2:.*]] = cir.load{{.*}} %[[B]] : !cir.ptr<!s32i>, !s32i
+// CIR:    %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
+// CIR:    %[[ADD2:.*]] = cir.binop(add, %[[B_VAL2]], %[[TWO]]) nsw : !s32i
+// CIR:    cir.store{{.*}} %[[ADD2]], %[[B]] : !s32i, !cir.ptr<!s32i>
+// CIR:    cir.return
 
 // LLVM: define dso_local void @_Z19severalLabelsInARowi
 // LLVM:   br label %[[END1:.*]]
@@ -132,11 +167,21 @@ end:
   b = b + 2;
 }
 // CIR:  cir.func {{.*}} @_Z18severalGotosInARowi
+// CIR:    %[[A:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["a", init]
+// CIR:    %[[B:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["b", init]
+// CIR:    cir.store %arg{{.*}}, %[[A]] : !s32i, !cir.ptr<!s32i>
+// CIR:    %[[A_VAL:.*]] = cir.load{{.*}} %[[A]] : !cir.ptr<!s32i>, !s32i
+// CIR:    cir.store{{.*}} %[[A_VAL]], %[[B]] : !s32i, !cir.ptr<!s32i>
 // CIR:    cir.goto "end"
-// CIR:  ^bb[[#BLK1:]]:
+// CIR:  ^bb[[#]]:
 // CIR:    cir.goto "end"
-// CIR:  ^bb[[#BLK2:]]:
+// CIR:  ^bb[[#]]:
 // CIR:    cir.label "end"
+// CIR:    %[[B_VAL:.*]] = cir.load{{.*}} %[[B]] : !cir.ptr<!s32i>, !s32i
+// CIR:    %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
+// CIR:    %[[ADD:.*]] = cir.binop(add, %[[B_VAL]], %[[TWO]]) nsw : !s32i
+// CIR:    cir.store{{.*}} %[[ADD]], %[[B]] : !s32i, !cir.ptr<!s32i>
+// CIR:    cir.return
 
 // LLVM: define dso_local void @_Z18severalGotosInARowi
 // LLVM:   br label %[[END:.*]]
@@ -166,9 +211,9 @@ extern "C" void multiple_non_case(int v) {
 // CIR: cir.switch
 // CIR: cir.case(default, []) {
 // CIR: cir.call @action1()
-// CIR: cir.br ^[[BB1:[a-zA-Z0-9]+]]
-// CIR: ^[[BB1]]:
-// CIR: cir.label
+// CIR: cir.br ^bb[[#]]
+// CIR: ^bb[[#]]:
+// CIR: cir.label "l2"
 // CIR: cir.call @action2()
 // CIR: cir.break
 
@@ -204,12 +249,12 @@ extern "C" void case_follow_label(int v) {
 // CIR: cir.func {{.*}} @case_follow_label
 // CIR: cir.switch
 // CIR: cir.case(equal, [#cir.int<1> : !s32i]) {
-// CIR:   cir.br ^bb1
-// CIR: ^bb1:
+// CIR:   cir.br ^bb[[#]]
+// CIR: ^bb[[#]]:
 // CIR:   cir.label "label"
 // CIR: cir.case(equal, [#cir.int<2> : !s32i]) {
 // CIR:   cir.call @action1()
-// CIR:   cir.break
+// CIR:   cir.yield
 // CIR: cir.case(default, []) {
 // CIR:   cir.call @action2()
 // CIR:   cir.goto "label"
@@ -270,6 +315,7 @@ extern "C" void default_follow_label(int v) {
 // CIR: cir.case(equal, [#cir.int<2> : !s32i]) {
 // CIR:   cir.call @action1()
 // CIR:   cir.break
+// CIR: ^bb[[#]]:
 // CIR:   cir.label "label"
 // CIR: cir.case(default, []) {
 // CIR:   cir.call @action2()
@@ -313,8 +359,8 @@ label:
 }
 
 // CIR:  cir.func {{.*}} @_Z2g3v
-// CIR:    cir.br ^bb1
-// CIR:  ^bb1:
+// CIR:    cir.br ^bb[[#]]
+// CIR:  ^bb[[#]]:
 // CIR:    cir.label "label"
 // CIR:    cir.goto "label"
 

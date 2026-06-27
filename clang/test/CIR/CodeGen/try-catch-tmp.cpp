@@ -62,8 +62,8 @@ void call_function_inside_try_catch_with_exception_type() {
 // CIR:     cir.yield
 // CIR:   } catch [type #cir.global_view<@_ZTIi> : !cir.ptr<!u8i>] {
 // CIR:     %[[CATCH_PARAM:.*]] = cir.catch_param : !cir.ptr<!s32i>
-// CIR      %[[TMP_CATCH_PARAM:.*]] = cir.load {{.*}} %[[CATCH_PRAM]] : !cir.ptr<!s32i>, !s32i
-// CIR      cir.store {{.*}} %[[TMP_CATCH_PARAM]], %[[EXCEPTION_ADDR]] : !s32i, !cir.ptr<!s32i>
+// CIR:     %[[TMP_CATCH_PARAM:.*]] = cir.load {{.*}} %[[CATCH_PARAM]] : !cir.ptr<!s32i>, !s32i
+// CIR:     cir.store {{.*}} %[[TMP_CATCH_PARAM]], %[[EXCEPTION_ADDR]] : !s32i, !cir.ptr<!s32i>
 // CIR:     cir.yield
 // CIR:   } unwind {
 // CIR:     cir.resume
@@ -247,11 +247,11 @@ void call_function_inside_try_catch_with_exception_type_and_catch_all() {
 // CIR:     cir.yield
 // CIR:   } catch [type #cir.global_view<@_ZTIi> : !cir.ptr<!u8i>] {
 // CIR:     %[[CATCH_PARAM:.*]] = cir.catch_param : !cir.ptr<!s32i>
-// CIR      %[[TMP_CATCH_PARAM:.*]] = cir.load {{.*}} %[[CATCH_PRAM]] : !cir.ptr<!s32i>, !s32i
-// CIR      cir.store {{.*}} %[[TMP_CATCH_PARAM]], %[[EXCEPTION_ADDR]] : !s32i, !cir.ptr<!s32i>
+// CIR:     %[[TMP_CATCH_PARAM:.*]] = cir.load {{.*}} %[[CATCH_PARAM]] : !cir.ptr<!s32i>, !s32i
+// CIR:     cir.store {{.*}} %[[TMP_CATCH_PARAM]], %[[EXCEPTION_ADDR]] : !s32i, !cir.ptr<!s32i>
 // CIR:     cir.yield
 // CIR:   } catch all {
-// CIR:     %[[CATCH_PARAM]] = cir.catch_param : !cir.ptr<!void>
+// CIR:     %[[CATCH_PARAM2:.*]] = cir.catch_param : !cir.ptr<!void>
 // CIR:     cir.yield
 // CIR:   }
 // CIR: }

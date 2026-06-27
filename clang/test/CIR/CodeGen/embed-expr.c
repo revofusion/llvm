@@ -14,11 +14,25 @@ void embed_expr_on_scalar_with_constants() {
 }
 
 // CIR: %[[A_ADDR:.*]] = cir.alloca !cir.array<!s32i x 3>, !cir.ptr<!cir.array<!s32i x 3>>, ["a", init]
-// CIR: %[[ARRAY:.*]] = cir.const #cir.const_array<[#cir.int<1> : !s32i, #cir.int<2> : !s32i, #cir.int<47> : !s32i]> : !cir.array<!s32i x 3>
-// CIR: cir.store {{.*}} %[[ARRAY]], %[[A_ADDR]] : !cir.array<!s32i x 3>, !cir.ptr<!cir.array<!s32i x 3>>
+// CIR: %[[A_PTR:.*]] = cir.cast array_to_ptrdecay %[[A_ADDR]] : !cir.ptr<!cir.array<!s32i x 3>> -> !cir.ptr<!s32i>
+// CIR: %[[CONST_1:.*]] = cir.const #cir.int<1> : !s32i
+// CIR: cir.store {{.*}} %[[CONST_1]], %[[A_PTR]] : !s32i, !cir.ptr<!s32i>
+// CIR: %[[CONST_1_S64:.*]] = cir.const #cir.int<1> : !s64i
+// CIR: %[[A_ELEM_1_PTR:.*]] = cir.ptr_stride %[[A_PTR]], %[[CONST_1_S64]] : (!cir.ptr<!s32i>, !s64i) -> !cir.ptr<!s32i>
+// CIR: %[[CONST_2:.*]] = cir.const #cir.int<2> : !s32i
+// CIR: cir.store {{.*}} %[[CONST_2]], %[[A_ELEM_1_PTR]] : !s32i, !cir.ptr<!s32i>
+// CIR: %[[CONST_2_S64:.*]] = cir.const #cir.int<2> : !s64i
+// CIR: %[[A_ELEM_2_PTR:.*]] = cir.ptr_stride %[[A_PTR]], %[[CONST_2_S64]] : (!cir.ptr<!s32i>, !s64i) -> !cir.ptr<!s32i>
+// CIR: %[[CONST_47:.*]] = cir.const #cir.int<47> : !s32i
+// CIR: cir.store {{.*}} %[[CONST_47]], %[[A_ELEM_2_PTR]] : !s32i, !cir.ptr<!s32i>
 
 // LLVM: %[[A_ADDR:.*]] = alloca [3 x i32], i64 1, align 4
-// LLVM: store [3 x i32] [i32 1, i32 2, i32 47], ptr %[[A_ADDR]], align 4
+// LLVM: %[[PTR:.*]] = getelementptr i32, ptr %[[A_ADDR]], i32 0
+// LLVM: store i32 1, ptr %[[PTR]], align 4
+// LLVM: %[[PTR2:.*]] = getelementptr i32, ptr %[[PTR]], i64 1
+// LLVM: store i32 2, ptr %[[PTR2]], align 4
+// LLVM: %[[PTR3:.*]] = getelementptr i32, ptr %[[PTR]], i64 2
+// LLVM: store i32 47, ptr %[[PTR3]], align 4
 
 // OGCG: %[[A_ADDR:.*]] = alloca [3 x i32], align 4
 // OGCG: call void @llvm.memcpy.p0.p0.i64(ptr align 4 %[[A_ADDR]], ptr align 4 @__const.embed_expr_on_scalar_with_constants.a, i64 12, i1 false)

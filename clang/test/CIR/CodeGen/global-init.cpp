@@ -37,8 +37,8 @@ NeedsCtor needsCtor;
 
 // CIR: cir.global external @needsCtor = #cir.zero : !rec_NeedsCtor
 // CIR: cir.func internal private @__cxx_global_var_init() {
-// CIR:   %0 = cir.get_global @needsCtor : !cir.ptr<!rec_NeedsCtor>
-// CIR:   cir.call @_ZN9NeedsCtorC1Ev(%0) : (!cir.ptr<!rec_NeedsCtor>) -> ()
+// CIR:   %[[THIS:.*]] = cir.get_global @needsCtor : !cir.ptr<!rec_NeedsCtor>
+// CIR:   cir.call @_ZN9NeedsCtorC1Ev(%[[THIS]]) : (!cir.ptr<!rec_NeedsCtor>) -> ()
 
 // LLVM: define internal void @__cxx_global_var_init()
 // LLVM:   call void @_ZN9NeedsCtorC1Ev(ptr @needsCtor)

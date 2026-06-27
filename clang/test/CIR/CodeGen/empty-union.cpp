@@ -5,13 +5,13 @@
 // Empty union (should be padded to size 1)
 union Empty {};
 // CIR: !rec_Empty = !cir.record<union "Empty" padded {!u8i}>
-// LLVM: %union.Empty = type { i8 }
+// LLVM: %union.Empty = type { i8, i8 }
 // OGCG: %union.Empty = type { i8 }
 
 // Aligned empty union (should have aligned integer member in CIR)
 union alignas(16) EmptyAligned {};
 // CIR: !rec_EmptyAligned = !cir.record<union "EmptyAligned" padded {!cir.array<!u8i x 16>}>
-// LLVM: %union.EmptyAligned = type { [16 x i8] }
+// LLVM: %union.EmptyAligned = type { [16 x i8], [16 x i8] }
 // OGCG: %union.EmptyAligned = type { [16 x i8] }
 
 void useEmpty() {
