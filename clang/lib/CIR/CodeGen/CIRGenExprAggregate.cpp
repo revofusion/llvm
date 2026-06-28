@@ -270,6 +270,15 @@ public:
                        "AggExprEmitter: padded atomic aggregate cast");
       break;
     }
+    case CK_LValueToRValueBitCast: {
+      LValue sourceLV = cgf.emitLValue(e->getSubExpr());
+      Address sourceAddr = sourceLV.getAddress().withElementType(
+          cgf.getBuilder(), cgf.convertTypeForMem(e->getType()));
+      LValue destLV = cgf.makeAddrLValue(sourceAddr, e->getType());
+      assert(!cir::MissingFeatures::opTBAA());
+      emitFinalDestCopy(e->getType(), destLV, CIRGenFunction::EVK_RValue);
+      break;
+    }
     default:
       cgf.cgm.errorNYI(e->getSourceRange(),
                        std::string("AggExprEmitter: VisitCastExpr: ") +
