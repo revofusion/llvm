@@ -45,25 +45,6 @@
 using namespace clang;
 using namespace clang::CIRGen;
 
-static bool canUseDirectCIRDynamicTLSAccess(const VarDecl *d, ASTContext &ctx) {
-  assert(d->getTLSKind() == VarDecl::TLS_Dynamic &&
-         "only dynamic TLS needs this check");
-
-  if (d->needsDestruction(ctx))
-    return false;
-
-  const Type *baseTy = d->getType()->getBaseElementTypeUnsafe();
-  if (baseTy->isRecordType() && baseTy->isIncompleteType())
-    return false;
-
-  const VarDecl *initDecl = d->getMostRecentDecl()->getInitializingDeclaration();
-  if (!initDecl)
-    return false;
-  if (!initDecl->hasInit())
-    return true;
-  return initDecl->hasConstantInitialization();
-}
-
 static CIRGenCXXABI *createCXXABI(CIRGenModule &cgm) {
   switch (cgm.getASTContext().getCXXABIKind()) {
   case TargetCXXABI::GenericItanium:
@@ -813,12 +794,18 @@ CIRGenModule::getOrCreateCIRGlobal(StringRef mangledName, mlir::Type ty,
 
     setLinkageForGV(gv, d);
 
-    if (d->getTLSKind()) {
-      if (d->getTLSKind() == VarDecl::TLS_Dynamic &&
-          !canUseDirectCIRDynamicTLSAccess(d, astContext))
-        errorNYI(d->getSourceRange(), "TLS dynamic wrapper");
+    // NOTE(cir): Unlike static/thread-local guarded initialization (see
+    // CIRGenCXXABI::emitGuardedInit), a variable needing the ABI's dynamic
+    // thread-local wrapper requires no special handling at the point its
+    // underlying cir.global is created -- the wrapper indirection is
+    // resolved entirely at each access site (see emitGlobalVarDeclLValue in
+    // CIRGenExpr.cpp, which consults CIRGenCXXABI::usesThreadWrapperFunction/
+    // emitThreadLocalVarDeclLValue) and, for the defining declaration, when
+    // the wrapper function itself is emitted. This mirrors classic CodeGen's
+    // CodeGenModule::GetOrCreateLLVMGlobal, which likewise does not special-
+    // case TLS_Dynamic here.
+    if (d->getTLSKind())
       setTLSMode(gv, *d);
-    }
 
     setGVProperties(gv, d);
 
@@ -2475,14 +2462,25 @@ cir::TLS_Model CIRGenModule::getDefaultCIRTLSModel() const {
   llvm_unreachable("Invalid TLS model!");
 }
 
+/// Maps the string spelling used by `__attribute__((tls_model(...)))` (see
+/// TLSModelAttr::getModel()) to the corresponding CIR TLS model. Mirrors
+/// classic CodeGen's GetLLVMTLSModel in CodeGenModule.cpp.
+static cir::TLS_Model getCIRTLSModel(llvm::StringRef s) {
+  return llvm::StringSwitch<cir::TLS_Model>(s)
+      .Case("global-dynamic", cir::TLS_Model::GeneralDynamic)
+      .Case("local-dynamic", cir::TLS_Model::LocalDynamic)
+      .Case("initial-exec", cir::TLS_Model::InitialExec)
+      .Case("local-exec", cir::TLS_Model::LocalExec);
+}
+
 void CIRGenModule::setTLSMode(mlir::Operation *op, const VarDecl &d) {
   assert(d.getTLSKind() && "setting TLS mode on non-TLS var!");
 
   cir::TLS_Model tlm = getDefaultCIRTLSModel();
 
   // Override the TLS model if it is explicitly specified.
-  if (d.getAttr<TLSModelAttr>())
-    errorNYI(d.getSourceRange(), "TLS model attribute");
+  if (const auto *attr = d.getAttr<TLSModelAttr>())
+    tlm = getCIRTLSModel(attr->getModel());
 
   auto global = cast<cir::GlobalOp>(op);
   global.setTlsModel(tlm);

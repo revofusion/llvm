@@ -121,6 +121,11 @@ public:
                                Address ptr, QualType elementType,
                                const CXXDestructorDecl *dtor) override;
 
+  bool usesThreadWrapperFunction(const VarDecl *vd) const override;
+  LValue emitThreadLocalVarDeclLValue(CIRGenFunction &cgf, const VarDecl *vd,
+                                      QualType lvalType) override;
+  cir::FuncOp getOrCreateThreadLocalWrapper(const VarDecl *vd);
+
   void emitRethrow(CIRGenFunction &cgf, bool isNoReturn) override;
   void emitThrow(CIRGenFunction &cgf, const CXXThrowExpr *e) override;
 
@@ -1739,6 +1744,78 @@ void CIRGenItaniumCXXABI::emitGuardedInit(CIRGenFunction &cgf,
                       }
                       builder.createYield(loc);
                     });
+}
+
+// Mirrors the file-local predicate of the same name in CIRGenExpr.cpp and
+// CIRGenModule.cpp: whether a TLS_Dynamic variable's initializer (and lack of
+// a non-trivial destructor) is known -- from this declaration alone -- to
+// need no runtime work, and so can be accessed directly instead of through
+// the ABI's thread-local wrapper function.
+static bool canUseDirectCIRDynamicTLSAccess(const VarDecl *vd,
+                                            ASTContext &ctx) {
+  assert(vd->getTLSKind() == VarDecl::TLS_Dynamic &&
+         "only dynamic TLS needs this check");
+
+  if (vd->needsDestruction(ctx))
+    return false;
+
+  const Type *baseTy = vd->getType()->getBaseElementTypeUnsafe();
+  if (baseTy->isRecordType() && baseTy->isIncompleteType())
+    return false;
+
+  const VarDecl *initDecl = vd->getMostRecentDecl()->getInitializingDeclaration();
+  if (!initDecl)
+    return false;
+  if (!initDecl->hasInit())
+    return true;
+  return initDecl->hasConstantInitialization();
+}
+
+bool CIRGenItaniumCXXABI::usesThreadWrapperFunction(const VarDecl *vd) const {
+  return !canUseDirectCIRDynamicTLSAccess(vd, cgm.getASTContext());
+}
+
+cir::FuncOp
+CIRGenItaniumCXXABI::getOrCreateThreadLocalWrapper(const VarDecl *vd) {
+  // Mangle the name for the thread_local wrapper function ("_ZTW..." for the
+  // Itanium ABI). Every translation unit that references this thread-local
+  // variable emits (a declaration of) the same wrapper; the one that actually
+  // defines the variable is responsible for emitting the wrapper's body.
+  SmallString<256> wrapperName;
+  {
+    llvm::raw_svector_ostream out(wrapperName);
+    cast<ItaniumMangleContext>(cgm.getCXXABI().getMangleContext())
+        .mangleItaniumThreadLocalWrapper(vd, out);
+  }
+
+  CIRGenBuilderTy &builder = cgm.getBuilder();
+  QualType retQT = vd->getType();
+  if (retQT->isReferenceType())
+    retQT = retQT.getNonReferenceType();
+  cir::PointerType retTy =
+      builder.getPointerTo(cgm.getTypes().convertTypeForMem(retQT));
+
+  // The wrapper takes no arguments and returns a pointer to the variable;
+  // getOrCreateCIRFunction (via createRuntimeFunction) already de-duplicates
+  // by mangled name, so a second reference to the same thread-local just
+  // returns the existing declaration.
+  cir::FuncType wrapperTy = builder.getFuncType({}, retTy);
+  return cgm.createRuntimeFunction(wrapperTy, wrapperName);
+}
+
+LValue CIRGenItaniumCXXABI::emitThreadLocalVarDeclLValue(CIRGenFunction &cgf,
+                                                         const VarDecl *vd,
+                                                         QualType lvalType) {
+  cir::FuncOp wrapper = getOrCreateThreadLocalWrapper(vd);
+  mlir::Location loc = cgf.getLoc(vd->getSourceRange());
+  mlir::Value callResult = cgf.emitRuntimeCall(loc, wrapper);
+
+  if (vd->getType()->isReferenceType())
+    return cgf.makeNaturalAlignAddrLValue(callResult, lvalType);
+
+  Address addr(callResult, cgf.convertTypeForMem(lvalType),
+              cgf.getContext().getDeclAlign(vd));
+  return cgf.makeAddrLValue(addr, lvalType, AlignmentSource::Decl);
 }
 
 mlir::Value CIRGenItaniumCXXABI::getCXXDestructorImplicitParam(

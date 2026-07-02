@@ -43,26 +43,6 @@ using namespace clang;
 using namespace clang::CIRGen;
 using namespace cir;
 
-static bool canUseDirectCIRDynamicTLSAccess(const VarDecl *vd,
-                                            ASTContext &ctx) {
-  assert(vd->getTLSKind() == VarDecl::TLS_Dynamic &&
-         "only dynamic TLS needs this check");
-
-  if (vd->needsDestruction(ctx))
-    return false;
-
-  const Type *baseTy = vd->getType()->getBaseElementTypeUnsafe();
-  if (baseTy->isRecordType() && baseTy->isIncompleteType())
-    return false;
-
-  const VarDecl *initDecl = vd->getMostRecentDecl()->getInitializingDeclaration();
-  if (!initDecl)
-    return false;
-  if (!initDecl->hasInit())
-    return true;
-  return initDecl->hasConstantInitialization();
-}
-
 /// Get the address of a field within a record. The resulting address doesn't
 /// necessarily have the right type.
 Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
@@ -375,9 +355,8 @@ static LValue emitGlobalVarDeclLValue(CIRGenFunction &cgf, const Expr *e,
 
   // If it's thread_local, emit a call to its wrapper function instead.
   if (vd->getTLSKind() == VarDecl::TLS_Dynamic &&
-      !canUseDirectCIRDynamicTLSAccess(vd, cgf.getContext()))
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "emitGlobalVarDeclLValue: dynamic thread_local wrapper");
+      cgf.cgm.getCXXABI().usesThreadWrapperFunction(vd))
+    return cgf.cgm.getCXXABI().emitThreadLocalVarDeclLValue(cgf, vd, t);
 
   // Check if the variable is marked as declare target with link clause in
   // device codegen.

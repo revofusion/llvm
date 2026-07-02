@@ -2512,6 +2512,17 @@ mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
     return emitLoadOfLValue(destLV, ce->getExprLoc());
   }
 
+  case CK_LValueBitCast: {
+    // This must be a reinterpret_cast (or c-style equivalent) used in an
+    // r-value context, e.g. `(DWORD &)f` passed by value. Retype the
+    // address of the source l-value and load through it. Mirrors classic
+    // CodeGen's CGExprScalar.cpp VisitCastExpr CK_LValueBitCast handling.
+    Address addr = cgf.emitLValue(subExpr).getAddress().withElementType(
+        builder, cgf.convertTypeForMem(destTy));
+    LValue destLV = cgf.makeAddrLValue(addr, destTy);
+    return emitLoadOfLValue(destLV, ce->getExprLoc());
+  }
+
   default:
     cgf.getCIRGenModule().errorNYI(subExpr->getSourceRange(),
                                    "CastExpr: ", ce->getCastKindName());
@@ -2927,23 +2938,39 @@ mlir::Value ScalarExprEmitter::VisitAbstractConditionalOperator(
   mlir::Type yieldTy{};
 
   auto emitBranch = [&](mlir::OpBuilder &b, mlir::Location loc, Expr *expr) {
-    CIRGenFunction::LexicalScope lexScope{cgf, loc, b.getInsertionBlock()};
-    cgf.curLexScope->setAsTernary();
+    mlir::Value branch;
+    {
+      CIRGenFunction::LexicalScope lexScope{cgf, loc, b.getInsertionBlock()};
+      cgf.curLexScope->setAsTernary();
 
-    assert(!cir::MissingFeatures::incrementProfileCounter());
-    eval.beginEvaluation();
-    mlir::Value branch = Visit(expr);
-    eval.endEvaluation();
-    if (cgf.haveInsertPoint())
-      lexScope.forceCleanup();
+      assert(!cir::MissingFeatures::incrementProfileCounter());
+      eval.beginEvaluation();
+      branch = Visit(expr);
+      eval.endEvaluation();
+      if (cgf.haveInsertPoint())
+        lexScope.forceCleanup();
 
-    if (branch) {
-      yieldTy = branch.getType();
-      cir::YieldOp::create(b, loc, branch);
-    } else {
-      // If LHS or RHS is a throw or void expression we need to patch
-      // arms as to properly match yield types.
-      insertPoints.push_back(b.saveInsertionPoint());
+      // Close out this arm's terminator now, while its block is still
+      // guaranteed to be alive: once the lexical scope above is torn down
+      // (end of this braced block) its cleanup may prune this arm's
+      // trailing block as dead code if it is empty (e.g. a throw
+      // expression, or a void expression whose only effect was already
+      // fully emitted via cleanups), which would invalidate any
+      // InsertPoint saved into it.
+      if (branch) {
+        yieldTy = branch.getType();
+        cir::YieldOp::create(b, loc, branch);
+      }
+    }
+
+    if (!branch) {
+      // If LHS or RHS is a throw or void expression we need to patch arms
+      // as to properly match yield types. The lexical scope above may have
+      // erased this arm's trailing block as dead code (e.g. a throw with
+      // nothing left to yield into); only remember an insertion point to
+      // patch when a live block actually remains.
+      if (b.getInsertionBlock())
+        insertPoints.push_back(b.saveInsertionPoint());
     }
   };
 

@@ -339,6 +339,16 @@ void CIRGenFunction::LexicalScope::cleanup() {
       if (retBlock->getUses().empty())
         retBlock->erase();
     }
+    // The erased block may have been the builder's current insertion point.
+    // mlir::Block::erase() does not know about (and so cannot fix up) any
+    // outstanding mlir::OpBuilder::InsertPoint referring to it -- e.g. one
+    // already saved by VisitAbstractConditionalOperator to patch in a
+    // deferred cir.yield for a void/throw ternary arm. Explicitly clearing
+    // the insertion point here turns any later use of such a stale saved
+    // InsertPoint into the well-defined "no insertion point" state (which
+    // OpBuilder::insert() already handles as a no-op) instead of a
+    // use-after-free.
+    builder.clearInsertionPoint();
     return;
   }
 
@@ -359,6 +369,11 @@ void CIRGenFunction::LexicalScope::cleanup() {
       if (retBlock->getUses().empty())
         retBlock->erase();
     }
+    // See the comment on the analogous clearInsertionPoint() call above:
+    // this block may be the target of a saved (and not yet consumed)
+    // mlir::OpBuilder::InsertPoint, and erasing it without updating the
+    // builder would leave that saved InsertPoint dangling.
+    builder.clearInsertionPoint();
     return;
   }
 

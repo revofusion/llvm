@@ -197,6 +197,27 @@ public:
                                cir::GlobalOp var,
                                bool shouldPerformInit) = 0;
 
+  /// Returns true if the given TLS_Dynamic VarDecl must be accessed through
+  /// an ABI-mandated per-TU thread-local wrapper function rather than
+  /// directly, e.g. because its initializer is not known to be constant (so
+  /// some translation unit's first access must run it) or it has a
+  /// non-trivial destructor. Precondition: \p vd->getTLSKind() ==
+  /// VarDecl::TLS_Dynamic. ABIs that never need a wrapper (i.e. that only
+  /// ever see statically-initialized TLS) may keep the default of false.
+  virtual bool usesThreadWrapperFunction(const VarDecl *vd) const {
+    return false;
+  }
+
+  /// Emit an lvalue for a reference to \p vd by calling its thread-local
+  /// wrapper function. Only called when usesThreadWrapperFunction(vd) is
+  /// true.
+  virtual LValue emitThreadLocalVarDeclLValue(CIRGenFunction &cgf,
+                                              const VarDecl *vd,
+                                              QualType lvalType) {
+    llvm_unreachable(
+        "emitThreadLocalVarDeclLValue: ABI does not use thread wrappers");
+  }
+
   virtual void emitVirtualObjectDelete(CIRGenFunction &cgf,
                                        const CXXDeleteExpr *de, Address ptr,
                                        QualType elementType,
