@@ -611,8 +611,30 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
 
   case Type::MemberPointer: {
     const auto *mpt = cast<MemberPointerType>(ty);
-    if (cgm.getTarget().getCXXABI().isMicrosoft())
-      cgm.errorNYI(SourceLocation(), "Microsoft C++ ABI member pointer type");
+    if (cgm.getTarget().getCXXABI().isMicrosoft()) {
+      // The MS C++ ABI's representation of a pointer-to-member depends on
+      // the pointed-to class's inheritance model: Multiple/Virtual
+      // inheritance need extra non-virtual-base and/or vbtable offset
+      // fields alongside the base offset/pointer (see
+      // MicrosoftCXXABI::ConvertMemberPointerType in
+      // clang/lib/CodeGen/MicrosoftCXXABI.cpp). `cir.data_member`/`cir.method`
+      // only model the single "offset (or function pointer)" shape used by
+      // the Single inheritance model -- which is also what real-world code
+      // overwhelmingly uses (e.g. a member pointer into a plain, base-less
+      // struct). Handle that tractable case with the same ABI-agnostic
+      // conversion used for the Itanium ABI below (cir.data_member/cir.method
+      // don't bake in Itanium-specific layout; deferring the actual
+      // per-ABI byte layout to a later lowering pass, same as
+      // DataMemberType::getTypeSizeInBits already does for every ABI -- see
+      // its FIXME), and cleanly reject the multiple/virtual-inheritance
+      // shapes this can't yet represent instead of silently mismodeling
+      // them.
+      const CXXRecordDecl *rd = mpt->getMostRecentCXXRecordDecl();
+      if (!rd || rd->getMSInheritanceModel() != MSInheritanceModel::Single)
+        cgm.errorNYI(SourceLocation(),
+                     "Microsoft C++ ABI member pointer type: "
+                     "multiple/virtual inheritance model");
+    }
 
     mlir::Type memberTy = convertType(mpt->getPointeeType());
     auto clsTy = mlir::cast<cir::RecordType>(

@@ -123,6 +123,13 @@ mlir::LogicalResult CIRGenFunction::emitStmt(const Stmt *s,
       case attr::NoMerge:
       case attr::Unlikely:
         break;
+      case attr::MSConstexpr:
+        // [[msvc::constexpr]] only affects Sema's as-if-constexpr checking;
+        // like classic CodeGen's EmitAttributedStmt (which has no case for
+        // attr::MSConstexpr and falls to its `default: break;`), CIR has no
+        // codegen-visible effect to apply here, so just fall through to
+        // emitting the underlying statement unchanged.
+        break;
       default:
         cgm.errorNYI(as->getSourceRange(),
                      std::string("emitStmt: AttributedStmt attribute ") +

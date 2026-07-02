@@ -333,9 +333,98 @@ void CIRGenMicrosoftCXXABI::emitRethrow(CIRGenFunction &cgf, bool isNoReturn) {
   cgm.errorNYI(*cgf.currSrcLoc, "Microsoft C++ ABI rethrow lowering");
 }
 
+// The idea here is creating a separate block for the throw with an
+// `UnreachableOp` as the terminator. So, we branch from the current block
+// to the throw block and create a block for the remaining operations.
+// Mirrors the identically-named static helper in CIRGenItaniumCXXABI.cpp.
+static void insertThrowAndSplit(mlir::OpBuilder &builder, mlir::Location loc,
+                                mlir::Value exceptionPtr = {},
+                                mlir::FlatSymbolRefAttr typeInfo = {},
+                                mlir::FlatSymbolRefAttr dtor = {}) {
+  mlir::Block *currentBlock = builder.getInsertionBlock();
+  mlir::Region *region = currentBlock->getParent();
+
+  if (currentBlock->empty()) {
+    cir::ThrowOp::create(builder, loc, exceptionPtr, typeInfo, dtor);
+    cir::UnreachableOp::create(builder, loc);
+  } else {
+    mlir::Block *throwBlock = builder.createBlock(region);
+
+    cir::ThrowOp::create(builder, loc, exceptionPtr, typeInfo, dtor);
+    cir::UnreachableOp::create(builder, loc);
+
+    builder.setInsertionPointToEnd(currentBlock);
+    cir::BrOp::create(builder, loc, throwBlock);
+  }
+
+  (void)builder.createBlock(region);
+}
+
 void CIRGenMicrosoftCXXABI::emitThrow(CIRGenFunction &cgf,
                                       const CXXThrowExpr *e) {
-  cgm.errorNYI(e->getSourceRange(), "Microsoft C++ ABI throw lowering");
+  // A full, ABI-accurate MS C++ throw needs the runtime's ThrowInfo /
+  // CatchableType / CatchableTypeArray descriptor structures and a call to
+  // `_CxxThrowException` (see MicrosoftCXXABI::getThrowInfo and friends in
+  // clang/lib/CodeGen/MicrosoftCXXABI.cpp) -- that is EH-runtime-ABI
+  // machinery well beyond what ClangIR codegen (AST -> CIR) needs to model;
+  // `cir.throw`'s only existing lowering (CIRToLLVMThrowOpLowering) targets
+  // the Itanium __cxa_throw/__cxa_rethrow runtime regardless of source ABI,
+  // and MS-specific LLVM lowering does not exist yet. That lowering-level
+  // gap is out of scope here.
+  //
+  // What we do here is produce the same ABI-agnostic CIR shape
+  // CIRGenItaniumCXXABI::emitThrow produces (allocate the exception object,
+  // materialize the thrown expression into it, look up RTTI, emit
+  // `cir.throw`), which is sufficient for ClangIR codegen to succeed. Unlike
+  // the Itanium path (which bails out for a non-trivial destructor), we also
+  // compute and attach the destructor operand `cir.throw` already supports,
+  // since real MS ABI throw expressions commonly throw types with a
+  // user-declared/virtual destructor (e.g. std::bad_array_new_length via the
+  // MSVC STL's `_Throw_bad_array_new_length`, whose ~exception is virtual).
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  QualType clangThrowType = e->getSubExpr()->getType();
+  cir::PointerType throwTy =
+      builder.getPointerTo(cgf.convertType(clangThrowType));
+  uint64_t typeSize =
+      cgf.getContext().getTypeSizeInChars(clangThrowType).getQuantity();
+  mlir::Location subExprLoc = cgf.getLoc(e->getSubExpr()->getSourceRange());
+
+  // Defer computing allocation size to some later lowering pass.
+  mlir::TypedValue<cir::PointerType> exceptionPtr =
+      cir::AllocExceptionOp::create(builder, subExprLoc, throwTy,
+                                    builder.getI64IntegerAttr(typeSize))
+          .getAddr();
+
+  // Build expression and store its result into exceptionPtr.
+  CharUnits exnAlign = cgf.getContext().getExnObjectAlignment();
+  cgf.emitAnyExprToExn(e->getSubExpr(), Address(exceptionPtr, exnAlign));
+
+  // Get the RTTI symbol address.
+  auto typeInfo = mlir::cast<cir::GlobalViewAttr>(
+      cgm.getAddrOfRTTIDescriptor(subExprLoc, clangThrowType,
+                                  /*forEH=*/true));
+  assert(!typeInfo.getIndices() && "expected no indirection");
+
+  // The address of the destructor, if the thrown type needs one run during
+  // unwind. Mirrors the "use the base destructor variant in place of the
+  // complete destructor variant if the class has no virtual bases" choice
+  // CIRGenMicrosoftCXXABI::emitDestructorCall makes elsewhere in this file.
+  mlir::FlatSymbolRefAttr dtor;
+  if (const RecordType *recordTy = clangThrowType->getAs<RecordType>()) {
+    auto *rec = cast<CXXRecordDecl>(recordTy->getDecl()->getDefinition());
+    if (!rec->hasTrivialDestructor()) {
+      const CXXDestructorDecl *dd = rec->getDestructor();
+      CXXDtorType dtorType = Dtor_Complete;
+      if (dd->getParent()->getNumVBases() == 0)
+        dtorType = Dtor_Base;
+      cir::FuncOp dtorFn = cgm.getAddrOfCXXStructor(GlobalDecl(dd, dtorType));
+      dtor = mlir::FlatSymbolRefAttr::get(dtorFn.getSymNameAttr());
+    }
+  }
+
+  // Now throw the exception.
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
+  insertThrowAndSplit(builder, loc, exceptionPtr, typeInfo.getSymbol(), dtor);
 }
 
 void CIRGenMicrosoftCXXABI::emitBadCastCall(CIRGenFunction &cgf,
