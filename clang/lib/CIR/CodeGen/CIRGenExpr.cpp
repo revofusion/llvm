@@ -1361,6 +1361,22 @@ LValue CIRGenFunction::emitDeclRefLValue(const DeclRefExpr *e) {
         }
       }
     } else if (vd->isStaticLocal()) {
+      // Unlike a normal local (whose cir.alloca lives in the function entry
+      // block and therefore dominates every use in the function), the
+      // cir.get_global materialized below is an ordinary SSA value created
+      // at whatever point in the CFG this DeclRefExpr happens to be. A
+      // static local can validly be referenced from multiple, mutually
+      // non-dominating control-flow branches within the same function (e.g.
+      // once in each arm of an if/else, or from inside a lambda that isn't
+      // required to capture it). So, unlike other entries in localDeclMap,
+      // this address must *not* be cached and replayed at other use sites:
+      // doing so would hand out an SSA value from one branch to a use in a
+      // sibling branch it doesn't dominate, tripping the MLIR dominance
+      // verifier. Classic CodeGen avoids this for the same reason: it never
+      // stores the static local's address in LocalDeclMap either, since
+      // there each use recomputes an Address around the (dominance-free)
+      // llvm::Constant global pointer. Here we instead recompute a fresh
+      // cir.get_global at every use.
       cir::GlobalLinkageKind linkage =
           cgm.getCIRLinkageVarDefinition(vd, /*IsConstant=*/false);
       cir::GlobalOp global = cgm.getOrCreateStaticVarDecl(*vd, linkage);
@@ -1372,7 +1388,6 @@ LValue CIRGenFunction::emitDeclRefLValue(const DeclRefExpr *e) {
       if (realPtrTy != value.getType())
         value = builder.createBitcast(value.getLoc(), value, realPtrTy);
       addr = Address(value, realVarTy, getContext().getDeclAlign(vd));
-      replaceAddrOfLocalVar(vd, addr);
     } else {
       cgm.errorNYI(e->getSourceRange(),
                    "emitDeclRefLValue: missing local declaration address");
