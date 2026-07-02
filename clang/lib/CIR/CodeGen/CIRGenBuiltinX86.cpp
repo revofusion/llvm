@@ -641,6 +641,44 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
   case X86::BI__builtin_ia32_rdtsc:
     return emitIntrinsicCallOp(builder, getLoc(expr->getExprLoc()),
                                "x86.rdtsc", convertType(expr->getType()));
+  case X86::BI_BitScanForward:
+  case X86::BI_BitScanForward64: {
+    // MSVC intrinsics: unsigned char _BitScanForward(unsigned long *Index,
+    // unsigned long Mask); unsigned char _BitScanForward64(unsigned long
+    // *Index, unsigned __int64 Mask). Mirrors classic CodeGen's
+    // EmitMSVCBuiltinExpr(MSVCIntrin::_BitScanForward, ...): when Mask is
+    // nonzero, *Index receives the position of its lowest set bit
+    // (llvm.cttz) and the call returns 1; otherwise *Index is left
+    // untouched (its value is documented as unspecified by MSVC in that
+    // case) and the call returns 0.
+    mlir::Location loc = getLoc(expr->getExprLoc());
+    mlir::Value mask = ops[1];
+    mlir::Type indexElemTy =
+        mlir::cast<cir::PointerType>(ops[0].getType()).getPointee();
+    Address indexAddr(ops[0],
+                      getContext().getTypeAlignInChars(
+                          expr->getArg(0)->getType()->getPointeeType()));
+    mlir::Type resultTy = convertType(expr->getType());
+
+    mlir::Value zero = builder.getNullValue(mask.getType(), loc);
+    mlir::Value isNotZero =
+        builder.createCompare(loc, cir::CmpOpKind::ne, mask, zero);
+
+    cir::IfOp::create(builder, loc, isNotZero, /*withElseRegion=*/false,
+                      [&](mlir::OpBuilder &, mlir::Location) {
+                        mlir::Value ctz = cir::BitCtzOp::create(
+                            builder, loc, mask, /*poisonZero=*/true);
+                        mlir::Value index = builder.createIntCast(ctz, indexElemTy);
+                        builder.createStore(loc, index, indexAddr);
+                        builder.createYield(loc);
+                      });
+
+    mlir::Value resultOne = builder.getConstantInt(loc, resultTy, 1);
+    mlir::Value resultZero = builder.getNullValue(resultTy, loc);
+    return cir::SelectOp::create(builder, loc, resultTy, isNotZero, resultOne,
+                                 resultZero)
+        .getResult();
+  }
   case X86::BI__builtin_ia32_aeskeygenassist128:
     return emitIntrinsicCallOp(builder, getLoc(expr->getExprLoc()),
                                "x86.aesni.aeskeygenassist",

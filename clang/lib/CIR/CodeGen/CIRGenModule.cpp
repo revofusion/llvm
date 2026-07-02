@@ -1698,6 +1698,61 @@ CIRGenModule::getAddrOfTemplateParamObject(const TemplateParamObjectDecl *d) {
   return builder.getGlobalViewAttr(ptrTy, gv);
 }
 
+cir::GlobalViewAttr
+CIRGenModule::getAddrOfMSGuidDecl(const MSGuidDecl *guidDecl) {
+  StringRef name = getMangledName(guidDecl);
+  if (mlir::Operation *op = getGlobalValue(name)) {
+    cir::GlobalOp existing = mlir::dyn_cast<cir::GlobalOp>(op);
+    if (!existing) {
+      errorNYI(guidDecl->getSourceRange(),
+               "MSGuidDecl global with unexpected kind");
+      return {};
+    }
+    cir::PointerType ptrTy = builder.getPointerTo(existing.getSymType());
+    return builder.getGlobalViewAttr(ptrTy, existing);
+  }
+
+  ConstantEmitter emitter(*this);
+  APValue &value = guidDecl->getAsAPValue();
+  if (value.isAbsent()) {
+    // As a fallback, classic CodeGen directly constructs the {Data1, Data2,
+    // Data3, Data4[8]} struct constant from the decomposed GUID parts. That
+    // path only matters for a __uuidof(...) whose spelled type does not have
+    // the expected _GUID shape, which is rare enough (and would need a
+    // bespoke unnamed-struct layout here) that it is deferred rather than
+    // guessed at.
+    errorNYI(guidDecl->getSourceRange(),
+             "MSGuidDecl initializer for non-_GUID-shaped type");
+    return {};
+  }
+
+  mlir::Attribute initAttr =
+      emitter.tryEmitPrivateForMemory(value, guidDecl->getType());
+  auto typedInit = mlir::dyn_cast_or_null<mlir::TypedAttr>(initAttr);
+  if (!typedInit) {
+    errorNYI(guidDecl->getSourceRange(), "MSGuidDecl initializer");
+    return {};
+  }
+
+  // The UUID descriptor should be pointer aligned.
+  CharUnits align = getPointerAlign();
+  mlir::Location loc = guidDecl->getSourceRange().isValid()
+                           ? getLoc(guidDecl->getSourceRange())
+                           : builder.getUnknownLoc();
+  cir::GlobalOp gv =
+      createGlobalOp(*this, loc, name, typedInit.getType(), true);
+  gv.setAlignmentAttr(getSize(align));
+  gv.setLinkageAttr(cir::GlobalLinkageKindAttr::get(
+      &getMLIRContext(), cir::GlobalLinkageKind::LinkOnceODRLinkage));
+  if (supportsCOMDAT())
+    gv.setComdat(true);
+  setInitializer(gv, typedInit);
+  setDSOLocal(static_cast<mlir::Operation *>(gv));
+
+  cir::PointerType ptrTy = builder.getPointerTo(gv.getSymType());
+  return builder.getGlobalViewAttr(ptrTy, gv);
+}
+
 cir::GlobalOp CIRGenModule::createUnnamedGlobalFrom(const VarDecl &d,
                                                     mlir::TypedAttr value,
                                                     CharUnits align) {

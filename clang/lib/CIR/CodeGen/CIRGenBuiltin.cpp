@@ -1271,8 +1271,16 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     emitTrap(loc, /*createNewBlock=*/true);
     return RValue::getIgnored();
   case Builtin::BI__builtin_verbose_trap:
-  case Builtin::BI__debugbreak:
     return errorBuiltinNYI(*this, e, builtinID);
+  case Builtin::BI__debugbreak:
+    // MSVC intrinsic: break into the debugger. Unlike __builtin_trap, this
+    // is not a terminator -- execution resumes normally afterwards -- so it
+    // must not be modeled with cir.trap (which is defined to exit the
+    // program abnormally). Lower it directly to the llvm.debugtrap
+    // intrinsic, mirroring classic CodeGen's EmitTrapCall(Intrinsic::debugtrap).
+    cir::LLVMIntrinsicCallOp::create(
+        builder, loc, builder.getStringAttr("debugtrap"), mlir::Type{});
+    return RValue::get(nullptr);
   case Builtin::BI__builtin_unreachable:
     emitUnreachable(e->getExprLoc(), /*createNewBlock=*/true);
     return RValue::getIgnored();

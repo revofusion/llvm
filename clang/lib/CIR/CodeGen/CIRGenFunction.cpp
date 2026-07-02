@@ -1315,6 +1315,21 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
     addr = builder.createBitcast(addr, builder.getPointerTo(rttiTy));
     return makeNaturalAlignAddrLValue(addr, e->getType());
   }
+  case Expr::CXXUuidofExprClass: {
+    // __uuidof(...) (MSVC extension): an lvalue referring to a static,
+    // ODR-deduplicated `_GUID` constant. Mirrors classic CodeGen's
+    // EmitCXXUuidofExpr/EmitCXXUuidofLValue.
+    const auto *uuidofExpr = cast<CXXUuidofExpr>(e);
+    cir::GlobalViewAttr guidAddr =
+        cgm.getAddrOfMSGuidDecl(uuidofExpr->getGuidDecl());
+    mlir::Location loc = getLoc(e->getSourceRange());
+    mlir::Value addr = cir::GetGlobalOp::create(builder, loc, guidAddr.getType(),
+                                                guidAddr.getSymbol());
+    mlir::Type guidTy = convertTypeForMem(e->getType());
+    addr = builder.createBitcast(addr, builder.getPointerTo(guidTy));
+    Address guidObjAddr(addr, guidTy, cgm.getPointerAlign());
+    return makeAddrLValue(guidObjAddr, e->getType(), AlignmentSource::Decl);
+  }
   case Expr::ExprWithCleanupsClass: {
     const auto *cleanups = cast<ExprWithCleanups>(e);
     RunCleanupsScope scope(*this);

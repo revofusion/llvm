@@ -44,6 +44,7 @@ class CodeGenOptions;
 class Decl;
 class GlobalDecl;
 class LangOptions;
+class MSGuidDecl;
 class TargetInfo;
 class TemplateParamObjectDecl;
 class UnnamedGlobalConstantDecl;
@@ -366,6 +367,11 @@ public:
 
   cir::GlobalViewAttr
   getAddrOfTemplateParamObject(const TemplateParamObjectDecl *d);
+
+  /// Return the address of the (lazily-created, deduplicated-by-mangled-name)
+  /// constant backing a `__uuidof(...)` MSVC extension expression. Mirrors
+  /// classic CodeGen's CodeGenModule::GetAddrOfMSGuidDecl.
+  cir::GlobalViewAttr getAddrOfMSGuidDecl(const clang::MSGuidDecl *guidDecl);
 
   /// Create a private, constant, unnamed global initialized from \p value, used
   /// to spill the constant value of a variable that is referenced through a

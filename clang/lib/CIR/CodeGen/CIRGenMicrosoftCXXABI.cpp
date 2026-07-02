@@ -24,9 +24,60 @@ using namespace clang::CIRGen;
 
 namespace {
 
+// Conservative "might this guarded initializer throw" check, used to decide
+// whether the (not yet implemented here) exception-safety wiring for guarded
+// static initialization would be required. Mirrors the identically-named
+// static helper in CIRGenItaniumCXXABI.cpp.
+static bool functionMayThrow(const FunctionDecl *fd) {
+  if (!fd)
+    return true;
+
+  const auto *fpt = fd->getType()->getAs<FunctionProtoType>();
+  return !fpt || fpt->canThrow() != CT_Cannot;
+}
+
+static bool guardedInitMayThrow(const Stmt *s) {
+  if (!s)
+    return false;
+
+  if (isa<CXXThrowExpr>(s))
+    return true;
+
+  if (const auto *e = dyn_cast<CallExpr>(s))
+    if (functionMayThrow(e->getDirectCallee()))
+      return true;
+
+  if (const auto *e = dyn_cast<CXXConstructExpr>(s))
+    if (functionMayThrow(e->getConstructor()))
+      return true;
+
+  if (const auto *e = dyn_cast<CXXNewExpr>(s))
+    if (functionMayThrow(e->getOperatorNew()))
+      return true;
+
+  if (const auto *e = dyn_cast<CXXDynamicCastExpr>(s))
+    if (e->getType()->isReferenceType())
+      return true;
+
+  if (isa<CXXTypeidExpr>(s))
+    return true;
+
+  for (const Stmt *child : s->children())
+    if (guardedInitMayThrow(child))
+      return true;
+
+  return false;
+}
+
 class CIRGenMicrosoftCXXABI : public CIRGenCXXABI {
   using VFTableIdTy = std::pair<const CXXRecordDecl *, CharUnits>;
   llvm::DenseMap<VFTableIdTy, cir::GlobalOp> vtables;
+
+  /// Per-DeclContext counter used to number the thread-safe guard variables
+  /// of internal-linkage local statics (mirrors classic CodeGen's
+  /// MicrosoftCXXABI::ThreadSafeGuardNumMap). Externally-visible statics are
+  /// numbered by Sema instead, via ASTContext::getStaticLocalNumber.
+  llvm::DenseMap<const DeclContext *, unsigned> threadSafeGuardNumMap;
 
 public:
   CIRGenMicrosoftCXXABI(CIRGenModule &cgm) : CIRGenCXXABI(cgm) {}
@@ -328,20 +379,50 @@ mlir::Value CIRGenMicrosoftCXXABI::getCXXDestructorImplicitParam(
 void CIRGenMicrosoftCXXABI::emitDestructorCall(
     CIRGenFunction &cgf, const CXXDestructorDecl *dd, CXXDtorType type,
     bool forVirtualBase, bool delegating, Address thisAddr, QualType thisTy) {
-  if (forVirtualBase || dd->getParent()->getNumVBases() != 0) {
+  if (forVirtualBase) {
+    // A constructor or destructor destroying one of its own virtual bases on
+    // an exception path needs to first check (via a "is-most-derived-class"
+    // flag) whether it is actually responsible for that virtual base, since
+    // only the most-derived object's constructor/destructor is. That check
+    // (classic CodeGen's EmitDtorCompleteObjectHandler) is not modeled here
+    // yet.
     cgm.errorNYI(dd->getSourceRange(),
-                 "Microsoft C++ ABI virtual-base destructor call");
+                 "Microsoft C++ ABI virtual-base destructor call from a "
+                 "constructor/destructor exception handler");
     return;
   }
+
+  // Use the base destructor variant in place of the complete destructor
+  // variant if the class has no virtual bases. This effectively implements
+  // some of the -mconstructor-aliases optimization, but as part of the MS
+  // C++ ABI. Mirrors classic CodeGen's MicrosoftCXXABI::EmitDestructorCall.
+  if (type == Dtor_Complete && dd->getParent()->getNumVBases() == 0)
+    type = Dtor_Base;
+
   if (type == Dtor_Deleting || type == Dtor_VectorDeleting) {
     cgm.errorNYI(dd->getSourceRange(),
                  "Microsoft C++ ABI deleting destructor call");
     return;
   }
 
-  GlobalDecl gd(dd, Dtor_Base);
+  GlobalDecl gd(dd, type);
   CIRGenCallee callee = CIRGenCallee::forDirect(cgm.getAddrOfCXXStructor(gd),
                                                 gd);
+
+  // A direct-name call to a virtual destructor still needs the ABI's usual
+  // "this" prologue adjustment for a non-virtual call to a virtual method
+  // (getVirtualFunctionPrologueThisAdjustment in classic CodeGen). For a
+  // destructor that adjustment is always zero here: the complete-object
+  // destructor (kept above whenever the class has virtual bases) takes a
+  // pointer to the complete object and needs no adjustment, and the base
+  // destructor's slot in the deleting-destructor vftable entry that classic
+  // CodeGen looks up for the adjustment can only carry a nonzero offset when
+  // that vftable slot lives inside a virtual base subobject -- which cannot
+  // happen for a class with no virtual bases (the only case demoted to
+  // Dtor_Base above). So no "this" adjustment is needed on this call path.
+  assert(!dd->isVirtual() ||
+         (type == Dtor_Complete || dd->getParent()->getNumVBases() == 0));
+
   cgf.emitCXXDestructorCall(gd, callee, thisAddr.getPointer(), thisTy,
                             nullptr, QualType(), nullptr);
 }
@@ -359,8 +440,152 @@ void CIRGenMicrosoftCXXABI::emitGuardedInit(CIRGenFunction &cgf,
                                             const VarDecl &d,
                                             cir::GlobalOp var,
                                             bool shouldPerformInit) {
-  cgm.errorNYI(d.getSourceRange(),
-               "Microsoft C++ ABI guarded local static initialization");
+  mlir::Location loc = cgf.getLoc(d.getSourceRange());
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+
+  // MSVC only guards static locals this way; dynamically-initialized globals
+  // with weak/linkonce linkage go through the ordinary global-init path
+  // (classic CodeGen's CodeGenFunction::EmitCXXGlobalVarDeclInit dispatch for
+  // a non-static-local VarDecl), which is not modeled through this entry
+  // point yet.
+  if (!d.isStaticLocal()) {
+    cgm.errorNYI(d.getSourceRange(),
+                 "Microsoft C++ ABI guarded initialization of a "
+                 "non-static-local variable");
+    return;
+  }
+
+  if (d.getTLSKind()) {
+    cgm.errorNYI(d.getSourceRange(),
+                 "Microsoft C++ ABI guarded local static initialization: "
+                 "thread-local variable");
+    return;
+  }
+
+  if (d.needsDestruction(cgm.getASTContext()) == QualType::DK_cxx_destructor) {
+    cgm.errorNYI(d.getSourceRange(),
+                 "Microsoft C++ ABI guarded local static initialization: "
+                 "variable with a non-trivial destructor");
+    return;
+  }
+
+  if (cgm.getLangOpts().Exceptions && shouldPerformInit &&
+      guardedInitMayThrow(d.getInit())) {
+    cgm.errorNYI(d.getSourceRange(),
+                 "Microsoft C++ ABI guarded local static initialization: "
+                 "potentially-throwing initializer");
+    return;
+  }
+
+  // Thread-safe statics (the default since C++11, both for MSVC and for
+  // Clang in MS ABI mode) use a per-variable guard following the algorithm
+  // in N2325's appendix: the guard starts at a value less than or equal to
+  // any completed initialization's epoch, and each thread compares it
+  // against the shared `_Init_thread_epoch` counter to decide whether
+  // initialization has already happened, without needing to take a lock in
+  // the common (already-initialized) case. `-fno-threadsafe-statics`'s
+  // simpler per-function bitmask guard scheme is not implemented here.
+  if (!cgm.getLangOpts().ThreadsafeStatics) {
+    cgm.errorNYI(d.getSourceRange(),
+                 "Microsoft C++ ABI guarded local static initialization: "
+                 "-fno-threadsafe-statics bitmask guard");
+    return;
+  }
+
+  cir::IntType guardTy = cgm.sInt32Ty;
+  CharUnits guardAlign = CharUnits::fromQuantity(4);
+
+  unsigned guardNum;
+  if (d.isExternallyVisible()) {
+    // Externally visible variables are numbered in Sema so unreachable
+    // VarDecls (e.g. in discarded template instantiations) are still
+    // numbered consistently across translation units.
+    guardNum = cgm.getASTContext().getStaticLocalNumber(&d);
+    assert(guardNum > 0);
+    --guardNum;
+  } else {
+    guardNum = threadSafeGuardNumMap[d.getDeclContext()]++;
+  }
+
+  SmallString<256> guardName;
+  {
+    llvm::raw_svector_ostream guardOut(guardName);
+    cast<MicrosoftMangleContext>(getMangleContext())
+        .mangleThreadSafeStaticGuardVariable(&d, guardNum, guardOut);
+  }
+
+  cir::GlobalOp guard = cgm.createOrReplaceCXXRuntimeVariable(
+      loc, guardName, guardTy, var.getLinkage(), guardAlign);
+  guard.setInitialValueAttr(builder.getZeroInitAttr(guardTy));
+
+  mlir::Value guardPtr = builder.createGetGlobal(loc, guard);
+  Address guardAddr(guardPtr, guardTy, guardAlign);
+
+  // `_Init_thread_epoch` is a thread-local counter owned by the C runtime;
+  // its TLS access model is fixed by the runtime's own definition and does
+  // not follow the module's `-ftls-model=`, matching classic CodeGen.
+  cir::GlobalOp epoch = cgm.createOrReplaceCXXRuntimeVariable(
+      loc, "_Init_thread_epoch", guardTy,
+      cir::GlobalLinkageKind::ExternalLinkage, guardAlign);
+  epoch.setTlsModel(cir::TLS_Model::GeneralDynamic);
+  mlir::Value epochPtr =
+      builder.createGetGlobal(loc, epoch, /*threadLocal=*/true);
+  Address epochAddr(epochPtr, guardTy, guardAlign);
+
+  cir::FuncType initThreadFnTy =
+      builder.getFuncType({guardPtr.getType()}, builder.getVoidTy());
+  cir::FuncOp initThreadHeaderFn =
+      cgm.createRuntimeFunction(initThreadFnTy, "_Init_thread_header");
+  cir::FuncOp initThreadFooterFn =
+      cgm.createRuntimeFunction(initThreadFnTy, "_Init_thread_footer");
+
+  auto emitInit = [&] {
+    if (!shouldPerformInit)
+      return;
+
+    mlir::Value varPtr =
+        builder.createGetGlobal(loc, var, d.getTLSKind() != VarDecl::TLS_None);
+    Address varAddr(varPtr, cgf.convertTypeForMem(d.getType()),
+                    cgf.getContext().getDeclAlign(&d));
+    cgf.emitAnyExprToMem(d.getInit(), varAddr, d.getType().getQualifiers(),
+                         true);
+  };
+
+  // Pseudo code for the test:
+  //   if (Guard > _Init_thread_epoch) {
+  //     _Init_thread_header(&Guard);
+  //     if (Guard == -1) {
+  //       ... initialize the object ...
+  //       _Init_thread_footer(&Guard);
+  //     }
+  //   }
+  cir::LoadOp firstGuardLoad = builder.createLoad(loc, guardAddr);
+  firstGuardLoad.setMemOrder(cir::MemOrder::Relaxed);
+  cir::LoadOp initThreadEpoch = builder.createLoad(loc, epochAddr);
+  mlir::Value isUninitialized = builder.createCompare(
+      loc, cir::CmpOpKind::gt, firstGuardLoad.getResult(),
+      initThreadEpoch.getResult());
+
+  cir::IfOp::create(
+      builder, loc, isUninitialized, false,
+      [&](mlir::OpBuilder &, mlir::Location) {
+        cgf.emitRuntimeCall(loc, initThreadHeaderFn, {guardPtr});
+
+        cir::LoadOp secondGuardLoad = builder.createLoad(loc, guardAddr);
+        secondGuardLoad.setMemOrder(cir::MemOrder::Relaxed);
+        mlir::Value minusOne = builder.getSInt32(-1, loc);
+        mlir::Value shouldDoInit = builder.createCompare(
+            loc, cir::CmpOpKind::eq, secondGuardLoad.getResult(), minusOne);
+
+        cir::IfOp::create(builder, loc, shouldDoInit, false,
+                          [&](mlir::OpBuilder &, mlir::Location) {
+                            emitInit();
+                            cgf.emitRuntimeCall(loc, initThreadFooterFn,
+                                                {guardPtr});
+                            builder.createYield(loc);
+                          });
+        builder.createYield(loc);
+      });
 }
 
 void CIRGenMicrosoftCXXABI::emitVirtualObjectDelete(
