@@ -1121,7 +1121,22 @@ void CIRGenFunction::emitDestructorBody(FunctionArgList &args) {
   // possible to delegate the destructor body to the complete
   // destructor.  Do so.
   if (dtorType == Dtor_Deleting || dtorType == Dtor_VectorDeleting) {
-    if (cxxStructorImplicitParamValue && dtorType == Dtor_VectorDeleting)
+    // A vector deleting destructor's should_call_delete flag additionally
+    // carries an "is this actually an array delete" bit (checked at
+    // runtime, since the same function handles both `delete p` and
+    // `delete[] p` through a base pointer): if this class was never
+    // observed to need that (Sema only sets this when it actually saw a
+    // `delete[]` on this exact type somewhere), classic CodeGen skips
+    // emitting the array-destroy logic entirely and aliases this straight
+    // to the scalar deleting destructor's behavior (MicrosoftCXXABI::
+    // emitCXXStructor's own alias-to-Dtor_Deleting optimization) -- so the
+    // runtime bit can never actually be set for this class in practice.
+    // Match that behavior directly (CIR has no function-alias mechanism to
+    // port the LLVM-level alias itself, but the two bodies are otherwise
+    // byte-for-byte identical) instead of erroring on a case that can't
+    // occur; only error for a class Sema actually marked as needing it.
+    if (cxxStructorImplicitParamValue && dtorType == Dtor_VectorDeleting &&
+        getContext().classNeedsVectorDeletingDestructor(dtor->getParent()))
       cgm.errorNYI(dtor->getSourceRange(), "emitConditionalArrayDtorCall");
     RunCleanupsScope dtorEpilogue(*this);
     enterDtorCleanups(dtor, Dtor_Deleting);

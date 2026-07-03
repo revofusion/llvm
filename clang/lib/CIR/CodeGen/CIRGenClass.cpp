@@ -986,6 +986,61 @@ struct CallDtorDelete final : EHScopeStack::Cleanup {
   }
 };
 
+/// Implements the scalar deleting destructor body for the MS ABI case where
+/// the destructor also accepts an implicit should_call_delete flag (bit 0 of
+/// which says whether the already-Sema-resolved operator delete should be
+/// called at all). Mirrors classic CodeGen's EmitConditionalDtorDeleteCall,
+/// but only the common case: a single resolved operator delete, no C++20
+/// destroying-delete, no separate global-vs-class delete selection (both of
+/// those are additionally gated, in classic, on
+/// TargetInfo::callGlobalDeleteInDeletingDtor and are rarer scenarios this
+/// port doesn't yet need to handle) -- fails closed for those instead of
+/// guessing at their (bit 2-gated) semantics.
+void emitConditionalDtorDeleteCall(CIRGenFunction &cgf,
+                                   mlir::Value shouldDeleteCondition) {
+  const CXXDestructorDecl *dtor = cast<CXXDestructorDecl>(cgf.curFuncDecl);
+  const FunctionDecl *od = dtor->getOperatorDelete();
+  if (od->isDestroyingOperatorDelete() || dtor->getOperatorGlobalDelete()) {
+    cgf.cgm.errorNYI(
+        dtor->getSourceRange(),
+        "conditional deleting destructor with destroying or dual "
+        "global/class operator delete");
+    return;
+  }
+
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(dtor->getSourceRange());
+  mlir::Type condTy = shouldDeleteCondition.getType();
+  mlir::Value one = builder.getConstInt(loc, condTy, 1);
+  mlir::Value bit0 = builder.createAnd(loc, shouldDeleteCondition, one);
+  mlir::Value shouldCallDelete = builder.createCompare(
+      loc, cir::CmpOpKind::ne, bit0, builder.getConstInt(loc, condTy, 0));
+  cir::IfOp::create(builder, loc, shouldCallDelete, /*withElseRegion=*/false,
+                    [&](mlir::OpBuilder &, mlir::Location loc) {
+                      const CXXRecordDecl *classDecl = dtor->getParent();
+                      cgf.emitDeleteCall(
+                          od, loadThisForDtorDelete(cgf, dtor),
+                          cgf.getContext().getCanonicalTagType(classDecl));
+                      builder.createYield(loc);
+                    });
+}
+
+/// Call the operator delete associated with the current destructor,
+/// conditionally on the should_call_delete implicit parameter (MS ABI only;
+/// classic CodeGen's CallDtorDeleteConditional).
+struct CallDtorDeleteConditional final : EHScopeStack::Cleanup {
+  mlir::Value shouldDeleteCondition;
+
+  CallDtorDeleteConditional(mlir::Value shouldDeleteCondition)
+      : shouldDeleteCondition(shouldDeleteCondition) {
+    assert(shouldDeleteCondition);
+  }
+
+  void emit(CIRGenFunction &cgf, Flags flags) override {
+    emitConditionalDtorDeleteCall(cgf, shouldDeleteCondition);
+  }
+};
+
 class DestroyField final : public EHScopeStack::Cleanup {
   const FieldDecl *field;
   CIRGenFunction::Destroyer *destroyer;
@@ -1026,7 +1081,20 @@ void CIRGenFunction::enterDtorCleanups(const CXXDestructorDecl *dd,
     assert(dd->getOperatorDelete() &&
            "operator delete missing - EnterDtorCleanups");
     if (cxxStructorImplicitParamValue) {
-      cgm.errorNYI(dd->getSourceRange(), "deleting destructor with vtt");
+      // For the MS ABI, this is the should_call_delete flag (see
+      // CIRGenMicrosoftCXXABI::emitInstanceFunctionProlog); the Itanium ABI
+      // never sets cxxStructorImplicitParamValue for a destructor at all
+      // (it has no runtime flag of this kind), so this branch is
+      // unreachable there, matching classic CodeGen's identical,
+      // ABI-agnostic check in EnterDtorCleanups.
+      if (dd->getOperatorDelete()->isDestroyingOperatorDelete()) {
+        cgm.errorNYI(dd->getSourceRange(),
+                     "deleting destructor with destroying operator delete "
+                     "and implicit should_call_delete parameter");
+      } else {
+        ehStack.pushCleanup<CallDtorDeleteConditional>(
+            NormalAndEHCleanup, cxxStructorImplicitParamValue);
+      }
     } else {
       if (dd->getOperatorDelete()->isDestroyingOperatorDelete()) {
         cgm.errorNYI(dd->getSourceRange(),

@@ -231,19 +231,26 @@ void CIRGenMicrosoftCXXABI::emitInstanceFunctionProlog(SourceLocation loc,
     cgf.getBuilder().createStore(cgf.getLoc(loc), thisValue, cgf.returnValue);
   }
 
-  // Deliberately only the constructor side: unlike is_most_derived, loading
-  // a deleting destructor's should_call_delete implicit param here would
-  // make cxxStructorImplicitParamValue non-null for destructors too, which
-  // flips two currently-scoped errorNYI paths live for every deleting
-  // destructor (enterDtorCleanups's "deleting destructor with vtt" in
-  // CIRGenClass.cpp, and emitDestructorBody's
-  // "emitConditionalArrayDtorCall" in CIRGenFunction.cpp) and would regress
-  // already-passing deleting-destructor tests. Nothing about *this* change
-  // needs that value read for destructors.
+  // Constructors with virtual bases load is_most_derived; deleting
+  // destructors (scalar or vector) load should_call_delete. Both are
+  // consumed the same way, via getStructorImplicitParamValue: the vbtable
+  // guard (CIRGenMicrosoftCXXABI::emitCtorCompleteObjectHandler) and the
+  // conditional-delete cleanup (CallDtorDeleteConditional, CIRGenClass.cpp)
+  // respectively. Dtor_VectorDeleting's own array-delete handling
+  // (emitConditionalArrayDtorCall) remains a separate, still-unimplemented
+  // errorNYI in CIRGenFunction::emitDestructorBody -- loading the value here
+  // doesn't by itself require that array-specific logic to exist.
   const auto *md = cast<CXXMethodDecl>(cgf.curGD.getDecl());
-  if (isa<CXXConstructorDecl>(md) && md->getParent()->getNumVBases()) {
+  const bool ctorNeedsImplicitParam =
+      isa<CXXConstructorDecl>(md) && md->getParent()->getNumVBases();
+  const bool dtorNeedsImplicitParam =
+      isa<CXXDestructorDecl>(md) &&
+      (cgf.curGD.getDtorType() == Dtor_Deleting ||
+       cgf.curGD.getDtorType() == Dtor_VectorDeleting);
+  if (ctorNeedsImplicitParam || dtorNeedsImplicitParam) {
     assert(getStructorImplicitParamDecl(cgf) &&
-           "no implicit parameter for a constructor with virtual bases?");
+           "no implicit parameter for a constructor with virtual bases, or "
+           "a deleting destructor?");
     setStructorImplicitParamValue(
         cgf, cgf.getBuilder().createLoad(
                  cgf.getLoc(loc),
@@ -372,11 +379,15 @@ void CIRGenMicrosoftCXXABI::emitCXXStructor(GlobalDecl gd) {
                    "Microsoft C++ ABI destructor with virtual bases");
       return;
     }
-    if (gd.getDtorType() != Dtor_Base) {
-      cgm.errorNYI(dd->getSourceRange(),
-                   "Microsoft C++ ABI non-base destructor variant");
-      return;
-    }
+    // Classic CodeGen's MicrosoftCXXABI::emitCXXStructor additionally
+    // aliases Dtor_Complete to Dtor_Base (identical bodies when there are
+    // no vbases, which the check above already guarantees here) and
+    // aliases Dtor_VectorDeleting to Dtor_Deleting when the class doesn't
+    // need a real vector deleting destructor -- both pure code-size
+    // optimizations (an LLVM alias instead of a duplicate body), not
+    // correctness requirements; CIRGenFunction::emitDestructorBody already
+    // produces a correct (if not alias-deduplicated) body for every dtor
+    // type reaching codegenCXXStructor below.
     cir::FuncOp fn = cgm.codegenCXXStructor(gd);
     cgm.maybeSetTrivialComdat(*dd, fn);
     return;
@@ -1304,10 +1315,54 @@ bool CIRGenMicrosoftCXXABI::doStructorsInitializeVPtrs(
 mlir::Value CIRGenMicrosoftCXXABI::performThisAdjustment(
     CIRGenFunction &cgf, Address thisAddr, const CXXRecordDecl *unadjustedClass,
     const ThunkInfo &ti) {
-  if (!ti.This.isEmpty())
-    cgm.errorNYI(unadjustedClass->getSourceRange(),
-                 "Microsoft C++ ABI this adjustment");
-  return thisAddr.getPointer();
+  const ThisAdjustment &ta = ti.This;
+  if (ta.isEmpty())
+    return thisAddr.getPointer();
+
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(unadjustedClass->getSourceRange());
+  mlir::Value v;
+
+  if (!ta.Virtual.isEmpty()) {
+    // The overrider lives across a virtual-base boundary from the vfptr
+    // that names this thunk (a "vtordisp" thunk): the real adjustment is a
+    // *runtime* value ("vtordisp") read from an i32 slot at a fixed,
+    // always-negative byte offset from `this`, negated and applied as the
+    // this-pointer adjustment.
+    assert(ta.Virtual.Microsoft.VtordispOffset < 0);
+    if (ta.Virtual.Microsoft.VBPtrOffset) {
+      // "vtordispex": the final overrider is defined in a *different*
+      // virtual base than the one holding the vfptr, needing a further
+      // vbtable lookup (MicrosoftCXXABI::GetVBaseOffsetFromVBPtr) on top
+      // of the vtordisp adjustment above. Not implemented -- rarer than
+      // the plain vtordisp case handled below.
+      cgm.errorNYI(unadjustedClass->getSourceRange(),
+                   "Microsoft C++ ABI vtordispex this adjustment");
+      return thisAddr.getPointer();
+    }
+
+    mlir::Value thisU8 = builder.createBitcast(thisAddr.getPointer(),
+                                               cgm.uInt8PtrTy);
+    mlir::Value vtordispOffset = builder.getConstInt(
+        loc, cgm.ptrDiffTy, ta.Virtual.Microsoft.VtordispOffset);
+    mlir::Value vtordispPtr = cir::PtrStrideOp::create(
+        builder, loc, cgm.uInt8PtrTy, thisU8, vtordispOffset);
+    mlir::Value vtordisp = builder.createAlignedLoad(
+        loc, cgm.sInt32Ty, vtordispPtr,
+        cgm.getASTContext().getTypeAlignInChars(cgm.getASTContext().IntTy));
+    mlir::Value vtordispNeg = builder.createNeg(vtordisp);
+    mlir::Value vtordispNeg64 = builder.createIntCast(vtordispNeg, cgm.ptrDiffTy);
+    v = cir::PtrStrideOp::create(builder, loc, cgm.uInt8PtrTy, thisU8,
+                                 vtordispNeg64);
+  } else {
+    v = builder.createBitcast(thisAddr.getPointer(), cgm.uInt8PtrTy);
+  }
+  if (ta.NonVirtual) {
+    mlir::Value offset =
+        builder.getConstInt(loc, cgm.ptrDiffTy, ta.NonVirtual);
+    v = cir::PtrStrideOp::create(builder, loc, cgm.uInt8PtrTy, v, offset);
+  }
+  return v;
 }
 
 mlir::Value CIRGenMicrosoftCXXABI::performReturnAdjustment(
