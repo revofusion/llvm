@@ -646,6 +646,18 @@ cir::FuncOp CIRGenVTables::maybeEmitThunk(GlobalDecl gd,
 
   // Generate the thunk body.
   CIRGenFunction cgf{cgm, cgm.getBuilder()};
+  // Without this, CIRGenModule::createCIRFunction (reached e.g. via
+  // generateThunk's own getAddrOfFunction lookup of the thunk's callee)
+  // has no way to know a function body is being generated here, and
+  // assumes it's safe to cir::FuncOp::create + theModule.push_back a new
+  // declaration unconditionally -- but the builder's insertion point is
+  // already positioned inside the thunk's own entry block at that point
+  // (set up by startFunction/startThunk above), so create() already
+  // inserts the new op there, and the push_back then double-inserts it,
+  // tripping MLIR's "already in an operation block!" assert. Mirrors the
+  // CurCGFGuard CIRGenModule::emitGlobalFunctionDefinition already uses
+  // around every other real function-body generation.
+  CIRGenModule::CurCGFGuard curCGFGuard(cgm, cgf);
   {
     mlir::OpBuilder::InsertionGuard guard(cgm.getBuilder());
     cgf.generateThunk(thunkFn, fnInfo, gd, thunkInfo);

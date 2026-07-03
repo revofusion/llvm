@@ -180,6 +180,8 @@ public:
                                         CXXDtorType dtorType, Address thisAddr,
                                         DeleteOrMemberCallExpr e) override;
   void emitVirtualInheritanceTables(const CXXRecordDecl *rd) override;
+  void adjustCallArgsForDestructorThunk(CIRGenFunction &cgf, GlobalDecl gd,
+                                        CallArgList &callArgs) override;
   bool useThunkForDtorVariant(const CXXDestructorDecl *dtor,
                               CXXDtorType dt) const override;
   cir::GlobalOp getAddrOfVTable(const CXXRecordDecl *rd,
@@ -1103,6 +1105,15 @@ cir::IfOp CIRGenMicrosoftCXXABI::emitCtorCompleteObjectHandler(
   // dereference the vbptr just stored, via getVirtualBaseClassOffset).
   emitVBPtrStores(cgf, rd);
   return ifOp;
+}
+
+void CIRGenMicrosoftCXXABI::adjustCallArgsForDestructorThunk(
+    CIRGenFunction &cgf, GlobalDecl gd, CallArgList &callArgs) {
+  assert((gd.getDtorType() == Dtor_VectorDeleting ||
+          gd.getDtorType() == Dtor_Deleting) &&
+         "Only vector deleting destructor thunks are available in this ABI");
+  callArgs.add(RValue::get(getStructorImplicitParamValue(cgf)),
+               cgf.getContext().IntTy);
 }
 
 bool CIRGenMicrosoftCXXABI::useThunkForDtorVariant(
