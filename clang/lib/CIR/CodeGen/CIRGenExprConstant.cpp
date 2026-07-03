@@ -1645,21 +1645,63 @@ bool ConstRecordBuilder::build(const APValue &val, const RecordDecl *rd,
     // Add a vtable pointer, if we need one and it hasn't already been added.
     if (layout.hasOwnVFPtr()) {
       CIRGenBuilderTy &builder = cgm.getBuilder();
-      cir::GlobalOp vtable =
-          cgm.getCXXABI().getAddrOfVTable(vTableClass, CharUnits());
-      clang::VTableLayout::AddressPointLocation addressPoint =
-          cgm.getItaniumVTableContext()
-              .getVTableLayout(vTableClass)
-              .getAddressPoint(BaseSubobject(cd, offset));
-      assert(!cir::MissingFeatures::addressPointerAuthInfo());
-      mlir::ArrayAttr indices = builder.getArrayAttr({
-          builder.getI32IntegerAttr(addressPoint.VTableIndex),
-          builder.getI32IntegerAttr(addressPoint.AddressPointIndex),
-      });
-      cir::GlobalViewAttr vtableInit =
-          cgm.getBuilder().getGlobalViewAttr(vtable, indices);
-      if (!appendBytes(offset, vtableInit))
-        return false;
+      if (cgm.getTarget().getCXXABI().isMicrosoft()) {
+        // Under the MS C++ ABI, each vfptr-introducing (sub)object gets its
+        // own distinct vftable global, selected by its offset within
+        // vTableClass (MicrosoftVTableContext::getVFPtrOffsets), and is
+        // addressed directly with no further indexing -- unlike the Itanium
+        // model below, where every subobject's vptr points into one shared,
+        // combined vtable-group global for the whole class, differentiated
+        // by an address-point index pair computed via
+        // ItaniumVTableContext. Calling getItaniumVTableContext()
+        // unconditionally here used to crash (llvm::cast<ItaniumVTableContext>
+        // on what is actually a MicrosoftVTableContext) for any dynamic-class
+        // constant under the MS ABI, e.g. the MSVC STL's
+        // std::_Iostream_error_category2. This mirrors the runtime-value
+        // counterpart of this same lookup, CIRGenMicrosoftCXXABI::
+        // getVTableAddressPoint, and classic CodeGen's
+        // MicrosoftCXXABI::getVTableAddressPoint (clang/lib/CodeGen/
+        // MicrosoftCXXABI.cpp), which both resolve the per-offset vftable
+        // global directly with no address-point indexing.
+        cir::GlobalOp vtable =
+            cgm.getCXXABI().getAddrOfVTable(vTableClass, offset);
+        if (!vtable) {
+          cgm.errorNYI(cd->getSourceRange(),
+                       "Microsoft C++ ABI missing vfptr table in constant "
+                       "record");
+          return false;
+        }
+        const VTableLayout &vtLayout =
+            cgm.getMicrosoftVTableContext().getVFTableLayout(vTableClass,
+                                                              offset);
+        if (vtLayout.getNumVTables() != 1 ||
+            vtLayout.getAddressPointIndices().empty() ||
+            vtLayout.getAddressPointIndices().front() != 0) {
+          cgm.errorNYI(cd->getSourceRange(),
+                       "Microsoft C++ ABI complex vfptr table layout in "
+                       "constant record");
+          return false;
+        }
+        cir::GlobalViewAttr vtableInit = builder.getGlobalViewAttr(vtable);
+        if (!appendBytes(offset, vtableInit))
+          return false;
+      } else {
+        cir::GlobalOp vtable =
+            cgm.getCXXABI().getAddrOfVTable(vTableClass, CharUnits());
+        clang::VTableLayout::AddressPointLocation addressPoint =
+            cgm.getItaniumVTableContext()
+                .getVTableLayout(vTableClass)
+                .getAddressPoint(BaseSubobject(cd, offset));
+        assert(!cir::MissingFeatures::addressPointerAuthInfo());
+        mlir::ArrayAttr indices = builder.getArrayAttr({
+            builder.getI32IntegerAttr(addressPoint.VTableIndex),
+            builder.getI32IntegerAttr(addressPoint.AddressPointIndex),
+        });
+        cir::GlobalViewAttr vtableInit =
+            cgm.getBuilder().getGlobalViewAttr(vtable, indices);
+        if (!appendBytes(offset, vtableInit))
+          return false;
+      }
     }
 
     // Accumulate and sort bases, in order to visit them in address order, which

@@ -558,8 +558,12 @@ public:
         });
   }
   void VisitImplicitValueInitExpr(ImplicitValueInitExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "AggExprEmitter: VisitImplicitValueInitExpr");
+    const QualType type = e->getType();
+    const mlir::Location loc = e->getSourceRange().isValid()
+                                   ? cgf.getLoc(e->getSourceRange())
+                                   : *cgf.currSrcLoc;
+    AggValueSlot slot = ensureSlot(loc, type);
+    emitNullInitializationToLValue(loc, cgf.makeAddrLValue(slot.getAddress(), type));
   }
   void VisitNoInitExpr(NoInitExpr *e) {
     cgf.cgm.errorNYI(e->getSourceRange(), "AggExprEmitter: VisitNoInitExpr");

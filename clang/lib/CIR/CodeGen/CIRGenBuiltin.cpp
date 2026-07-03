@@ -187,6 +187,38 @@ static RValue emitSyncFetchAndUpdate(
   return RValue::get(convertSyncAtomicResult(cgf, e, atomicOp->getResult(0)));
 }
 
+// Emits the MSVC _InterlockedIncrement/_InterlockedDecrement family, which
+// (unlike the two-operand _Interlocked{Exchange,...} builtins above) take a
+// single pointer operand and implicitly add/subtract 1, returning the new
+// (post-op) value. Mirrors classic CodeGen's EmitAtomicIncrementValue /
+// EmitAtomicDecrementValue (clang/lib/CodeGen/CGBuiltin.cpp): those lower to
+// an atomicrmw add/sub of 1 under SequentiallyConsistent ordering and then
+// re-derive the new value from the old value the atomicrmw returns. CIR's
+// cir.atomic.fetch can produce the new value directly when `fetch_first` is
+// absent, so no extra add/sub is needed here.
+static RValue emitMSVCInterlockedIncrementOrDecrement(
+    CIRGenFunction &cgf, const CallExpr *e, cir::AtomicFetchKind kind) {
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
+
+  Address ptr = cgf.emitPointerWithAlignment(e->getArg(0));
+  mlir::Type opType = ptr.getElementType();
+  mlir::Value one = builder.getConstInt(loc, opType, 1);
+
+  SmallVector<mlir::Value> atomicOperands = {ptr.getPointer(), one};
+  SmallVector<mlir::Type> atomicResultTypes = {opType};
+  mlir::Operation *atomicOp = builder.create(
+      loc, builder.getStringAttr(cir::AtomicFetchOp::getOperationName()),
+      atomicOperands, atomicResultTypes);
+  atomicOp->setAttr("binop",
+                    cir::AtomicFetchKindAttr::get(builder.getContext(), kind));
+  atomicOp->setAttr("mem_order", getSyncSeqCstAttr(cgf));
+  // No fetch_first attribute here: we want the post-op (new) value, matching
+  // _InterlockedIncrement/_InterlockedDecrement's documented return value.
+
+  return RValue::get(convertSyncAtomicResult(cgf, e, atomicOp->getResult(0)));
+}
+
 static RValue emitSyncExchange(CIRGenFunction &cgf, const CallExpr *e) {
   CIRGenBuilderTy &builder = cgf.getBuilder();
   mlir::Location loc = cgf.getLoc(e->getSourceRange());
@@ -1979,6 +2011,9 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     return RValue::get(nullptr);
   case Builtin::BI__builtin_is_aligned:
     return emitBuiltinIsAligned(*this, e);
+  case Builtin::BI_InterlockedDecrement:
+    return emitMSVCInterlockedIncrementOrDecrement(*this, e,
+                                                   cir::AtomicFetchKind::Sub);
   case Builtin::BI__builtin_align_up:
   case Builtin::BI__builtin_align_down:
   case Builtin::BI__noop:
@@ -1996,7 +2031,6 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI_InterlockedIncrement16:
   case Builtin::BI_InterlockedIncrement:
   case Builtin::BI_InterlockedDecrement16:
-  case Builtin::BI_InterlockedDecrement:
   case Builtin::BI_InterlockedAnd8:
   case Builtin::BI_InterlockedAnd16:
   case Builtin::BI_InterlockedAnd:

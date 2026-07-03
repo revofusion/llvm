@@ -262,6 +262,20 @@ static void emitNullBaseClassInitialization(CIRGenFunction &cgf,
   // TODO: isZeroInitializable can be over-conservative in the case where a
   // virtual base contains a member pointer.
   mlir::TypedAttr nullConstantForBase = cgf.cgm.emitNullConstantForBase(base);
+  if (!nullConstantForBase) {
+    // emitNullConstantForBase already emitted an errorNYI diagnostic for
+    // whatever unsupported shape it hit (e.g. a base class introducing its
+    // own vfptr slot that emitNullConstant's field/base-filling loops don't
+    // cover, or a virtual base) -- classic CodeGen's EmitNullConstantForBase
+    // has no such failure mode (LLVM constant computation for a null record
+    // always succeeds structurally), so this null case is CIR-specific and
+    // was previously unchecked here, unconditionally dereferencing the null
+    // TypedAttr via isNullValue() below and crashing (seen live via a
+    // std::shared_ptr<T>'s _Ref_count_base subobject, whose own vfptr slot
+    // isn't a base or a field in emitNullConstant's accounting). Bail out
+    // cleanly instead of continuing with an invalid attribute.
+    return;
+  }
   if (!cgf.getBuilder().isNullValue(nullConstantForBase)) {
     cgf.cgm.errorNYI(
         base->getSourceRange(),

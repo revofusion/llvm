@@ -329,10 +329,6 @@ mlir::Value CIRGenMicrosoftCXXABI::emitDynamicCast(
   return cgf.getBuilder().getNullPtr(destCIRTy, loc);
 }
 
-void CIRGenMicrosoftCXXABI::emitRethrow(CIRGenFunction &cgf, bool isNoReturn) {
-  cgm.errorNYI(*cgf.currSrcLoc, "Microsoft C++ ABI rethrow lowering");
-}
-
 // The idea here is creating a separate block for the throw with an
 // `UnreachableOp` as the terminator. So, we branch from the current block
 // to the throw block and create a block for the remaining operations.
@@ -358,6 +354,30 @@ static void insertThrowAndSplit(mlir::OpBuilder &builder, mlir::Location loc,
   }
 
   (void)builder.createBlock(region);
+}
+
+void CIRGenMicrosoftCXXABI::emitRethrow(CIRGenFunction &cgf, bool isNoReturn) {
+  // A bare `throw;` (rethrowing the currently-active exception) is distinct
+  // from `emitThrow` above but faces the identical scoping question: the
+  // ABI-accurate MS lowering calls `_CxxThrowException(nullptr, nullptr)`
+  // (see MicrosoftCXXABI::emitRethrow in clang/lib/CodeGen/MicrosoftCXXABI.cpp),
+  // which is EH-runtime-ABI machinery belonging to a later LLVM-lowering pass
+  // that `cir.throw` does not yet target for any ABI (its only existing
+  // lowering, CIRToLLVMThrowOpLowering, targets the Itanium
+  // __cxa_throw/__cxa_rethrow runtime regardless of source ABI). So, as with
+  // `emitThrow`, we produce the same ABI-agnostic CIR shape
+  // CIRGenItaniumCXXABI::emitRethrow produces: a no-operand `cir.throw`,
+  // which is `cir.throw`'s existing spelling for "rethrow the active
+  // exception" (lowers to a call to `__cxa_rethrow` with no arguments).
+  if (isNoReturn) {
+    CIRGenBuilderTy &builder = cgf.getBuilder();
+    assert(cgf.currSrcLoc && "expected source location");
+    mlir::Location loc = *cgf.currSrcLoc;
+    insertThrowAndSplit(builder, loc);
+  } else {
+    cgm.errorNYI(*cgf.currSrcLoc,
+                 "Microsoft C++ ABI rethrow lowering with isNoReturn false");
+  }
 }
 
 void CIRGenMicrosoftCXXABI::emitThrow(CIRGenFunction &cgf,
