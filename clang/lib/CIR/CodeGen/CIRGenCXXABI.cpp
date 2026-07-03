@@ -23,6 +23,19 @@ using namespace clang::CIRGen;
 
 CIRGenCXXABI::~CIRGenCXXABI() {}
 
+cir::IfOp CIRGenCXXABI::emitCtorCompleteObjectHandler(CIRGenFunction &cgf,
+                                                      const CXXRecordDecl *rd) {
+  // Reached only when !hasConstructorVariants(), i.e. only by ABIs (like MS)
+  // that lack separate complete/base constructor functions and so need a
+  // runtime check here; Itanium-style ABIs have distinct Ctor_Complete/
+  // Ctor_Base functions instead and never call this.
+  if (cgm.getTarget().getCXXABI().hasConstructorVariants())
+    llvm_unreachable("shouldn't be called in this ABI");
+  cgm.errorNYI(rd->getSourceRange(),
+               "emitCtorCompleteObjectHandler: complete object detection");
+  return {};
+}
+
 CIRGenCXXABI::AddedStructorArgCounts CIRGenCXXABI::addImplicitConstructorArgs(
     CIRGenFunction &cgf, const CXXConstructorDecl *d, CXXCtorType type,
     bool forVirtualBase, bool delegating, CallArgList &args) {

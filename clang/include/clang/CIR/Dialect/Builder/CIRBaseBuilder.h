@@ -123,6 +123,15 @@ public:
     if (mlir::isa<cir::BoolType>(ty)) {
       return getFalseAttr();
     }
+    if (auto vptrTy = mlir::dyn_cast<cir::VPtrType>(ty))
+      // !cir.vptr can't go through getConstNullPtrAttr/ConstPtrAttr: that
+      // attribute's own storage is hard-typed to cir::PointerType (see
+      // CIR_ConstPtrAttr in CIRAttrs.td), so it would assert/misbehave on a
+      // VPtrType. ZeroAttr is CIR's generic, type-parametric "zero
+      // initialize this" attribute (already used the same way for
+      // RecordType/ArrayType/VectorType/ComplexType/MethodType just above),
+      // and is the correct representation here too.
+      return cir::ZeroAttr::get(vptrTy);
     llvm_unreachable("Zero initializer for given type is NYI");
   }
 

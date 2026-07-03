@@ -260,6 +260,56 @@ static RValue emitSyncCompareAndExchange(CIRGenFunction &cgf, const CallExpr *e,
   return RValue::get(convertSyncAtomicResult(cgf, e, result));
 }
 
+// A plain volatile store: __iso_volatile_store{8,16,32,64} write through a
+// pointer without any atomicity/ordering guarantee beyond the "volatile" (no
+// reordering, no eliding) contract -- mirrors classic CodeGen's
+// EmitISOVolatileStore (clang/lib/CodeGen/CGBuiltin.cpp), which likewise
+// marks the store both volatile and (Monotonic-ordered) atomic purely to
+// forbid the optimizer from splitting/merging it, not for any
+// cross-thread-visibility purpose.
+static RValue emitISOVolatileStore(CIRGenFunction &cgf, const CallExpr *e) {
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
+
+  Address ptr = cgf.emitPointerWithAlignment(e->getArg(0));
+  mlir::Value value = cgf.emitScalarExpr(e->getArg(1));
+  value = cgf.emitToMemory(value, e->getArg(1)->getType());
+  value = castSyncAtomicValue(cgf, e, value, ptr.getElementType());
+
+  builder.createStore(loc, value, ptr, /*isVolatile=*/true,
+                      mlir::IntegerAttr{}, cir::SyncScopeKindAttr{},
+                      cir::MemOrderAttr::get(builder.getContext(),
+                                             cir::MemOrder::Relaxed));
+  return RValue::get(nullptr);
+}
+
+// MSVC's _InterlockedCompareExchange(Destination, Exchange, Comparand) has
+// its second and third arguments in the opposite order from the "__sync"/GCC
+// builtins' (ptr, expected, desired) convention emitSyncCompareAndExchange
+// above assumes, so it cannot be reused directly here -- mirrors classic
+// CodeGen's EmitAtomicCmpXchgForMSIntrin (clang/lib/CodeGen/CGBuiltin.cpp),
+// which has the identical comment/swap for the identical reason.
+static RValue emitMSVCInterlockedCompareExchange(CIRGenFunction &cgf,
+                                                 const CallExpr *e) {
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
+
+  Address ptr = cgf.emitPointerWithAlignment(e->getArg(0));
+  mlir::Value exchange = cgf.emitScalarExpr(e->getArg(1));
+  mlir::Value comparand = cgf.emitScalarExpr(e->getArg(2));
+  exchange = cgf.emitToMemory(exchange, e->getArg(1)->getType());
+  comparand = cgf.emitToMemory(comparand, e->getArg(2)->getType());
+  exchange = castSyncAtomicValue(cgf, e, exchange, ptr.getElementType());
+  comparand = castSyncAtomicValue(cgf, e, comparand, ptr.getElementType());
+
+  auto cmpxchg = cir::AtomicCmpXchgOp::create(
+      builder, loc, comparand.getType(), builder.getBoolTy(), ptr.getPointer(),
+      comparand, exchange, getSyncSeqCstAttr(cgf), getSyncSeqCstAttr(cgf),
+      builder.getI64IntegerAttr(ptr.getAlignment().getAsAlign().value()));
+
+  return RValue::get(convertSyncAtomicResult(cgf, e, cmpxchg.getOld()));
+}
+
 static RValue emitSyncLockRelease(CIRGenFunction &cgf, const CallExpr *e) {
   CIRGenBuilderTy &builder = cgf.getBuilder();
   mlir::Location loc = cgf.getLoc(e->getSourceRange());
@@ -2014,29 +2064,35 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI_InterlockedDecrement:
     return emitMSVCInterlockedIncrementOrDecrement(*this, e,
                                                    cir::AtomicFetchKind::Sub);
+  case Builtin::BI_InterlockedIncrement:
+    return emitMSVCInterlockedIncrementOrDecrement(*this, e,
+                                                   cir::AtomicFetchKind::Add);
+  case Builtin::BI_InterlockedExchange:
+    return emitSyncExchange(*this, e);
+  case Builtin::BI_InterlockedExchangeAdd:
+    return emitSyncFetchAndUpdate(*this, e, cir::AtomicFetchKind::Add,
+                                  /*fetchFirst=*/true);
+  case Builtin::BI_InterlockedCompareExchange:
+    return emitMSVCInterlockedCompareExchange(*this, e);
   case Builtin::BI__builtin_align_up:
   case Builtin::BI__builtin_align_down:
   case Builtin::BI__noop:
   case Builtin::BI__builtin_call_with_static_chain:
   case Builtin::BI_InterlockedExchange8:
   case Builtin::BI_InterlockedExchange16:
-  case Builtin::BI_InterlockedExchange:
   case Builtin::BI_InterlockedExchangePointer:
   case Builtin::BI_InterlockedCompareExchangePointer:
   case Builtin::BI_InterlockedCompareExchangePointer_nf:
   case Builtin::BI_InterlockedCompareExchange8:
   case Builtin::BI_InterlockedCompareExchange16:
-  case Builtin::BI_InterlockedCompareExchange:
   case Builtin::BI_InterlockedCompareExchange64:
   case Builtin::BI_InterlockedIncrement16:
-  case Builtin::BI_InterlockedIncrement:
   case Builtin::BI_InterlockedDecrement16:
   case Builtin::BI_InterlockedAnd8:
   case Builtin::BI_InterlockedAnd16:
   case Builtin::BI_InterlockedAnd:
   case Builtin::BI_InterlockedExchangeAdd8:
   case Builtin::BI_InterlockedExchangeAdd16:
-  case Builtin::BI_InterlockedExchangeAdd:
   case Builtin::BI_InterlockedExchangeSub8:
   case Builtin::BI_InterlockedExchangeSub16:
   case Builtin::BI_InterlockedExchangeSub:
@@ -2070,13 +2126,14 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI_interlockedbittestandreset_acq:
   case Builtin::BI_interlockedbittestandreset_rel:
   case Builtin::BI_interlockedbittestandreset_nf:
+  case Builtin::BI__iso_volatile_store32:
+    return emitISOVolatileStore(*this, e);
   case Builtin::BI__iso_volatile_load8:
   case Builtin::BI__iso_volatile_load16:
   case Builtin::BI__iso_volatile_load32:
   case Builtin::BI__iso_volatile_load64:
   case Builtin::BI__iso_volatile_store8:
   case Builtin::BI__iso_volatile_store16:
-  case Builtin::BI__iso_volatile_store32:
   case Builtin::BI__iso_volatile_store64:
   case Builtin::BI__builtin_ptrauth_sign_constant:
   case Builtin::BI__builtin_ptrauth_auth:

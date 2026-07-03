@@ -46,6 +46,18 @@ public:
   initializeHiddenVirtualInheritanceMembers(CIRGenFunction &cgf,
                                             const CXXRecordDecl *rd) {}
 
+  /// For ABIs that lack separate complete-object/base-object constructor
+  /// variants (i.e. !hasConstructorVariants()), emit the guard that runs
+  /// virtual-base construction only when the runtime "is most derived"
+  /// flag is set, and any per-ABI setup (e.g. vbtable pointer stores) that
+  /// must happen inside that guarded region before virtual bases are
+  /// constructed. On return the builder is positioned inside the guard's
+  /// then-region; the caller emits the virtual-base initializers there,
+  /// then must terminate the region and resume after the returned op.
+  /// Only ever called when !hasConstructorVariants().
+  virtual cir::IfOp emitCtorCompleteObjectHandler(CIRGenFunction &cgf,
+                                                  const CXXRecordDecl *rd);
+
   /// Emit a single constructor/destructor with the gen type from a C++
   /// constructor/destructor Decl.
   virtual void emitCXXStructor(clang::GlobalDecl gd) = 0;

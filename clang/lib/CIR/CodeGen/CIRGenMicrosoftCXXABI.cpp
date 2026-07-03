@@ -79,10 +79,39 @@ class CIRGenMicrosoftCXXABI : public CIRGenCXXABI {
   /// numbered by Sema instead, via ASTContext::getStaticLocalNumber.
   llvm::DenseMap<const DeclContext *, unsigned> threadSafeGuardNumMap;
 
+  /// Cache of a class's vbtables: the globals holding, for each subobject
+  /// introducing a distinct vbptr, the offsets from that vbptr to each of
+  /// its virtual bases (and to itself). Mirrors classic CodeGen's
+  /// MicrosoftCXXABI::VBTableGlobals/VBTablesMap.
+  struct VBTableGlobals {
+    const VPtrInfoVector *vbTables = nullptr;
+    SmallVector<cir::GlobalOp, 2> globals;
+  };
+  llvm::DenseMap<const CXXRecordDecl *, VBTableGlobals> vbTablesMap;
+
+  /// Caching wrapper around MicrosoftVTableContext::enumerateVBTables(),
+  /// also populating (and eagerly defining, where the linkage calls for it)
+  /// each vbtable's own global.
+  const VBTableGlobals &enumerateVBTables(const CXXRecordDecl *rd);
+  cir::GlobalOp getAddrOfVBTable(const VPtrInfo &vbt, const CXXRecordDecl *rd,
+                                 cir::GlobalLinkageKind linkage);
+  void emitVBTableDefinition(const VPtrInfo &vbt, const CXXRecordDecl *rd,
+                             cir::GlobalOp gv);
+
+  /// Stores each of rd's vbtable pointers (one per vbptr-introducing
+  /// subobject) at its byte offset from `this`. Called from within the
+  /// is_most_derived-guarded region emitCtorCompleteObjectHandler creates,
+  /// before any virtual base's constructor runs (a virtual base's own ctor
+  /// can call back through paths that dereference the vbptr just stored,
+  /// via getVirtualBaseClassOffset above).
+  void emitVBPtrStores(CIRGenFunction &cgf, const CXXRecordDecl *rd);
+
 public:
   CIRGenMicrosoftCXXABI(CIRGenModule &cgm) : CIRGenCXXABI(cgm) {}
 
   void emitCXXStructor(GlobalDecl gd) override;
+  cir::IfOp emitCtorCompleteObjectHandler(CIRGenFunction &cgf,
+                                          const CXXRecordDecl *rd) override;
   mlir::Value getVirtualBaseClassOffset(mlir::Location loc,
                                         CIRGenFunction &cgf, Address thisAddr,
                                         const CXXRecordDecl *classDecl,
@@ -189,6 +218,25 @@ void CIRGenMicrosoftCXXABI::emitInstanceFunctionProlog(SourceLocation loc,
           cgf.getLoc(loc), thisValue, cgf.returnValue.getElementType());
     cgf.getBuilder().createStore(cgf.getLoc(loc), thisValue, cgf.returnValue);
   }
+
+  // Deliberately only the constructor side: unlike is_most_derived, loading
+  // a deleting destructor's should_call_delete implicit param here would
+  // make cxxStructorImplicitParamValue non-null for destructors too, which
+  // flips two currently-scoped errorNYI paths live for every deleting
+  // destructor (enterDtorCleanups's "deleting destructor with vtt" in
+  // CIRGenClass.cpp, and emitDestructorBody's
+  // "emitConditionalArrayDtorCall" in CIRGenFunction.cpp) and would regress
+  // already-passing deleting-destructor tests. Nothing about *this* change
+  // needs that value read for destructors.
+  const auto *md = cast<CXXMethodDecl>(cgf.curGD.getDecl());
+  if (isa<CXXConstructorDecl>(md) && md->getParent()->getNumVBases()) {
+    assert(getStructorImplicitParamDecl(cgf) &&
+           "no implicit parameter for a constructor with virtual bases?");
+    setStructorImplicitParamValue(
+        cgf, cgf.getBuilder().createLoad(
+                 cgf.getLoc(loc),
+                 cgf.getAddrOfLocalVar(getStructorImplicitParamDecl(cgf))));
+  }
 }
 
 CIRGenCXXABI::AddedStructorArgCounts
@@ -200,6 +248,26 @@ CIRGenMicrosoftCXXABI::buildStructorSignature(
        gd.getDtorType() == Dtor_VectorDeleting)) {
     argTys.push_back(cgm.getASTContext().IntTy);
     ++added.suffix;
+    return added;
+  }
+
+  // All parameters are already in place except is_most_derived, which goes
+  // after 'this' if the ctor is variadic and last if it's not -- see
+  // getImplicitConstructorArgs/addImplicitStructorParams below, which must
+  // agree on this exact position.
+  const auto *cd = dyn_cast<CXXConstructorDecl>(gd.getDecl());
+  if (!cd)
+    return added;
+  const CXXRecordDecl *classDecl = cd->getParent();
+  if (classDecl->getNumVBases()) {
+    const auto *fpt = cd->getType()->castAs<FunctionProtoType>();
+    if (fpt->isVariadic()) {
+      argTys.insert(argTys.begin() + 1, cgm.getASTContext().IntTy);
+      ++added.prefix;
+    } else {
+      argTys.push_back(cgm.getASTContext().IntTy);
+      ++added.suffix;
+    }
   }
   return added;
 }
@@ -210,25 +278,61 @@ CIRGenMicrosoftCXXABI::getImplicitConstructorArgs(CIRGenFunction &cgf,
                                                   CXXCtorType type,
                                                   bool forVirtualBase,
                                                   bool delegating) {
-  return AddedStructorArgs{};
+  assert(type == Ctor_Complete || type == Ctor_Base);
+
+  // Check if we need a 'most_derived' parameter.
+  if (!d->getParent()->getNumVBases())
+    return AddedStructorArgs{};
+
+  // The value depends only on `type` (and `delegating`) -- never on
+  // `forVirtualBase`: a virtual base's own ctor is always invoked with
+  // Ctor_Base (flag 0), correctly, because if that vbase itself has virtual
+  // bases, those belong to the most-derived object's ctor, not to it.
+  const auto *fpt = d->getType()->castAs<FunctionProtoType>();
+  mlir::Value mostDerivedArg;
+  if (delegating) {
+    // Forward the caller's own flag: constructing a base subobject through a
+    // delegating ctor must not re-decide whether it owns virtual bases.
+    mostDerivedArg = getStructorImplicitParamValue(cgf);
+  } else {
+    mostDerivedArg = cgf.getBuilder().getSInt32(
+        type == Ctor_Complete ? 1 : 0, cgf.getLoc(d->getSourceRange()));
+  }
+  QualType intTy = cgm.getASTContext().IntTy;
+  if (fpt->isVariadic())
+    return AddedStructorArgs::withPrefix({{mostDerivedArg, intTy}});
+  return AddedStructorArgs::withSuffix({{mostDerivedArg, intTy}});
 }
 
 void CIRGenMicrosoftCXXABI::addImplicitStructorParams(CIRGenFunction &cgf,
                                                       QualType &resTy,
                                                       FunctionArgList &params) {
   const auto *md = cast<CXXMethodDecl>(cgf.curGD.getDecl());
-  if (!isa<CXXDestructorDecl>(md) ||
-      (cgf.curGD.getDtorType() != Dtor_Deleting &&
-       cgf.curGD.getDtorType() != Dtor_VectorDeleting))
-    return;
-
+  assert(isa<CXXConstructorDecl>(md) || isa<CXXDestructorDecl>(md));
   ASTContext &ctx = cgm.getASTContext();
-  auto *shouldDelete = ImplicitParamDecl::Create(
-      ctx, nullptr, cgf.curGD.getDecl()->getLocation(),
-      &ctx.Idents.get("should_call_delete"), ctx.IntTy,
-      ImplicitParamKind::Other);
-  params.push_back(shouldDelete);
-  getStructorImplicitParamDecl(cgf) = shouldDelete;
+  if (isa<CXXConstructorDecl>(md) && md->getParent()->getNumVBases()) {
+    auto *isMostDerived = ImplicitParamDecl::Create(
+        ctx, nullptr, cgf.curGD.getDecl()->getLocation(),
+        &ctx.Idents.get("is_most_derived"), ctx.IntTy,
+        ImplicitParamKind::Other);
+    // Matches buildStructorSignature above: after 'this' if variadic, last
+    // otherwise.
+    const auto *fpt = md->getType()->castAs<FunctionProtoType>();
+    if (fpt->isVariadic())
+      params.insert(params.begin() + 1, isMostDerived);
+    else
+      params.push_back(isMostDerived);
+    getStructorImplicitParamDecl(cgf) = isMostDerived;
+  } else if (isa<CXXDestructorDecl>(md) &&
+             (cgf.curGD.getDtorType() == Dtor_Deleting ||
+              cgf.curGD.getDtorType() == Dtor_VectorDeleting)) {
+    auto *shouldDelete = ImplicitParamDecl::Create(
+        ctx, nullptr, cgf.curGD.getDecl()->getLocation(),
+        &ctx.Idents.get("should_call_delete"), ctx.IntTy,
+        ImplicitParamKind::Other);
+    params.push_back(shouldDelete);
+    getStructorImplicitParamDecl(cgf) = shouldDelete;
+  }
 }
 
 bool CIRGenMicrosoftCXXABI::hasThisReturn(GlobalDecl gd) const {
@@ -246,11 +350,6 @@ void CIRGenMicrosoftCXXABI::emitCXXStructor(GlobalDecl gd) {
   if (const auto *cd = dyn_cast<CXXConstructorDecl>(md)) {
     if (gd.getCtorType() != Ctor_Complete)
       gd = GlobalDecl(cd, Ctor_Complete);
-    if (cd->getParent()->getNumVBases() != 0) {
-      cgm.errorNYI(cd->getSourceRange(),
-                   "Microsoft C++ ABI constructor with virtual bases");
-      return;
-    }
     cir::FuncOp fn = cgm.codegenCXXStructor(gd);
     cgm.maybeSetTrivialComdat(*cd, fn);
     return;
@@ -817,10 +916,181 @@ mlir::Value CIRGenMicrosoftCXXABI::emitVirtualDestructorCall(
       .getValue();
 }
 
+const CIRGenMicrosoftCXXABI::VBTableGlobals &
+CIRGenMicrosoftCXXABI::enumerateVBTables(const CXXRecordDecl *rd) {
+  // At this layer, we can key the cache off of a single class, which is much
+  // easier than caching each vbtable individually.
+  auto [entry, added] = vbTablesMap.try_emplace(rd);
+  VBTableGlobals &vbGlobals = entry->second;
+  if (!added)
+    return vbGlobals;
+
+  MicrosoftVTableContext &context = cgm.getMicrosoftVTableContext();
+  vbGlobals.vbTables = &context.enumerateVBTables(rd);
+
+  // Cache the globals for all vbtables so we don't have to recompute the
+  // mangled names.
+  cir::GlobalLinkageKind linkage = cgm.getVTableLinkage(rd);
+  for (const std::unique_ptr<VPtrInfo> &info : *vbGlobals.vbTables)
+    vbGlobals.globals.push_back(getAddrOfVBTable(*info, rd, linkage));
+
+  return vbGlobals;
+}
+
+cir::GlobalOp
+CIRGenMicrosoftCXXABI::getAddrOfVBTable(const VPtrInfo &vbt,
+                                       const CXXRecordDecl *rd,
+                                       cir::GlobalLinkageKind linkage) {
+  SmallString<256> name;
+  llvm::raw_svector_ostream out(name);
+  cast<MicrosoftMangleContext>(getMangleContext())
+      .mangleCXXVBTable(rd, vbt.MangledPath, out);
+
+  cir::ArrayType vbTableType = cir::ArrayType::get(
+      cgm.getBuilder().getSInt32Ty(), 1 + vbt.ObjectWithVPtr->getNumVBases());
+
+  CharUnits alignment =
+      cgm.getASTContext().getTypeAlignInChars(cgm.getASTContext().IntTy);
+  cir::GlobalOp gv = cgm.createOrReplaceCXXRuntimeVariable(
+      cgm.getLoc(rd->getSourceRange()), name, vbTableType, linkage, alignment);
+  // Classic CodeGen also sets unnamed_addr and a DLL storage class here;
+  // neither is modeled in CIR yet.
+  assert(!cir::MissingFeatures::opGlobalUnnamedAddr());
+  assert(!cir::MissingFeatures::opGlobalDLLImportExport());
+
+  if (linkage != cir::GlobalLinkageKind::ExternalLinkage)
+    emitVBTableDefinition(vbt, rd, gv);
+
+  return gv;
+}
+
+void CIRGenMicrosoftCXXABI::emitVBTableDefinition(const VPtrInfo &vbt,
+                                                  const CXXRecordDecl *rd,
+                                                  cir::GlobalOp gv) {
+  const CXXRecordDecl *objectWithVPtr = vbt.ObjectWithVPtr;
+
+  assert(rd->getNumVBases() && objectWithVPtr->getNumVBases() &&
+         "should only emit vbtables for classes with vbtables");
+
+  const ASTRecordLayout &baseLayout =
+      cgm.getASTContext().getASTRecordLayout(vbt.IntroducingObject);
+  const ASTRecordLayout &derivedLayout =
+      cgm.getASTContext().getASTRecordLayout(rd);
+
+  CIRGenBuilderTy &builder = cgm.getBuilder();
+  cir::IntType sInt32Ty = builder.getSInt32Ty();
+  SmallVector<mlir::Attribute> offsets(1 + objectWithVPtr->getNumVBases(),
+                                       nullptr);
+
+  // The offset from ObjectWithVPtr's vbptr to itself always leads.
+  CharUnits vbPtrOffset = baseLayout.getVBPtrOffset();
+  offsets[0] = cir::IntAttr::get(sInt32Ty, -vbPtrOffset.getQuantity());
+
+  MicrosoftVTableContext &context = cgm.getMicrosoftVTableContext();
+  for (const CXXBaseSpecifier &base : objectWithVPtr->vbases()) {
+    const CXXRecordDecl *vbase = base.getType()->getAsCXXRecordDecl();
+    CharUnits offset = derivedLayout.getVBaseClassOffset(vbase);
+    assert(!offset.isNegative());
+
+    // Make it relative to the subobject vbptr.
+    CharUnits completeVBPtrOffset = vbt.NonVirtualOffset + vbPtrOffset;
+    if (vbt.getVBaseWithVPtr())
+      completeVBPtrOffset +=
+          derivedLayout.getVBaseClassOffset(vbt.getVBaseWithVPtr());
+    offset -= completeVBPtrOffset;
+
+    unsigned vbIndex = context.getVBTableIndex(objectWithVPtr, vbase);
+    assert(!offsets[vbIndex] && "the same vbindex seen twice?");
+    offsets[vbIndex] = cir::IntAttr::get(sInt32Ty, offset.getQuantity());
+  }
+
+  auto vbTableType = mlir::cast<cir::ArrayType>(gv.getSymType());
+  assert(offsets.size() == vbTableType.getSize());
+  mlir::Attribute init = builder.getConstArray(
+      mlir::ArrayAttr::get(builder.getContext(), offsets), vbTableType);
+  cgm.setInitializer(gv, init);
+
+  // Classic CodeGen downgrades a dllimport vbtable to available_externally
+  // once it has a definition; not modeled in CIR yet.
+  assert(!cir::MissingFeatures::opGlobalDLLImportExport());
+}
+
+void CIRGenMicrosoftCXXABI::emitVBPtrStores(CIRGenFunction &cgf,
+                                            const CXXRecordDecl *rd) {
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(rd->getSourceRange());
+  Address thisAddr = cgf.loadCXXThisAddress();
+  ASTContext &ctx = cgm.getASTContext();
+  const ASTRecordLayout &layout = ctx.getASTRecordLayout(rd);
+
+  const VBTableGlobals &vbGlobals = enumerateVBTables(rd);
+  for (unsigned i = 0, e = vbGlobals.vbTables->size(); i != e; ++i) {
+    const std::unique_ptr<VPtrInfo> &vbt = (*vbGlobals.vbTables)[i];
+    cir::GlobalOp gv = vbGlobals.globals[i];
+
+    const ASTRecordLayout &subobjectLayout =
+        ctx.getASTRecordLayout(vbt->IntroducingObject);
+    CharUnits offset = vbt->NonVirtualOffset + subobjectLayout.getVBPtrOffset();
+    if (vbt->getVBaseWithVPtr())
+      offset += layout.getVBaseClassOffset(vbt->getVBaseWithVPtr());
+
+    // Same byte-addressing idiom as the reader, getVirtualBaseClassOffset
+    // above: bitcast `this` to u8*, stride by the byte offset, bitcast the
+    // resulting slot to u8** to store through it.
+    mlir::Value thisBytePtr =
+        builder.createBitcast(thisAddr.getPointer(), cgm.uInt8PtrTy);
+    mlir::Value offsetValue =
+        builder.getConstInt(loc, cgm.ptrDiffTy, offset.getQuantity());
+    mlir::Value slotBytePtr = cir::PtrStrideOp::create(
+        builder, loc, cgm.uInt8PtrTy, thisBytePtr, offsetValue);
+    Address slotAddr(
+        builder.createBitcast(slotBytePtr, builder.getPointerTo(cgm.uInt8PtrTy)),
+        cgm.uInt8PtrTy, thisAddr.getAlignment().alignmentAtOffset(offset));
+
+    mlir::Value tablePtr = builder.createGetGlobal(loc, gv);
+    tablePtr = builder.createBitcast(tablePtr, cgm.uInt8PtrTy);
+    builder.createStore(loc, tablePtr, slotAddr);
+  }
+}
+
 void CIRGenMicrosoftCXXABI::emitVirtualInheritanceTables(
     const CXXRecordDecl *rd) {
-  cgm.errorNYI(rd->getSourceRange(),
-               "Microsoft C++ ABI virtual inheritance tables");
+  const VBTableGlobals &vbGlobals = enumerateVBTables(rd);
+  for (unsigned i = 0, e = vbGlobals.vbTables->size(); i != e; ++i) {
+    const std::unique_ptr<VPtrInfo> &vbt = (*vbGlobals.vbTables)[i];
+    cir::GlobalOp gv = vbGlobals.globals[i];
+    if (!gv.hasInitializer())
+      emitVBTableDefinition(*vbt, rd, gv);
+  }
+}
+
+cir::IfOp CIRGenMicrosoftCXXABI::emitCtorCompleteObjectHandler(
+    CIRGenFunction &cgf, const CXXRecordDecl *rd) {
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(rd->getSourceRange());
+  mlir::Value isMostDerived = getStructorImplicitParamValue(cgf);
+  assert(isMostDerived &&
+         "ctor for a class with virtual bases must have an implicit parameter");
+  mlir::Value isCompleteObject = builder.createCompare(
+      loc, cir::CmpOpKind::ne, isMostDerived,
+      builder.getNullValue(isMostDerived.getType(), loc));
+
+  mlir::OpBuilder::InsertPoint thenBody;
+  cir::IfOp ifOp = cir::IfOp::create(
+      builder, loc, isCompleteObject, /*withElseRegion=*/false,
+      [&](mlir::OpBuilder &b, mlir::Location) {
+        thenBody = b.saveInsertionPoint();
+      });
+  // Deliberately not scoped by an InsertionGuard: the builder must remain
+  // positioned inside the then-region after this function returns, so the
+  // caller (CIRGenFunction::emitCtorPrologue) can emit the virtual-base
+  // initializers directly into it before terminating the region itself.
+  builder.restoreInsertionPoint(thenBody);
+  // Fill in the vbtable pointers here, before any virtual base's
+  // constructor runs (a vbase ctor can call back through paths that
+  // dereference the vbptr just stored, via getVirtualBaseClassOffset).
+  emitVBPtrStores(cgf, rd);
+  return ifOp;
 }
 
 bool CIRGenMicrosoftCXXABI::useThunkForDtorVariant(
@@ -920,9 +1190,26 @@ CIRGenMicrosoftCXXABI::getVTableAddressPoint(BaseSubobject base,
   mlir::Location loc = cgm.getLoc(vtableClass->getSourceRange());
   cir::GlobalOp vtable = getAddrOfVTable(vtableClass, base.getBaseOffset());
   if (!vtable) {
-    cgm.errorNYI(loc, "Microsoft C++ ABI missing vfptr table");
-    return cgm.getBuilder().getNullValue(
-        cir::VPtrType::get(cgm.getBuilder().getContext()), loc);
+    // Not an error: getAddrOfVTable already gracefully returns empty when
+    // this exact subobject has no vfptr slot, and that is a real,
+    // expected case (this function's only caller,
+    // getVTableAddressPointInStructor, is in turn called on every
+    // dynamic-class subobject enumerated by CIRGenFunction::
+    // getVTablePointers, including ones whose only reason for being
+    // "dynamic" is a virtual base -- which needs a vbptr, handled
+    // separately by emitVBPtrStores, not a vfptr at all). Mirrors classic
+    // CodeGen's MicrosoftCXXABI::getVTableAddressPoint, which returns
+    // whatever its VFTablesMap lookup gives (defaulting to null for an
+    // absent entry) with no error path; the caller there similarly just
+    // asserts, when null, that this is exactly the
+    // "has vbases and !hasOwnVFPtr()" case, matched here too as a
+    // debug-only sanity check rather than a hard requirement.
+    assert((base.getBase()->getNumVBases() &&
+            !cgm.getASTContext()
+                 .getASTRecordLayout(base.getBase())
+                 .hasOwnVFPtr()) &&
+           "getAddrOfVTable unexpectedly found no vfptr for this subobject");
+    return {};
   }
 
   const VTableLayout &vtLayout = cgm.getMicrosoftVTableContext()

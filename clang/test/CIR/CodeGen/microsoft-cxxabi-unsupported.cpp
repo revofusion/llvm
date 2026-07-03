@@ -2,13 +2,14 @@
 
 struct V {
   V();
+  ~V();
 };
-struct A : virtual V {
-  A();
+struct B : virtual V {
+  ~B();
 };
 
-A::A() {}
+B::~B() {}
 
-// CHECK: ClangIR code gen Not Yet Implemented: Microsoft C++ ABI constructor with virtual bases
+// CHECK: ClangIR code gen Not Yet Implemented: Microsoft C++ ABI destructor with virtual bases
 // CHECK-NOT: UNREACHABLE
 // CHECK-NOT: Assertion

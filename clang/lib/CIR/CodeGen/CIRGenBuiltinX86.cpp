@@ -2409,15 +2409,52 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
     return mlir::Value{};
   }
   case X86::BI__emul:
-  case X86::BI__emulu:
+  case X86::BI__emulu: {
+    // 32x32 -> 64 widening multiply: both halves of the true product fit in
+    // the 64-bit result, so a plain widen-then-multiply suffices (no
+    // overflow is possible once both operands are sign/zero-extended to the
+    // full result width). Mirrors classic CodeGen's identical case
+    // (clang/lib/CodeGen/TargetBuiltins/X86.cpp).
+    mlir::Location loc = getLoc(expr->getExprLoc());
+    bool isSigned = builtinID == X86::BI__emul;
+    cir::IntType int64Ty =
+        isSigned ? builder.getSIntNTy(64) : builder.getUIntNTy(64);
+    mlir::Value lhs = builder.createIntCast(ops[0], int64Ty);
+    mlir::Value rhs = builder.createIntCast(ops[1], int64Ty);
+    return builder.createMul(loc, lhs, rhs);
+  }
   case X86::BI__mulh:
   case X86::BI__umulh:
   case X86::BI_mul128:
   case X86::BI_umul128: {
-    cgm.errorNYI(expr->getSourceRange(),
-                 std::string("unimplemented X86 builtin call: ") +
-                     getContext().BuiltinInfo.getName(builtinID));
-    return mlir::Value{};
+    // 64x64 -> 128 widening multiply: widen both operands to 128 bits,
+    // multiply, then split into low/high 64-bit halves. __mulh/__umulh
+    // return only the high half; _mul128/_umul128 return the low half and
+    // write the high half through the third (out-param) argument. Mirrors
+    // classic CodeGen's identical case (clang/lib/CodeGen/TargetBuiltins/
+    // X86.cpp): re-evaluates the out-param argument via
+    // emitPointerWithAlignment (not the pre-computed `ops[2]` scalar) for
+    // proper alignment, matching that reference exactly.
+    mlir::Location loc = getLoc(expr->getExprLoc());
+    mlir::Type resType = convertType(expr->getType());
+    bool isSigned =
+        builtinID == X86::BI__mulh || builtinID == X86::BI_mul128;
+    cir::IntType int128Ty =
+        isSigned ? builder.getSIntNTy(128) : builder.getUIntNTy(128);
+    mlir::Value lhs = builder.createIntCast(ops[0], int128Ty);
+    mlir::Value rhs = builder.createIntCast(ops[1], int128Ty);
+
+    mlir::Value mulResult = isSigned ? builder.createNSWMul(loc, lhs, rhs)
+                                     : builder.createNUWAMul(loc, lhs, rhs);
+    mlir::Value higherBits = builder.createShiftRight(loc, mulResult, 64u);
+    higherBits = builder.createIntCast(higherBits, resType);
+
+    if (builtinID == X86::BI__mulh || builtinID == X86::BI__umulh)
+      return higherBits;
+
+    Address highBitsAddress = emitPointerWithAlignment(expr->getArg(2));
+    builder.createStore(loc, higherBits, highBitsAddress);
+    return builder.createIntCast(mulResult, resType);
   }
   case X86::BI__faststorefence: {
     cir::AtomicFenceOp::create(

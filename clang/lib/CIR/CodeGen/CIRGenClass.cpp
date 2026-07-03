@@ -272,11 +272,20 @@ void CIRGenFunction::emitCtorPrologue(const CXXConstructorDecl *cd,
   bool constructVBases = ctorType != Ctor_Base &&
                          classDecl->getNumVBases() != 0 &&
                          !classDecl->isAbstract();
+
+  // In the Microsoft C++ ABI, there are no constructor variants. Instead,
+  // the constructor of a class with virtual bases takes an additional
+  // parameter to conditionally construct the virtual bases. Emit that
+  // check here: on return the builder is positioned inside the guard's
+  // then-region (see CIRGenCXXABI::emitCtorCompleteObjectHandler), where
+  // the virtual-base initializer loop below is emitted; the matching
+  // yield-and-resume happens right after that loop.
+  cir::IfOp vbaseGuard;
   if (constructVBases &&
       !cgm.getTarget().getCXXABI().hasConstructorVariants()) {
-    cgm.errorNYI(cd->getSourceRange(),
-                 "emitCtorPrologue: virtual base without variants");
-    return;
+    vbaseGuard = cgm.getCXXABI().emitCtorCompleteObjectHandler(*this, classDecl);
+    if (!vbaseGuard)
+      return;
   }
 
   // Create three separate ranges for the different types of initializers.
@@ -320,7 +329,14 @@ void CIRGenFunction::emitCtorPrologue(const CXXConstructorDecl *cd,
     emitInitializer(virtualBaseInit);
   }
 
-  assert(!cir::MissingFeatures::msabi());
+  // Complete-object handler joins back before the remaining initializers
+  // (classic CodeGen: CGClass.cpp's BaseCtorContinueBB). Everything from
+  // here on (non-virtual base inits, vtable pointers, member inits) runs
+  // unconditionally, regardless of is_most_derived.
+  if (vbaseGuard) {
+    builder.createYield(getLoc(cd->getBeginLoc()));
+    builder.setInsertionPointAfter(vbaseGuard);
+  }
 
   // Then, non-virtual base initializers.
   for (CXXCtorInitializer *nonVirtualBaseInit : nonVirtualBaseInits) {

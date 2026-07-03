@@ -123,10 +123,30 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
     if (auto ptrAttr = mlir::dyn_cast<cir::ConstPtrAttr>(attr)) {
       if (auto desiredPtr = mlir::dyn_cast<cir::PointerType>(desiredType))
         return cir::ConstPtrAttr::get(desiredPtr, ptrAttr.getValue());
+      // ConstPtrAttr's own storage is hard-typed to cir::PointerType (see
+      // CIR_ConstPtrAttr in CIRAttrs.td: its builder unconditionally
+      // `cast<PointerType>`s the type), so it can never itself represent a
+      // !cir.vptr value -- unlike GlobalViewAttr below, which is genuinely
+      // type-agnostic. A null ConstPtrAttr retargeting to !cir.vptr can only
+      // soundly become the type's own zero value; a non-null one has no
+      // sound representation here and must fail closed.
+      if (mlir::isa<cir::VPtrType>(desiredType) && ptrAttr.isNullValue())
+        return builder.getZeroInitAttr(desiredType);
     }
 
     if (auto globalView = mlir::dyn_cast<cir::GlobalViewAttr>(attr)) {
-      if (mlir::isa<cir::PointerType, cir::IntTypeInterface>(desiredType))
+      // Likewise for a real vtable-global reference: a base class's own
+      // vfptr slot, constant-folded independently of the derived class
+      // asking for it, is a GlobalViewAttr typed as a generic pointer to the
+      // vtable's own (anonymous, N-function-pointer-array) record type; the
+      // derived class's memory layout wants the same address reinterpreted
+      // as !cir.vptr. Confirmed real (CVE-2026-5277 Renderer9/11.cpp,
+      // std::_Iostream_error_category2 : std::error_category): tracing
+      // showed this is not a null/placeholder value, so retargeting the
+      // GlobalViewAttr itself (not falling back to a zero) is required for
+      // correctness, not just to silence the diagnostic.
+      if (mlir::isa<cir::PointerType, cir::IntTypeInterface, cir::VPtrType>(
+              desiredType))
         return cir::GlobalViewAttr::get(desiredType, globalView.getSymbol(),
                                         globalView.getIndices());
     }
@@ -421,12 +441,22 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
       auto retargetSourceMemberAtIndex =
           [&](unsigned index,
               mlir::Type memberType) -> std::optional<mlir::TypedAttr> {
-        if (index >= sourceRecord.getNumElements())
+        if (index >= sourceRecord.getNumElements()) {
+          if (std::getenv("HELIOS_DEBUG_CIR_RETARGET"))
+            llvm::errs() << "[retarget-member] index=" << index
+                         << " >= numElements, bailing\n";
           return std::nullopt;
+        }
         auto typedMember =
             mlir::dyn_cast<mlir::TypedAttr>(record.getMembers()[index]);
         if (!typedMember)
           return std::nullopt;
+        if (std::getenv("HELIOS_DEBUG_CIR_RETARGET"))
+          llvm::errs() << "[retarget-member] index=" << index
+                       << " sourceType=" << typedMember.getType()
+                       << " memberType=" << memberType
+                       << " exactMatch=" << (typedMember.getType() == memberType)
+                       << " isNull=" << builder.isNullValue(typedMember) << "\n";
         if (typedMember.getType() == memberType)
           return typedMember;
         if (builder.isNullValue(typedMember) &&
@@ -535,6 +565,18 @@ retargetLayoutIdenticalConstant(CIRGenModule &cgm, mlir::TypedAttr attr,
       };
 
       auto retargeted = consumeLogicalRecord(desiredRecord);
+      if (std::getenv("HELIOS_DEBUG_CIR_RETARGET")) {
+        llvm::errs() << "[retarget] source=" << sourceRecord
+                     << " desired=" << desiredRecord
+                     << " retargeted=" << (bool)retargeted
+                     << " consumedVector=" << consumedVector
+                     << " skippedPadding=" << skippedPadding
+                     << " sourceIndex=" << sourceIndex
+                     << " sourceNumElements=" << sourceRecord.getNumElements()
+                     << " allUnusedNull="
+                     << (retargeted ? allUnusedSourceMembersAreNull(used) : false)
+                     << "\n";
+      }
       if ((consumedVector || skippedPadding ||
            sourceIndex == sourceRecord.getNumElements()) &&
           retargeted && allUnusedSourceMembersAreNull(used))
@@ -2560,12 +2602,19 @@ static mlir::TypedAttr emitNullConstant(CIRGenModule &cgm, const RecordDecl *rd,
     }
   }
 
-  // Now go through all other fields and zero them out.
+  // Now go through all other fields and zero them out. Reached by, e.g., a
+  // dynamic-class field/base subobject slot the loops above deliberately
+  // skip (an empty base, or -- the real case this closes -- a base whose own
+  // entire content is flattened directly into this record's element list,
+  // leaving no single field index for "the base as a whole" to fill): a
+  // literal zero (including for a vfptr-shaped slot) is exactly what classic
+  // CodeGen's identically-structured EmitNullConstant does for the same
+  // "unaccounted-for slot" case (clang/lib/CodeGen/CGExprConstant.cpp,
+  // `elements[i] = llvm::Constant::getNullValue(...)`), not a special case
+  // invented here.
   for (unsigned i = 0; i != numElements; ++i) {
-    if (!elements[i]) {
-      cgm.errorNYI(rd->getSourceRange(), "emitNullConstant: field not zeroed");
-      return {};
-    }
+    if (!elements[i])
+      elements[i] = cgm.getBuilder().getZeroInitAttr(recordTy.getElementType(i));
   }
 
   mlir::MLIRContext *mlirContext = recordTy.getContext();
