@@ -103,6 +103,34 @@ void CIRGenModule::emitVTable(const CXXRecordDecl *rd) {
   vtables.generateClassData(rd);
 }
 
+/// Given that we're currently at the end of the translation unit, and we've
+/// emitted a reference to the vtable for this class, should we define it?
+/// Mirrors classic CodeGen's ShouldEmitVTableAtEndOfTranslationUnit
+/// (CGVTables.cpp), minus its optimization-only available_externally
+/// carve-out (shouldEmitAvailableExternallyVTable/OpportunisticVTables),
+/// which CIR does not model.
+static bool shouldEmitVTableAtEndOfTranslationUnit(CIRGenModule &cgm,
+                                                   const CXXRecordDecl *rd) {
+  // If the vtable is internal then it has to be done.
+  return !cgm.getVTables().isVTableExternal(rd);
+}
+
+void CIRGenModule::emitDeferredVTables() {
+#ifndef NDEBUG
+  // Remember the size of deferredVTables, because we're going to assume
+  // that this entire operation doesn't modify it.
+  size_t savedSize = deferredVTables.size();
+#endif
+
+  for (const CXXRecordDecl *rd : deferredVTables)
+    if (shouldEmitVTableAtEndOfTranslationUnit(*this, rd))
+      vtables.generateClassData(rd);
+
+  assert(savedSize == deferredVTables.size() &&
+         "deferred extra vtables during vtable emission?");
+  deferredVTables.clear();
+}
+
 void CIRGenVTables::generateClassData(const CXXRecordDecl *rd) {
   assert(!cir::MissingFeatures::generateDebugInfo());
 

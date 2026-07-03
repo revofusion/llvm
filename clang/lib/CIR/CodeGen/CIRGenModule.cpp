@@ -389,8 +389,16 @@ void CIRGenModule::emitDeferred() {
   // static function, iterate until no changes are made.
 
   assert(!cir::MissingFeatures::openMP());
-  assert(!cir::MissingFeatures::deferredVtables());
   assert(!cir::MissingFeatures::cudaSupport());
+
+  // Emit deferred vtables first: emitting a vtable doesn't directly cause
+  // more vtables to become deferred, although it can cause functions to be
+  // emitted that then need those vtables.
+  if (!deferredVTables.empty()) {
+    emitDeferredVTables();
+    assert(deferredVTables.empty() &&
+           "deferred extra vtables during vtable emission?");
+  }
 
   // Stop if we're out of both deferred vtables and deferred declarations.
   if (deferredDeclsToEmit.empty())

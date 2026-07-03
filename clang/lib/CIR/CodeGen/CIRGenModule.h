@@ -319,6 +319,7 @@ public:
   CIRGenBlockRuntime &getBlockRuntime();
 
   void emitVTable(const CXXRecordDecl *rd);
+  void emitDeferredVTables();
 
   /// Return the appropriate linkage for the vtable, VTT, and type information
   /// of the given class.
@@ -461,6 +462,12 @@ public:
   std::vector<clang::GlobalDecl> deferredDeclsToEmit;
   void addDeferredDeclToEmit(clang::GlobalDecl GD) {
     deferredDeclsToEmit.emplace_back(GD);
+  }
+
+  /// A queue of (optional) vtables to consider emitting.
+  std::vector<const clang::CXXRecordDecl *> deferredVTables;
+  void addDeferredVTable(const clang::CXXRecordDecl *rd) {
+    deferredVTables.push_back(rd);
   }
 
   void emitTopLevelDecl(clang::Decl *decl);

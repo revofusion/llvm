@@ -17,6 +17,8 @@
 #include "clang/AST/Mangle.h"
 #include "clang/AST/VTableBuilder.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
@@ -72,6 +74,14 @@ static bool guardedInitMayThrow(const Stmt *s) {
 class CIRGenMicrosoftCXXABI : public CIRGenCXXABI {
   using VFTableIdTy = std::pair<const CXXRecordDecl *, CharUnits>;
   llvm::DenseMap<VFTableIdTy, cir::GlobalOp> vtables;
+
+  /// Classes whose vftable(s) have already been queued for (possibly
+  /// deferred) emission via CIRGenModule::addDeferredVTable. Mirrors classic
+  /// CodeGen's MicrosoftCXXABI::DeferredVFTables; without this, a vftable
+  /// global created by getAddrOfVTable is only ever declared, never
+  /// defined, since nothing else in CIR triggers emitVirtualInheritanceTables
+  /// for the MS ABI's per-subobject vftables.
+  llvm::SmallPtrSet<const CXXRecordDecl *, 4> deferredVFTables;
 
   /// Per-DeclContext counter used to number the thread-safe guard variables
   /// of internal-linkage local statics (mirrors classic CodeGen's
@@ -822,7 +832,7 @@ size_t CIRGenMicrosoftCXXABI::getSrcArgforCopyCtor(
 
 bool CIRGenMicrosoftCXXABI::isVirtualOffsetNeededForVTableField(
     CIRGenFunction &cgf, CIRGenFunction::VPtr vptr) {
-  return false;
+  return vptr.nearestVBase != nullptr;
 }
 
 void CIRGenMicrosoftCXXABI::emitVTableDefinitions(CIRGenVTables &cgvt,
@@ -830,12 +840,14 @@ void CIRGenMicrosoftCXXABI::emitVTableDefinitions(CIRGenVTables &cgvt,
   MicrosoftVTableContext &vtContext = cgm.getMicrosoftVTableContext();
   const VPtrInfoVector &vfPtrs = vtContext.getVFPtrOffsets(rd);
 
-  if (cgm.getLangOpts().RTTIData) {
-    cgm.errorNYI(rd->getSourceRange(),
-                 "Microsoft C++ ABI vtable RTTI data emission");
-    return;
-  }
-
+  // Classic CodeGen's MicrosoftCXXABI::emitVTableDefinitions has no
+  // blanket RTTIData check here at all: whether an entry needs RTTI is a
+  // per-vfptr, per-layout question (any_of(VTLayout.vtable_components(),
+  // isRTTIKind)), handled below by the existing per-component errorNYI.
+  // A blanket check here was wrong: it fired even for classes (e.g. one
+  // with only a virtual base and no vfptr anywhere) whose `vfPtrs` is
+  // empty and would never reach that per-component check at all --
+  // spuriously erroring on classes with nothing to emit.
   for (const std::unique_ptr<VPtrInfo> &info : vfPtrs) {
     cir::GlobalOp vtable = getAddrOfVTable(rd, info->FullOffsetInMDC);
     if (!vtable || vtable.hasInitializer())
@@ -1107,6 +1119,29 @@ cir::GlobalOp CIRGenMicrosoftCXXABI::getAddrOfVTable(const CXXRecordDecl *rd,
 
   MicrosoftVTableContext &vtContext = cgm.getMicrosoftVTableContext();
   const VPtrInfoVector &vfPtrs = vtContext.getVFPtrOffsets(rd);
+
+  if (deferredVFTables.insert(rd).second) {
+    // We haven't processed this record type before. Queue up this vtable
+    // for possible deferred emission (see CIRGenModule::emitDeferred /
+    // emitDeferredVTables), mirroring classic CodeGen's identical queuing
+    // in MicrosoftCXXABI::getAddrOfVTable.
+    cgm.addDeferredVTable(rd);
+
+#ifndef NDEBUG
+    // Create all the vftables at once in order to make sure each vftable
+    // has a unique mangled name.
+    llvm::StringSet<> observedMangledNames;
+    for (const std::unique_ptr<VPtrInfo> &vfPtrInfo : vfPtrs) {
+      SmallString<256> vfTableName;
+      llvm::raw_svector_ostream nameStream(vfTableName);
+      cast<MicrosoftMangleContext>(getMangleContext())
+          .mangleCXXVFTable(rd, vfPtrInfo->MangledPath, nameStream);
+      if (!observedMangledNames.insert(vfTableName.str()).second)
+        llvm_unreachable("Already saw this mangling before?");
+    }
+#endif
+  }
+
   const std::unique_ptr<VPtrInfo> *vfPtr =
       llvm::find_if(vfPtrs, [&](const std::unique_ptr<VPtrInfo> &info) {
         return info->FullOffsetInMDC == vptrOffset;
@@ -1116,12 +1151,18 @@ cir::GlobalOp CIRGenMicrosoftCXXABI::getAddrOfVTable(const CXXRecordDecl *rd,
     return {};
   }
 
-  if (cgm.getLangOpts().RTTIData) {
+  // Classic CodeGen emits the vftable symbol as a GlobalAlias into a private
+  // backing global, pointing past the RTTI slot, when -frtti-data is in
+  // effect (MicrosoftCXXABI::getAddrOfVTable, VTableAliasIsRequred). CIR has
+  // no global-alias support yet; report the NYI but still create the
+  // backing global below, preserving the contract getVTableAddressPoint's
+  // caller relies on -- that a null return here means `rd` genuinely has no
+  // vfptr at vptrOffset, never "there is one, but RTTI data isn't
+  // implemented". emitVTableDefinitions has its own independent RTTIData
+  // guard, so no wrong initializer is emitted for this global either way.
+  if (cgm.getLangOpts().RTTIData)
     cgm.errorNYI(rd->getSourceRange(),
                  "Microsoft C++ ABI vtable RTTI data reference");
-    vtables[id] = {};
-    return {};
-  }
 
   SmallString<256> name;
   llvm::raw_svector_ostream out(name);
@@ -1233,13 +1274,14 @@ CIRGenMicrosoftCXXABI::getVTableAddressPoint(BaseSubobject base,
 mlir::Value CIRGenMicrosoftCXXABI::getVTableAddressPointInStructor(
     CIRGenFunction &cgf, const CXXRecordDecl *vtableClass, BaseSubobject base,
     const CXXRecordDecl *nearestVBase) {
-  if (nearestVBase) {
-    mlir::Location loc = cgf.getLoc(vtableClass->getSourceRange());
-    cgm.errorNYI(loc,
-                 "Microsoft C++ ABI virtual-base structor vtable address point");
-    return cgf.getBuilder().getNullValue(
-        cir::VPtrType::get(cgf.getBuilder().getContext()), loc);
-  }
+  // Classic CodeGen's equivalent (MicrosoftCXXABI::getVTableAddressPointInStructor)
+  // does not special-case nearestVBase at all -- it just looks up the vfptr
+  // address point for `base` within `vtableClass` unconditionally. Whether
+  // that vfptr lives inside a virtual base (and therefore needs a runtime,
+  // not static, offset to reach it) is handled entirely by
+  // isVirtualOffsetNeededForVTableField/CIRGenFunction::initializeVTablePointer
+  // (which already calls the existing, verified getVirtualBaseClassOffset for
+  // exactly this case) -- not here.
   return getVTableAddressPoint(base, vtableClass);
 }
 
