@@ -70,14 +70,40 @@ mlir::Type LowerMicrosoftCXXABI::lowerMethodType(
 mlir::TypedAttr LowerMicrosoftCXXABI::lowerDataMemberConstant(
     cir::DataMemberAttr attr, const mlir::DataLayout &layout,
     const mlir::TypeConverter &typeConverter) const {
+  // Matches LowerItaniumCXXABI::lowerDataMemberConstant: both ABIs represent
+  // a (single-inheritance) data member pointer as an integer offset from the
+  // base address of the containing object, with -1 reserved for null (the
+  // only difference from Itanium is the lowered integer's width, already
+  // captured by lowerDataMemberType above).
+  uint64_t memberOffset;
+  if (attr.isNullPtr()) {
+    memberOffset = -1ull;
+  } else {
+    unsigned memberIndex = attr.getMemberIndex().value();
+    memberOffset =
+        attr.getType().getClassTy().getElementOffset(layout, memberIndex);
+  }
+
   mlir::Type abiTy = lowerDataMemberType(attr.getType(), typeConverter);
-  return cir::PoisonAttr::get(abiTy);
+  return cir::IntAttr::get(abiTy, memberOffset);
 }
 
 mlir::TypedAttr LowerMicrosoftCXXABI::lowerMethodConstant(
     cir::MethodAttr attr, const mlir::TypeConverter &typeConverter) const {
-  mlir::Type abiTy = lowerMethodType(attr.getType(), typeConverter);
-  return cir::PoisonAttr::get(abiTy);
+  // cir::MethodAttr is only ever built for a non-null method pointer (a null
+  // one is #cir.zero on the method type instead -- see CIR_MethodAttr's
+  // description), so attr.getMethod() always names a real function here.
+  // The Microsoft ABI's single-inheritance method pointer lowers to a plain
+  // function pointer (lowerMethodType above): there is no room to store a
+  // this-adjustment, which addImplicitStructorParams/CIRGenTypes.cpp's
+  // MemberPointerType conversion already restrict to the single-inheritance
+  // model specifically to keep this true.
+  assert(attr.getThisAdjustment() == 0 &&
+         "Microsoft ABI single-inheritance method pointer with a nonzero "
+         "this-adjustment?");
+  auto abiTy = mlir::cast<cir::PointerType>(
+      lowerMethodType(attr.getType(), typeConverter));
+  return cir::GlobalViewAttr::get(abiTy, attr.getMethod(), {});
 }
 
 mlir::Operation *LowerMicrosoftCXXABI::lowerGetRuntimeMember(

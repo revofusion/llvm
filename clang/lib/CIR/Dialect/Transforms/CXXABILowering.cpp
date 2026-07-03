@@ -520,6 +520,63 @@ public:
   }
 };
 
+// cir::CastOp's `kind` attribute is only meaningful relative to its
+// operand's *source-level* type (cir::DataMemberType/cir::MethodType for
+// member_ptr_to_bool). The generic ABI lowering pattern above swaps the
+// operand's type for its ABI-lowered counterpart but copies every other
+// attribute (including `kind`) verbatim, leaving a cast that claims
+// member_ptr_to_bool over an operand that is no longer a member-pointer
+// type at all -- an invalid combination CastOp::verify correctly rejects.
+// Retarget the kind to whatever the *lowered* operand type now calls for.
+class CIRCastOpMemberPtrToBoolABILoweringPattern
+    : public mlir::OpConversionPattern<cir::CastOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(cir::CastOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    if (op.getKind() != cir::CastKind::member_ptr_to_bool)
+      return mlir::failure();
+
+    mlir::Type loweredSrcTy = adaptor.getSrc().getType();
+    if (auto intTy = mlir::dyn_cast<cir::IntType>(loweredSrcTy)) {
+      // Microsoft and Itanium ABIs both lower a data member pointer to a
+      // plain integer (LowerMicrosoftCXXABI::lowerDataMemberType,
+      // LowerItaniumCXXABI::lowerDataMemberType) with -1, not 0, reserved
+      // for null (LowerMicrosoftCXXABI::lowerDataMemberConstant,
+      // LowerItaniumCXXABI::lowerDataMemberConstant) -- unlike a plain
+      // int_to_bool cast (which tests against 0), so a valid, non-null
+      // pointer to the object's very first member (offset 0) is correctly
+      // "true" here rather than being misread as "false". Build the
+      // equivalent of classic CodeGen's `icmp ne i32 %x, -1` directly.
+      auto minusOne = cir::ConstantOp::create(
+          rewriter, op.getLoc(), cir::IntAttr::get(intTy, -1));
+      rewriter.replaceOpWithNewOp<cir::CmpOp>(
+          op, op.getType(), cir::CmpOpKind::ne, adaptor.getSrc(), minusOne);
+      return mlir::success();
+    }
+    if (mlir::isa<cir::PointerType>(loweredSrcTy)) {
+      // The Microsoft ABI lowers a (non-virtual, single-inheritance)
+      // method pointer to a plain function pointer
+      // (LowerMicrosoftCXXABI::lowerMethodType), whose null representation
+      // is the ordinary null pointer -- ptr_to_bool's normal semantics
+      // (compare against null) are correct here as-is.
+      rewriter.replaceOpWithNewOp<cir::CastOp>(
+          op, op.getType(), cir::CastKind::ptr_to_bool, adaptor.getSrc());
+      return mlir::success();
+    }
+    // The Itanium ABI lowers a method pointer to a {fnptr, adj} struct
+    // (LowerItaniumCXXABI::lowerMethodType) -- checking it for null means
+    // comparing its first field, not a simple type-level cast. Not
+    // encountered by any real target this pass was built for; fail rather
+    // than guess.
+    return op.emitOpError() << "member_ptr_to_bool of a method pointer "
+                               "lowered to "
+                            << loweredSrcTy << " is not yet supported";
+  }
+};
+
 // Prepare the type converter for the CXXABI lowering pass.
 // Even though this is a CIR-to-CIR pass, we are eliminating some CIR types.
 static void prepareCXXABITypeConverter(mlir::TypeConverter &converter,
@@ -678,6 +735,12 @@ void CXXABILoweringPass::runOnOperation() {
   patterns.add<CIRGetMemberOpABILoweringPattern,
                CIRExtractMemberOpABILoweringPattern>(typeConverter,
                                                      patterns.getContext());
+  // Higher benefit than CIRGenericCXXABILoweringPattern so this is tried
+  // first for every cir.cast; it only actually rewrites member_ptr_to_bool
+  // casts (returning failure() for every other kind, which then falls
+  // through to the generic pattern as before).
+  patterns.add<CIRCastOpMemberPtrToBoolABILoweringPattern>(
+      typeConverter, patterns.getContext(), /*benefit=*/2);
   patterns.add<CIRRecursiveConstantOpCXXABILoweringPattern>(
       typeConverter, patterns.getContext(), dataLayout, *lowerModule);
   patterns.add<
