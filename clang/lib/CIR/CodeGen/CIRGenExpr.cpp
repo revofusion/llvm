@@ -651,10 +651,6 @@ LValue CIRGenFunction::emitLValueForField(LValue base, const FieldDecl *field) {
     fieldType = fieldType->getPointeeType();
   }
 
-  if (field->hasAttr<AnnotateAttr>()) {
-    cgm.errorNYI(field->getSourceRange(), "emitLValueForField: AnnotateAttr");
-    return LValue();
-  }
 
   LValue lv = makeAddrLValue(addr, fieldType, fieldBaseInfo);
   lv.getQuals().addCVRQualifiers(recordCVR);

@@ -85,7 +85,7 @@ CIRGenFunction::emitAutoVarAlloca(const VarDecl &d,
           (cgm.getCodeGenOpts().MergeAllConstants && !nrvo &&
            !d.isEscapingByref() &&
            ty.isConstantStorage(getContext(), true, !needsDtor))) {
-        cgm.errorNYI(d.getSourceRange(), "emitAutoVarAlloca: type constant");
+        assert(!cir::MissingFeatures::mergeAllConstants());
       }
       // Otherwise, tell the initialization code that we're in this case.
       emission.isConstantAggregate = true;
@@ -268,7 +268,12 @@ void CIRGenFunction::emitAutoVarInit(
         LangOptions::TrivialAutoVarInitKind::Uninitialized)
       return;
 
-    cgm.errorNYI(d.getSourceRange(), "emitAutoVarInit: trivial initialization");
+    mlir::Type elemTy = addr.getElementType();
+    cir::CIRDataLayout layout{cgm.getModule()};
+    if (layout.getTypeAllocSize(elemTy) == 0)
+      return;
+    emitStoresForConstant(cgm, d, addr, type.isVolatileQualified(), builder,
+                          builder.getZeroInitAttr(elemTy));
   };
 
   if (isTrivialInitializer(init)) {
@@ -285,12 +290,6 @@ void CIRGenFunction::emitAutoVarInit(
     // frequently return an empty Attribute, to signal we want to codegen
     // some trivial ctor calls and whatnots.
     constant = ConstantEmitter(*this).tryEmitAbstractForInitializer(d);
-    if (constant && !mlir::isa<cir::ZeroAttr>(constant) &&
-        (trivialAutoVarInit !=
-         LangOptions::TrivialAutoVarInitKind::Uninitialized)) {
-      cgm.errorNYI(d.getSourceRange(), "emitAutoVarInit: constant aggregate");
-      return;
-    }
   }
 
   // NOTE(cir): In case we have a constant initializer, we can just emit a

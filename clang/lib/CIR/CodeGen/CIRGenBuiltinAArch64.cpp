@@ -1855,6 +1855,101 @@ static const std::pair<unsigned, unsigned> neonEquivalentIntrinsicMap[] = {
     {NEON::BI__builtin_neon_vstl1q_lane_p64,
      NEON::BI__builtin_neon_vstl1q_lane_s64},
 };
+static mlir::Value emitAArch64BuiltinNYI(CIRGenFunction &cgf,
+                                         const CallExpr *expr,
+                                         unsigned builtinID,
+                                         StringRef detail = "") {
+  std::string message =
+      (Twine("unimplemented AArch64 builtin call: ") +
+       cgf.getContext().BuiltinInfo.getName(builtinID))
+          .str();
+  if (!detail.empty())
+    message += (Twine(": ") + detail).str();
+  cgf.cgm.errorNYI(expr->getSourceRange(), message);
+  return {};
+}
+
+static std::optional<mlir::Value>
+emitSimpleNeonBuiltin(CIRGenFunction &cgf, unsigned builtinID,
+                      const CallExpr *expr) {
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(expr->getExprLoc());
+
+  switch (builtinID) {
+  default:
+    return std::nullopt;
+
+  case NEON::BI__builtin_neon_vld1_v:
+  case NEON::BI__builtin_neon_vld1q_v: {
+    mlir::Type resultTy = cgf.convertType(expr->getType());
+    if (!mlir::isa<cir::VectorType>(resultTy))
+      return emitAArch64BuiltinNYI(cgf, expr, builtinID,
+                                   "load result is not a vector");
+
+    Address ptr = cgf.emitPointerWithAlignment(expr->getArg(0));
+    if (!ptr.isValid())
+      return emitAArch64BuiltinNYI(cgf, expr, builtinID,
+                                   "load pointer unavailable");
+
+    Address vectorPtr = ptr.withElementType(builder, resultTy);
+    return builder.createLoad(loc, vectorPtr);
+  }
+
+  case NEON::BI__builtin_neon_vst1_v:
+  case NEON::BI__builtin_neon_vst1q_v: {
+    mlir::Value value = cgf.emitScalarExpr(expr->getArg(1));
+    if (!value)
+      return emitAArch64BuiltinNYI(cgf, expr, builtinID,
+                                   "store value unavailable");
+    if (!mlir::isa<cir::VectorType>(value.getType()))
+      return emitAArch64BuiltinNYI(cgf, expr, builtinID,
+                                   "store value is not a vector");
+
+    Address ptr = cgf.emitPointerWithAlignment(expr->getArg(0));
+    if (!ptr.isValid())
+      return emitAArch64BuiltinNYI(cgf, expr, builtinID,
+                                   "store pointer unavailable");
+
+    Address vectorPtr = ptr.withElementType(builder, value.getType());
+    builder.createStore(loc, value, vectorPtr);
+    return mlir::Value{};
+  }
+
+  case NEON::BI__builtin_neon_vget_lane_i64:
+  case NEON::BI__builtin_neon_vdupd_lane_i64:
+  case NEON::BI__builtin_neon_vgetq_lane_i64:
+  case NEON::BI__builtin_neon_vdupd_laneq_i64: {
+    mlir::Value vec = cgf.emitScalarExpr(expr->getArg(0));
+    if (!vec)
+      return emitAArch64BuiltinNYI(cgf, expr, builtinID,
+                                   "lane vector unavailable");
+    if (!mlir::isa<cir::VectorType>(vec.getType()))
+      return emitAArch64BuiltinNYI(cgf, expr, builtinID,
+                                   "lane source is not a vector");
+
+    mlir::Value index = cgf.emitScalarExpr(expr->getArg(1));
+    if (!index)
+      return emitAArch64BuiltinNYI(cgf, expr, builtinID,
+                                   "lane index unavailable");
+
+    mlir::Value result = cir::VecExtractOp::create(builder, loc, vec, index);
+    mlir::Type resultTy = cgf.convertType(expr->getType());
+    if (auto resultVecTy = mlir::dyn_cast<cir::VectorType>(resultTy)) {
+      if (resultVecTy.getElementType() != result.getType())
+        return emitAArch64BuiltinNYI(cgf, expr, builtinID,
+                                     "lane vector result type mismatch");
+      return cir::VecSplatOp::create(builder, loc, resultVecTy, result);
+    }
+    if (result.getType() != resultTy) {
+      if (!builder.isInt(result.getType()) || !builder.isInt(resultTy))
+        return emitAArch64BuiltinNYI(cgf, expr, builtinID,
+                                     "lane result type mismatch");
+      result = builder.createIntCast(result, resultTy);
+    }
+    return result;
+  }
+  }
+}
 
 std::optional<mlir::Value>
 CIRGenFunction::emitAArch64BuiltinExpr(unsigned builtinID, const CallExpr *expr,
@@ -2294,6 +2389,10 @@ CIRGenFunction::emitAArch64BuiltinExpr(unsigned builtinID, const CallExpr *expr,
   });
   if (it != end(neonEquivalentIntrinsicMap))
     builtinID = it->second;
+
+  if (std::optional<mlir::Value> result =
+          emitSimpleNeonBuiltin(*this, builtinID, expr))
+    return result;
 
   // Find out if any arguments are required to be integer constant
   // expressions.
