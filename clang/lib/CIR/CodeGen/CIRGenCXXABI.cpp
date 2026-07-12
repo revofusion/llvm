@@ -15,11 +15,61 @@
 #include "CIRGenFunction.h"
 
 #include "clang/AST/Decl.h"
+#include "clang/AST/DeclCXX.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/GlobalDecl.h"
+#include "clang/UnifiedSymbolResolution/USRGeneration.h"
+#include "llvm/ADT/SmallString.h"
 
 using namespace clang;
 using namespace clang::CIRGen;
+
+namespace {
+
+std::string usrForDecl(const NamedDecl *decl) {
+  if (!decl)
+    return {};
+  llvm::SmallString<256> usr;
+  if (clang::index::generateUSRForDecl(decl, usr))
+    return {};
+  return std::string(usr.str());
+}
+
+const CXXMethodDecl *rootOverriddenMethodOrNull(const CXXMethodDecl *method) {
+  while (method->size_overridden_methods() > 0) {
+    if (method->size_overridden_methods() > 1)
+      return nullptr;
+    method = *method->overridden_methods().begin();
+  }
+  return method;
+}
+
+} // namespace
+
+CIRGenVirtualMethodIdentityAttrs clang::CIRGen::
+    buildCIRGenVirtualMethodIdentityAttrs(mlir::MLIRContext &mlirContext,
+                                          llvm::StringRef mangledName,
+                                          const CXXMethodDecl *methodDecl) {
+  CIRGenVirtualMethodIdentityAttrs attrs;
+  attrs.method = mlir::FlatSymbolRefAttr::get(&mlirContext, mangledName);
+  if (!methodDecl)
+    return attrs;
+  std::string methodUSR = usrForDecl(methodDecl);
+  if (methodUSR.empty())
+    return attrs;
+  attrs.methodUSR = mlir::StringAttr::get(&mlirContext, methodUSR);
+  const CXXMethodDecl *root = rootOverriddenMethodOrNull(methodDecl);
+  if (!root)
+    return attrs;
+  std::string rootUSR = usrForDecl(root);
+  std::string declaringClassUSR = usrForDecl(root->getParent());
+  if (rootUSR.empty() || declaringClassUSR.empty())
+    return attrs;
+  attrs.rootMethodUSR = mlir::StringAttr::get(&mlirContext, rootUSR);
+  attrs.declaringClassUSR =
+      mlir::StringAttr::get(&mlirContext, declaringClassUSR);
+  return attrs;
+}
 
 CIRGenCXXABI::~CIRGenCXXABI() {}
 

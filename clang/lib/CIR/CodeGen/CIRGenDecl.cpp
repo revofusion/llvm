@@ -28,6 +28,39 @@
 using namespace clang;
 using namespace clang::CIRGen;
 
+namespace {
+
+struct CallCleanupFunction final : EHScopeStack::Cleanup {
+  cir::FuncOp cleanupFn;
+  const CIRGenFunctionInfo &fnInfo;
+  const VarDecl &var;
+  const CleanupAttr *attribute;
+
+  CallCleanupFunction(cir::FuncOp cleanupFn, const CIRGenFunctionInfo *info,
+                      const VarDecl *var, const CleanupAttr *attribute)
+      : cleanupFn(cleanupFn), fnInfo(*info), var(*var), attribute(attribute) {}
+
+  void emit(CIRGenFunction &cgf, Flags flags) override {
+    DeclRefExpr declRef(cgf.getContext(), const_cast<VarDecl *>(&var), false,
+                        var.getType(), VK_LValue, SourceLocation());
+    mlir::Value addr = cgf.emitDeclRefLValue(&declRef).getPointer();
+
+    QualType argTy = fnInfo.arguments().front();
+    mlir::Type argCIRTy = cgf.convertType(argTy);
+    if (addr.getType() != argCIRTy)
+      addr = cgf.getBuilder().createBitcast(addr, argCIRTy);
+
+    CallArgList args;
+    args.add(RValue::get(addr), cgf.getContext().getPointerType(var.getType()));
+    CIRGenCallee callee = CIRGenCallee::forDirect(
+        cleanupFn, CIRGenCalleeInfo(GlobalDecl(attribute->getFunctionDecl())));
+    cgf.emitCall(fnInfo, callee, ReturnValueSlot(), args, nullptr,
+                 cgf.getLoc(attribute->getRange()));
+  }
+};
+
+} // namespace
+
 CIRGenFunction::AutoVarEmission
 CIRGenFunction::emitAutoVarAlloca(const VarDecl &d,
                                   mlir::OpBuilder::InsertPoint ip) {
@@ -344,8 +377,15 @@ void CIRGenFunction::emitAutoVarCleanups(
   assert(!cir::MissingFeatures::opAllocaPreciseLifetime());
 
   // Handle the cleanup attribute.
-  if (d.hasAttr<CleanupAttr>())
-    cgm.errorNYI(d.getSourceRange(), "emitAutoVarCleanups: CleanupAttr");
+  if (const CleanupAttr *cleanup = d.getAttr<CleanupAttr>()) {
+    const FunctionDecl *fd = cleanup->getFunctionDecl();
+    const CIRGenFunctionInfo &info =
+        cgm.getTypes().arrangeFunctionDeclaration(fd);
+    cir::FuncType funcType = cgm.getTypes().getFunctionType(info);
+    cir::FuncOp func = cgm.getAddrOfFunction(GlobalDecl(fd), funcType);
+    ehStack.pushCleanup<CallCleanupFunction>(NormalAndEHCleanup, func, &info,
+                                             &d, cleanup);
+  }
 }
 
 /// Emit code and set up symbol table for a variable declaration with auto,

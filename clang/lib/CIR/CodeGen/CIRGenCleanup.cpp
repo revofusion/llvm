@@ -21,6 +21,7 @@
 
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "clang/UnifiedSymbolResolution/USRGeneration.h"
 
 using namespace clang;
 using namespace clang::CIRGen;
@@ -50,13 +51,59 @@ public:
 };
 } // namespace
 
+void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
+    const CXXBindTemporaryExpr *binding, const CXXTemporary *temporary,
+    Address address) {
+  if (!binding || !temporary)
+    return;
+  cir::AllocaOp alloca = address.getUnderlyingAllocaOp();
+  if (!alloca || alloca.getAstTemporaryObjectIdentityAttr() ||
+      alloca.getAstMaterializeTemporaryIdentityAttr())
+    return;
+
+  auto function = alloca->getParentOfType<cir::FuncOp>();
+  SourceLocation begin = binding->getBeginLoc();
+  SourceLocation end = binding->getEndLoc();
+  const CXXDestructorDecl *destructor = temporary->getDestructor();
+  if (!function || begin.isInvalid() || end.isInvalid() || !destructor)
+    return;
+
+  // The allocation is the storage for this exact CXXBindTemporaryExpr. Keep
+  // its location aligned with that AST owner so downstream span validation
+  // does not have to recover the owner from a nested construction location.
+  alloca->setLoc(getLoc(binding->getSourceRange()));
+
+  CIRGenBuilderTy &builder = getBuilder();
+  mlir::NamedAttrList identity;
+  identity.set("function",
+               mlir::FlatSymbolRefAttr::get(function.getSymNameAttr()));
+  identity.set("begin_raw",
+               builder.getI64IntegerAttr(begin.getRawEncoding()));
+  identity.set("end_raw", builder.getI64IntegerAttr(end.getRawEncoding()));
+  identity.set("instance_token",
+               builder.getStringAttr(getCXXTemporaryObjectInstanceToken()));
+  identity.set("cleanup_kind", builder.getStringAttr("cxx_destructor"));
+  identity.set("destructor_symbol",
+               builder.getStringAttr(
+                   cgm.getMangledName(GlobalDecl(destructor, Dtor_Complete))));
+
+  llvm::SmallString<256> destructorUSR;
+  if (!clang::index::generateUSRForDecl(destructor, destructorUSR))
+    identity.set("destructor_usr", builder.getStringAttr(destructorUSR));
+
+  alloca.setAstTemporaryObjectIdentityAttr(
+      identity.getDictionary(&getMLIRContext()));
+}
+
 //===----------------------------------------------------------------------===//
 // CIRGenFunction cleanup related
 //===----------------------------------------------------------------------===//
 
 /// Emits all the code to cause the given temporary to be cleaned up.
-void CIRGenFunction::emitCXXTemporary(const CXXTemporary *temporary,
-                                      QualType tempType, Address ptr) {
+void CIRGenFunction::emitCXXTemporary(
+    const CXXTemporary *temporary, QualType tempType, Address ptr,
+    const CXXBindTemporaryExpr *binding) {
+  setCXXBindTemporaryObjectIdentity(binding, temporary, ptr);
   pushDestroy(NormalAndEHCleanup, ptr, tempType, destroyCXXObject);
 }
 
@@ -108,7 +155,7 @@ CIRGenFunction::FullExprCleanupScope::FullExprCleanupScope(CIRGenFunction &cgf,
   ConditionalEvaluationFinder finder;
   finder.TraverseStmt(const_cast<Expr *>(subExpr));
   if (finder.found()) {
-    mlir::Location loc = cgf.builder.getUnknownLoc();
+    mlir::Location loc = cgf.getLoc(subExpr->getSourceRange());
     cir::CleanupKind cleanupKind = cgf.getLangOpts().Exceptions
                                        ? cir::CleanupKind::All
                                        : cir::CleanupKind::Normal;
@@ -359,6 +406,15 @@ void *EHScopeStack::pushCleanup(CleanupKind kind, size_t size) {
   if (!skipCleanupScope) {
     CIRGenBuilderTy &builder = cgf->getBuilder();
     mlir::Location loc = builder.getUnknownLoc();
+    if (mlir::Block *block = builder.getInsertionBlock()) {
+      auto insertionPoint = builder.getInsertionPoint();
+      if (insertionPoint != block->begin())
+        loc = std::prev(insertionPoint)->getLoc();
+      for (mlir::Operation *parent = block->getParentOp();
+           llvm::isa<mlir::UnknownLoc>(loc) && parent;
+           parent = parent->getParentOp())
+        loc = parent->getLoc();
+    }
     cleanupScope = cir::CleanupScopeOp::create(
         builder, loc, cleanupKind,
         /*bodyBuilder=*/
@@ -493,14 +549,15 @@ static void setupCleanupBlockDeactivation(CIRGenFunction &cgf,
 
 /// Deactive a cleanup that was created in an active state.
 void CIRGenFunction::deactivateCleanupBlock(EHScopeStack::stable_iterator c,
-                                            mlir::Operation *dominatingIP) {
+                                            mlir::Operation *dominatingIP,
+                                            bool keepScope) {
   assert(c != ehStack.stable_end() && "deactivating bottom of stack?");
   EHCleanupScope &scope = cast<EHCleanupScope>(*ehStack.find(c));
   assert(scope.isActive() && "double deactivation");
 
   // If it's the top of the stack, just pop it, but do so only if it belongs
   // to the current RunCleanupsScope.
-  if (c == ehStack.stable_begin() &&
+  if (!keepScope && c == ehStack.stable_begin() &&
       currentCleanupStackDepth.strictlyEncloses(c)) {
     popCleanupBlock(/*forDeactivation=*/true);
     return;

@@ -21,6 +21,7 @@
 
 #include "clang/AST/Mangle.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 namespace clang::CIRGen {
 
 /// Implements C++ ABI-specific code generation functions.
@@ -390,6 +391,18 @@ protected:
 
 /// Creates and Itanium-family ABI
 CIRGenCXXABI *CreateCIRGenItaniumCXXABI(CIRGenModule &cgm);
+
+struct CIRGenVirtualMethodIdentityAttrs {
+  mlir::FlatSymbolRefAttr method;
+  mlir::StringAttr methodUSR;
+  mlir::StringAttr rootMethodUSR;
+  mlir::StringAttr declaringClassUSR;
+};
+
+CIRGenVirtualMethodIdentityAttrs
+buildCIRGenVirtualMethodIdentityAttrs(mlir::MLIRContext &mlirContext,
+                                      llvm::StringRef mangledName,
+                                      const CXXMethodDecl *methodDecl);
 
 } // namespace clang::CIRGen
 

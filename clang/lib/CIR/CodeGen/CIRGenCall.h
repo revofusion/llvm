@@ -15,6 +15,7 @@
 #define CLANG_LIB_CODEGEN_CIRGENCALL_H
 
 #include "CIRGenValue.h"
+#include "EHScopeStack.h"
 #include "mlir/IR/Operation.h"
 #include "clang/AST/GlobalDecl.h"
 #include "llvm/ADT/SmallVector.h"
@@ -235,6 +236,13 @@ public:
 };
 
 class CallArgList : public llvm::SmallVector<CallArg, 8> {
+  struct CallArgCleanup {
+    EHScopeStack::stable_iterator cleanup;
+    mlir::Operation *dominatingIP;
+  };
+
+  llvm::SmallVector<CallArgCleanup, 1> cleanupsToDeactivate;
+
 public:
   void add(RValue rvalue, clang::QualType type) { emplace_back(rvalue, type); }
 
@@ -242,15 +250,25 @@ public:
     emplace_back(lvalue, type);
   }
 
+  void addArgCleanupDeactivation(EHScopeStack::stable_iterator cleanup,
+                                 mlir::Operation *dominatingIP) {
+    cleanupsToDeactivate.push_back({cleanup, dominatingIP});
+  }
+
+  llvm::ArrayRef<CallArgCleanup> getCleanupsToDeactivate() const {
+    return cleanupsToDeactivate;
+  }
+
   /// Add all the arguments from another CallArgList to this one. After doing
   /// this, the old CallArgList retains its list of arguments, but must not
   /// be used to emit a call.
   void addFrom(const CallArgList &other) {
     insert(end(), other.begin(), other.end());
+    cleanupsToDeactivate.append(other.cleanupsToDeactivate.begin(),
+                                other.cleanupsToDeactivate.end());
     // Classic codegen has handling for these here. We may not need it here for
     // CIR, but if not we should implement equivalent handling in lowering.
     assert(!cir::MissingFeatures::writebacks());
-    assert(!cir::MissingFeatures::cleanupsToDeactivate());
     assert(!cir::MissingFeatures::stackBase());
   }
 };

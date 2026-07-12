@@ -36,6 +36,7 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CIR/Dialect/IR/CIROpsEnums.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/TargetParser/Triple.h"
 
@@ -106,8 +107,18 @@ private:
 
   llvm::SmallVector<mlir::Attribute> globalScopeAsm;
 
+  bool selectedDeclRootMode = false;
+  llvm::StringSet<> selectedDeclRoots;
+
+  void loadSelectedDeclRoots();
+  bool isSelectedDeclRoot(clang::GlobalDecl gd);
+
   /// Accumulated record layout entries, materialized in release().
   llvm::SmallVector<mlir::NamedAttribute> recordLayoutEntries;
+  /// Exact Clang RecordDecl identities keyed by module-unique CIR record name.
+  llvm::SmallVector<mlir::NamedAttribute> recordDeclIdentityEntries;
+  /// Records whose AST definition has no projected fields, bases, or vptr.
+  llvm::SmallVector<mlir::NamedAttribute> emptyRecordSchemaEntries;
 
   llvm::DenseSet<clang::GlobalDecl> diagnosedConflictingDefinitions;
 
@@ -163,6 +174,13 @@ public:
   /// Queue a record layout entry for materialization in release().
   void addRecordLayout(mlir::StringAttr name, cir::RecordLayoutAttr attr) {
     recordLayoutEntries.push_back(mlir::NamedAttribute(name, attr));
+  }
+  void addRecordDeclIdentity(mlir::StringAttr name, mlir::StringAttr identity) {
+    recordDeclIdentityEntries.push_back(mlir::NamedAttribute(name, identity));
+  }
+  void addEmptyRecordSchema(mlir::StringAttr name) {
+    emptyRecordSchemaEntries.push_back(
+        mlir::NamedAttribute(name, mlir::UnitAttr::get(&getMLIRContext())));
   }
   clang::ASTContext &getASTContext() const { return astContext; }
   const clang::TargetInfo &getTarget() const { return target; }

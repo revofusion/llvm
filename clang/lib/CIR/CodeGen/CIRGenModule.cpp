@@ -34,9 +34,12 @@
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "clang/CIR/Interfaces/CIROpInterfaces.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "CIRGenFunctionInfo.h"
@@ -53,6 +56,50 @@
 
 using namespace clang;
 using namespace clang::CIRGen;
+
+static std::optional<std::string>
+specializationPointOfInstantiationIdentity(const ASTContext &astContext,
+                                           const FunctionDecl *functionDecl) {
+  SourceLocation pointOfInstantiation =
+      functionDecl->getPointOfInstantiation();
+  if (pointOfInstantiation.isInvalid())
+    return std::nullopt;
+
+  const SourceManager &sourceManager = astContext.getSourceManager();
+  SourceLocation spellingLocation =
+      sourceManager.getSpellingLoc(pointOfInstantiation);
+  if (spellingLocation.isInvalid())
+    return std::nullopt;
+  FileIDAndOffset decomposed = sourceManager.getDecomposedLoc(spellingLocation);
+  if (decomposed.first.isInvalid())
+    return std::nullopt;
+  PresumedLoc presumed = sourceManager.getPresumedLoc(spellingLocation);
+  if (!presumed.isValid() || !presumed.getFilename())
+    return std::nullopt;
+
+  llvm::SmallString<256> normalizedFile(presumed.getFilename());
+  if (!llvm::sys::path::is_absolute(normalizedFile)) {
+    llvm::StringRef workingDirectory = sourceManager.getFileManager()
+                                           .getFileSystemOpts()
+                                           .WorkingDir;
+    if (workingDirectory.empty())
+      return std::nullopt;
+    llvm::SmallString<256> resolvedFile(workingDirectory);
+    llvm::sys::path::append(resolvedFile, normalizedFile);
+    normalizedFile = resolvedFile;
+  }
+  llvm::sys::path::remove_dots(normalizedFile, /*remove_dot_dot=*/true);
+  if (normalizedFile.empty() || !llvm::sys::path::is_absolute(normalizedFile))
+    return std::nullopt;
+
+  std::string identity;
+  llvm::raw_string_ostream stream(identity);
+  stream << "v1:" << normalizedFile.size() << ':' << normalizedFile << ':'
+         << decomposed.second << ':' << presumed.getLine() << ':'
+         << presumed.getColumn();
+  stream.flush();
+  return identity;
+}
 
 static CIRGenCXXABI *createCXXABI(CIRGenModule &cgm) {
   switch (cgm.getASTContext().getCXXABIKind()) {
@@ -85,6 +132,7 @@ CIRGenModule::CIRGenModule(mlir::MLIRContext &mlirContext,
       theModule{mlir::ModuleOp::create(mlir::UnknownLoc::get(&mlirContext))},
       diags(diags), target(astContext.getTargetInfo()),
       abi(createCXXABI(*this)), genTypes(*this), vtables(*this) {
+  loadSelectedDeclRoots();
 
   // Initialize cached types
   voidTy = cir::VoidType::get(&getMLIRContext());
@@ -2619,6 +2667,45 @@ CIRGenModule::getOpenACCBindMangledName(const IdentifierInfo *bindName,
   return ret;
 }
 
+void CIRGenModule::loadSelectedDeclRoots() {
+  if (codeGenOpts.ClangIRSelectedDeclsFile.empty())
+    return;
+
+  selectedDeclRootMode = true;
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> bufferOrErr =
+      llvm::MemoryBuffer::getFile(codeGenOpts.ClangIRSelectedDeclsFile);
+  if (!bufferOrErr) {
+    unsigned diagID = diags.getCustomDiagID(
+        DiagnosticsEngine::Error,
+        "failed to read -fclangir-emit-selected-decls file '%0': %1");
+    diags.Report(diagID) << codeGenOpts.ClangIRSelectedDeclsFile
+                         << bufferOrErr.getError().message();
+    return;
+  }
+
+  llvm::SmallVector<llvm::StringRef, 256> lines;
+  (*bufferOrErr)
+      ->getBuffer()
+      .split(lines, '\n', /*MaxSplit=*/-1, /*KeepEmpty=*/false);
+  for (llvm::StringRef line : lines) {
+    line = line.trim();
+    if (!line.empty())
+      selectedDeclRoots.insert(line);
+  }
+
+  if (selectedDeclRoots.empty()) {
+    unsigned diagID = diags.getCustomDiagID(
+        DiagnosticsEngine::Error, "-fclangir-emit-selected-decls file '%0' did "
+                                  "not contain any CIR symbols");
+    diags.Report(diagID) << codeGenOpts.ClangIRSelectedDeclsFile;
+  }
+}
+
+bool CIRGenModule::isSelectedDeclRoot(GlobalDecl gd) {
+  return selectedDeclRootMode &&
+         selectedDeclRoots.contains(getMangledName(gd));
+}
+
 StringRef CIRGenModule::getMangledName(GlobalDecl gd) {
   GlobalDecl canonicalGd = gd.getCanonicalDecl();
 
@@ -2664,6 +2751,9 @@ void CIRGenModule::emitTentativeDefinition(const VarDecl *d) {
 }
 
 bool CIRGenModule::mustBeEmitted(const ValueDecl *global) {
+  if (selectedDeclRootMode)
+    return isSelectedDeclRoot(GlobalDecl(global));
+
   // Never defer when EmitAllDecls is specified.
   if (langOpts.EmitAllDecls)
     return true;
@@ -2966,6 +3056,79 @@ void CIRGenModule::setTLSMode(mlir::Operation *op, const VarDecl &d,
 void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
                                             const CIRGenFunctionInfo &info,
                                             cir::FuncOp func, bool isThunk) {
+  llvm::SmallString<256> astDeclUSR;
+  const auto *decl = globalDecl.getDecl();
+  bool hasASTDeclUSR =
+      decl && !clang::index::generateUSRForDecl(decl, astDeclUSR);
+  if (hasASTDeclUSR)
+    func->setAttr("ast_decl_usr", builder.getStringAttr(astDeclUSR));
+
+  // A concrete template specialization can contain a local or anonymous type
+  // for which Clang has no USR. Its CIR symbol name is nevertheless the exact
+  // identity assigned by Clang's mangler to that particular specialization.
+  // Preserve that producer fact directly instead of requiring consumers to
+  // reconstruct a specialization from a qualified name, source location, or
+  // template argument shape.
+  if (const auto *functionDecl = dyn_cast_or_null<FunctionDecl>(decl);
+      functionDecl && functionDecl->isFunctionTemplateSpecialization()) {
+    mlir::NamedAttrList identity;
+    identity.set("mangled_name",
+                 builder.getStringAttr(func.getSymName()));
+    if (hasASTDeclUSR)
+      identity.set("usr", builder.getStringAttr(astDeclUSR));
+
+    llvm::SmallString<256> patternUSR;
+    if (const FunctionDecl *pattern =
+            functionDecl->getTemplateInstantiationPattern();
+        pattern && !clang::index::generateUSRForDecl(pattern, patternUSR)) {
+      identity.set("template_pattern_usr", builder.getStringAttr(patternUSR));
+      if (auto poi = specializationPointOfInstantiationIdentity(
+              getASTContext(), functionDecl))
+        identity.set("poi", builder.getStringAttr(*poi));
+    }
+
+    func->setAttr("ast_decl_specialization_identity",
+                  identity.getDictionary(&getMLIRContext()));
+  }
+  if (const auto *method =
+          dyn_cast_or_null<CXXMethodDecl>(globalDecl.getDecl());
+      method && method->getParent() && method->getParent()->isLambda()) {
+    const CXXRecordDecl *closure = method->getParent();
+    llvm::SmallString<256> contextUSR;
+    const Decl *context = closure->getLambdaContextDecl();
+    bool haveContextUSR =
+        context && !clang::index::generateUSRForDecl(context, contextUSR);
+    if (!haveContextUSR) {
+      contextUSR.clear();
+      context = Decl::castFromDeclContext(closure->getDeclContext());
+      haveContextUSR =
+          context && !clang::index::generateUSRForDecl(context, contextUSR);
+    }
+    func->setAttr(
+        "ast_lambda_index",
+        builder.getI32IntegerAttr(closure->getLambdaIndexInContext()));
+    if (haveContextUSR) {
+      func->setAttr("ast_lambda_context_usr",
+                    builder.getStringAttr(contextUSR));
+    }
+    const auto *contextFunction = dyn_cast_or_null<FunctionDecl>(
+        Decl::castFromDeclContext(closure->getDeclContext()));
+    if (contextFunction) {
+      SourceLocation poi =
+          getASTContext().getSourceManager().getExpansionLoc(
+              contextFunction->getPointOfInstantiation());
+      PresumedLoc presumed =
+          getASTContext().getSourceManager().getPresumedLoc(poi);
+      if (presumed.isValid()) {
+        func->setAttr("ast_lambda_context_poi_file",
+                      builder.getStringAttr(presumed.getFilename()));
+        func->setAttr("ast_lambda_context_poi_line",
+                      builder.getI32IntegerAttr(presumed.getLine()));
+        func->setAttr("ast_lambda_context_poi_column",
+                      builder.getI32IntegerAttr(presumed.getColumn()));
+      }
+    }
+  }
   // TODO(cir): More logic of constructAttributeList is needed.
   cir::CallingConv callingConv;
   cir::SideEffect sideEffect;
@@ -3532,6 +3695,16 @@ void CIRGenModule::release() {
     theModule->setAttr(
         cir::CIRDialect::getRecordLayoutsAttrName(),
         mlir::DictionaryAttr::get(&getMLIRContext(), recordLayoutEntries));
+  if (!recordDeclIdentityEntries.empty())
+    theModule->setAttr(
+        "cir.record_decl_identities",
+        mlir::DictionaryAttr::get(&getMLIRContext(),
+                                  recordDeclIdentityEntries));
+  if (!emptyRecordSchemaEntries.empty())
+    theModule->setAttr(
+        "cir.empty_record_schemas",
+        mlir::DictionaryAttr::get(&getMLIRContext(),
+                                  emptyRecordSchemaEntries));
 
   if (getTriple().isAMDGPU() ||
       (getTriple().isSPIRV() && getTriple().getVendor() == llvm::Triple::AMD))

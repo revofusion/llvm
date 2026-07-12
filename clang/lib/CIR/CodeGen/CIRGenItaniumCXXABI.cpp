@@ -1956,6 +1956,17 @@ CIRGenCallee CIRGenItaniumCXXABI::getVirtualFunctionPointer(
     } else {
       auto vtableSlotPtr = cir::VTableGetVirtualFnAddrOp::create(
           builder, loc, builder.getPointerTo(tyPtr), vtable, vtableIndex);
+      auto identityAttrs = buildCIRGenVirtualMethodIdentityAttrs(
+          cgm.getMLIRContext(), cgm.getMangledName(gd), methodDecl);
+      vtableSlotPtr->setAttr("method", identityAttrs.method);
+      if (identityAttrs.methodUSR)
+        vtableSlotPtr->setAttr("method_usr", identityAttrs.methodUSR);
+      if (identityAttrs.rootMethodUSR)
+        vtableSlotPtr->setAttr("root_method_usr",
+                               identityAttrs.rootMethodUSR);
+      if (identityAttrs.declaringClassUSR)
+        vtableSlotPtr->setAttr("declaring_class_usr",
+                               identityAttrs.declaringClassUSR);
       vfuncLoad = builder.createAlignedLoad(loc, tyPtr, vtableSlotPtr,
                                             cgf.getPointerAlign());
     }

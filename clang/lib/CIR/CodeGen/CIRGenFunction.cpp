@@ -464,6 +464,25 @@ void CIRGenFunction::emitFunctionProlog(const FunctionArgList &args,
     // the function body.
     mlir::Location fnBodyBegin = getLoc(bodyBeginLoc);
     builder.CIRBaseBuilderTy::createStore(fnBodyBegin, paramVal, addrVal);
+
+    if (const auto *parm = dyn_cast<ParmVarDecl>(paramVar)) {
+      QualType ty = parm->getType();
+      if (ty->isRecordType() && !curFuncIsThunk &&
+          ty->castAsRecordDecl()->isParamDestroyedInCallee()) {
+        QualType::DestructionKind dtorKind =
+            parm->needsDestruction(getContext());
+        if (dtorKind == QualType::DK_cxx_destructor) {
+          mlir::Operation *dominatingIP =
+              builder.getBool(false, paramLoc).getOperation();
+          pushDestroy(dtorKind, Address(addrVal, alignment), ty);
+          calleeDestructedParamCleanups[parm] = {
+              ehStack.stable_begin(), dominatingIP};
+        } else if (dtorKind) {
+          cgm.errorNYI(parm->getSourceRange(),
+                       "callee-destructed parameter cleanup kind");
+        }
+      }
+    }
   }
   assert(builder.getInsertionBlock() && "Should be valid");
 }
@@ -476,6 +495,9 @@ void CIRGenFunction::startFunction(GlobalDecl gd, QualType returnType,
          "CIRGenFunction can only be used for one function at a time");
 
   curFn = fn;
+  counterMaterializedTemporaryIdentity = 0;
+  counterCXXTemporaryObjectIdentity = 0;
+  calleeDestructedParamCleanups.clear();
 
   const Decl *d = gd.getDecl();
 
@@ -1350,6 +1372,20 @@ static std::string getVersionedTmpName(llvm::StringRef name, unsigned cnt) {
 
 std::string CIRGenFunction::getCounterRefTmpAsString() {
   return getVersionedTmpName("ref.tmp", counterRefTmp++);
+}
+
+std::string CIRGenFunction::getMaterializedTemporaryInstanceToken() {
+  // This is opaque producer metadata, not an AST ordinal. Consumers must use
+  // the token attached to the defining cir.alloca and must not recreate it.
+  return getVersionedTmpName("mte.instance.",
+                             counterMaterializedTemporaryIdentity++);
+}
+
+std::string CIRGenFunction::getCXXTemporaryObjectInstanceToken() {
+  // This is opaque producer metadata, not an AST ordinal. Consumers must use
+  // the token attached to the defining cir.alloca and must not recreate it.
+  return getVersionedTmpName("cxx.temporary.instance.",
+                             counterCXXTemporaryObjectIdentity++);
 }
 
 std::string CIRGenFunction::getCounterAggTmpAsString() {

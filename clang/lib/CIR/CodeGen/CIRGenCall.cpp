@@ -21,6 +21,7 @@
 #include "clang/CIR/MissingFeatures.h"
 #include "llvm/ADT/FloatingPointMode.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/TypeSize.h"
 
 using namespace clang;
@@ -912,13 +913,19 @@ void CIRGenFunction::emitDelegateCallArg(CallArgList &args,
     args.add(convertTempToRValue(local, type, loc), type);
   }
 
-  // Deactivate the cleanup for the callee-destructed param that was pushed.
-  assert(!cir::MissingFeatures::thunks());
-  if (type->isRecordType() &&
+  if (type->isRecordType() && !curFuncIsThunk &&
       type->castAsRecordDecl()->isParamDestroyedInCallee() &&
       param->needsDestruction(getContext())) {
-    cgm.errorNYI(param->getSourceRange(),
-                 "emitDelegateCallArg: callee-destructed param");
+    const auto *parm = dyn_cast<ParmVarDecl>(param);
+    auto cleanup = parm ? calleeDestructedParamCleanups.find(parm)
+                        : calleeDestructedParamCleanups.end();
+    if (cleanup == calleeDestructedParamCleanups.end()) {
+      cgm.errorNYI(param->getSourceRange(),
+                   "emitDelegateCallArg: callee-destructed param cleanup");
+      return;
+    }
+    args.addArgCleanupDeactivation(cleanup->second.cleanup,
+                                   cleanup->second.dominatingIP);
   }
 }
 
@@ -1326,6 +1333,12 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
   assert(!cir::MissingFeatures::msvcCXXPersonality());
   assert(!cir::MissingFeatures::functionUsesSEHTry());
   assert(!cir::MissingFeatures::nothrowAttr());
+
+  for (const auto &cleanup : llvm::reverse(args.getCleanupsToDeactivate())) {
+    deactivateCleanupBlock(cleanup.cleanup, cleanup.dominatingIP,
+                           /*keepScope=*/true);
+    cleanup.dominatingIP->erase();
+  }
 
   bool cannotThrow = attrs.getNamed("nothrow").has_value();
   bool isInvoke = !cannotThrow && isCatchOrCleanupRequired();

@@ -549,6 +549,9 @@ public:
   const char *Argv0 = nullptr;
   std::vector<std::string> CommandLineArgs;
 
+  /// Path to newline-delimited CIR global symbols emitted as selected roots.
+  std::string ClangIRSelectedDeclsFile;
+
   /// The minimum hotness value a diagnostic needs in order to be included in
   /// optimization diagnostics.
   ///

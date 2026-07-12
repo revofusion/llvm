@@ -213,6 +213,12 @@ public:
   /// This keeps track of the CIR allocas or globals for local C
   /// declarations.
   DeclMapTy localDeclMap;
+  struct CalleeDestructedParamCleanup {
+    EHScopeStack::stable_iterator cleanup;
+    mlir::Operation *dominatingIP;
+  };
+  llvm::DenseMap<const ParmVarDecl *, CalleeDestructedParamCleanup>
+      calleeDestructedParamCleanups;
 
   /// The type of the condition for the emitting switch statement.
   llvm::SmallVector<mlir::Type, 2> condTypeStack;
@@ -516,11 +522,16 @@ public:
   using SymTableScopeTy =
       llvm::ScopedHashTableScope<const clang::Decl *, mlir::Value>;
 
-  /// Hold counters for incrementally naming temporaries
+  /// Hold counters for incrementally naming temporaries and minting opaque
+  /// producer metadata tokens for temporary storage.
   unsigned counterRefTmp = 0;
   unsigned counterAggTmp = 0;
+  unsigned counterMaterializedTemporaryIdentity = 0;
+  unsigned counterCXXTemporaryObjectIdentity = 0;
   std::string getCounterRefTmpAsString();
   std::string getCounterAggTmpAsString();
+  std::string getMaterializedTemporaryInstanceToken();
+  std::string getCXXTemporaryObjectInstanceToken();
 
   /// Helpers to convert Clang's SourceLocation to a MLIR Location.
   mlir::Location getLoc(clang::SourceLocation srcLoc);
@@ -1090,15 +1101,14 @@ public:
 
   void terminateStructuredRegionBody(mlir::Region &r, mlir::Location loc);
 
-  /// Deactivates the given cleanup block. The block cannot be reactivated. Pops
-  /// it if it's the top of the stack.
+  /// Deactivates the given cleanup block. The block cannot be reactivated.
+  /// Pops it if it is the top of the stack unless keepScope is true.
   ///
-  /// \param DominatingIP - An instruction which is known to
-  ///   dominate the current IP (if set) and which lies along
-  ///   all paths of execution between the current IP and the
-  ///   the point at which the cleanup comes into scope.
+  /// DominatingIP is known to dominate the current insertion point and lies
+  /// along every path between it and the point where the cleanup became active.
   void deactivateCleanupBlock(EHScopeStack::stable_iterator cleanup,
-                              mlir::Operation *dominatingIP);
+                              mlir::Operation *dominatingIP,
+                              bool keepScope = false);
 
   /// Create an active flag variable for use with conditional cleanups. The
   /// flag is initialized to false before the outermost conditional and set to
@@ -1898,7 +1908,10 @@ public:
                                     OverloadedOperatorKind op);
 
   void emitCXXTemporary(const CXXTemporary *temporary, QualType tempType,
-                        Address ptr);
+                        Address ptr, const CXXBindTemporaryExpr *binding);
+  void setCXXBindTemporaryObjectIdentity(
+      const CXXBindTemporaryExpr *binding, const CXXTemporary *temporary,
+      Address address);
 
   void emitCXXThrowExpr(const CXXThrowExpr *e);
 
@@ -2116,6 +2129,8 @@ public:
                                           llvm::StringRef fieldName);
 
   LValue emitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *e);
+  void setMaterializedTemporaryIdentity(
+      const MaterializeTemporaryExpr *temporary, Address address);
 
   LValue emitMemberExpr(const MemberExpr *e);
 

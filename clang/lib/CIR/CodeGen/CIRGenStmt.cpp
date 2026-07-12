@@ -91,7 +91,6 @@ CIRGenFunction::emitAttributedStmt(const AttributedStmt &s) {
     switch (attr->getKind()) {
     default:
       break;
-    case attr::NoMerge:
     case attr::NoInline:
     case attr::AlwaysInline:
     case attr::NoConvergent:

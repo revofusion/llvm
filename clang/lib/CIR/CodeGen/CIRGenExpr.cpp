@@ -769,7 +769,8 @@ mlir::Value CIRGenFunction::emitLoadOfScalar(Address addr, bool isVolatile,
 
   mlir::Value loadOp = builder.createLoad(getLoc(loc), addr, isVolatile);
   if (!ty->isBooleanType() && ty->hasBooleanRepresentation())
-    cgm.errorNYI("emitLoadOfScalar: boolean type with boolean representation");
+    assert(loadOp.getType() == convertType(ty) &&
+           "boolean-representation load type mismatch");
 
   return loadOp;
 }
@@ -1846,6 +1847,38 @@ void CIRGenFunction::emitAnyExprToMem(const Expr *e, Address location,
   llvm_unreachable("bad evaluation kind");
 }
 
+void CIRGenFunction::setMaterializedTemporaryIdentity(
+    const MaterializeTemporaryExpr *temporary, Address address) {
+  // The alloca result is the lifetime token followed by the cleanup machinery.
+  // Record the producer-owned MaterializeTemporaryExpr key on that definition,
+  // rather than asking a consumer to recover it from an alloca location. The
+  // function symbol scopes the source range to one concrete function
+  // declaration. The opaque instance token distinguishes distinct evaluations
+  // of the same AST node, such as two uses of one default argument.
+  cir::AllocaOp alloca = address.getUnderlyingAllocaOp();
+  if (!alloca || alloca.getAstMaterializeTemporaryIdentityAttr() ||
+      alloca.getAstTemporaryObjectIdentityAttr())
+    return;
+  auto function = alloca->getParentOfType<cir::FuncOp>();
+  SourceLocation begin = temporary->getBeginLoc();
+  SourceLocation end = temporary->getEndLoc();
+  if (!function || begin.isInvalid() || end.isInvalid())
+    return;
+
+  CIRGenBuilderTy &builder = getBuilder();
+  mlir::NamedAttrList identity;
+  identity.set("function",
+               mlir::FlatSymbolRefAttr::get(function.getSymNameAttr()));
+  identity.set("begin_raw",
+               builder.getI64IntegerAttr(begin.getRawEncoding()));
+  identity.set("end_raw", builder.getI64IntegerAttr(end.getRawEncoding()));
+  identity.set(
+      "instance_token",
+      builder.getStringAttr(getMaterializedTemporaryInstanceToken()));
+  alloca.setAstMaterializeTemporaryIdentityAttr(
+      identity.getDictionary(&getMLIRContext()));
+}
+
 static Address createReferenceTemporary(CIRGenFunction &cgf,
                                         const MaterializeTemporaryExpr *m,
                                         const Expr *inner) {
@@ -1876,9 +1909,14 @@ static Address createReferenceTemporary(CIRGenFunction &cgf,
       ip = cgf.getBuilder().getBestAllocaInsertPoint(
           cgf.getCurFunctionEntryBlock());
     }
-    return cgf.createMemTemp(ty, cgf.getLoc(m->getSourceRange()),
-                             cgf.getCounterRefTmpAsString(), /*alloca=*/nullptr,
-                             ip);
+    // Keep the pre-address-space-cast allocation address so we can tag the
+    // underlying cir.alloca that cleanup emission tracks.
+    Address alloca = Address::invalid();
+    Address result =
+        cgf.createMemTemp(ty, cgf.getLoc(m->getSourceRange()),
+                          cgf.getCounterRefTmpAsString(), &alloca, ip);
+    cgf.setMaterializedTemporaryIdentity(m, alloca);
+    return result;
   }
   case SD_Thread:
   case SD_Static: {
@@ -2137,7 +2175,7 @@ CIRGenFunction::emitCXXBindTemporaryLValue(const CXXBindTemporaryExpr *e) {
       createAggTemp(e->getType(), getLoc(e->getSourceRange()), "temp.lvalue");
   slot.setExternallyDestructed();
   emitAggExpr(e->getSubExpr(), slot);
-  emitCXXTemporary(e->getTemporary(), e->getType(), slot.getAddress());
+  emitCXXTemporary(e->getTemporary(), e->getType(), slot.getAddress(), e);
   return makeAddrLValue(slot.getAddress(), e->getType(), AlignmentSource::Decl);
 }
 

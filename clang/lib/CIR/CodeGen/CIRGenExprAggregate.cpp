@@ -219,6 +219,11 @@ public:
     // whether it was externally destructed.
     bool wasExternallyDestructed = dest.isExternallyDestructed();
     ensureDest(cgf.getLoc(e->getSourceRange()), e->getType());
+    // An outer cleanup can already own destruction, but this CXXBind node
+    // still owns the concrete storage identity. Attach it before emitting the
+    // subexpression so every actual temporary alloca carries exact metadata.
+    cgf.setCXXBindTemporaryObjectIdentity(e, e->getTemporary(),
+                                          dest.getAddress());
 
     // We're going to push a destructor if there isn't already one.
     dest.setExternallyDestructed();
@@ -227,7 +232,8 @@ public:
 
     // Push that destructor we promised.
     if (!wasExternallyDestructed)
-      cgf.emitCXXTemporary(e->getTemporary(), e->getType(), dest.getAddress());
+      cgf.emitCXXTemporary(e->getTemporary(), e->getType(),
+                           dest.getAddress(), e);
   }
   void VisitLambdaExpr(LambdaExpr *e);
   void VisitExprWithCleanups(ExprWithCleanups *e);
@@ -596,6 +602,12 @@ public:
   }
   void VisitCXXTypeidExpr(CXXTypeidExpr *e) { emitAggLoadOfLValue(e); }
   void VisitMaterializeTemporaryExpr(MaterializeTemporaryExpr *e) {
+    // Aggregate emission can receive a materialized temporary directly instead
+    // of routing through emitMaterializeTemporaryExpr. Establish the concrete
+    // storage before visiting its CXXBindTemporaryExpr so this exact MTE owns
+    // the destination alloca's one identity tuple.
+    ensureDest(cgf.getLoc(e->getSourceRange()), e->getType());
+    cgf.setMaterializedTemporaryIdentity(e, dest.getAddress());
     Visit(e->getSubExpr());
   }
   void VisitOpaqueValueExpr(OpaqueValueExpr *e) {

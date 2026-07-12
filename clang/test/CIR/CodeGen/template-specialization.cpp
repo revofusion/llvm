@@ -1,8 +1,8 @@
-// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-cir %s -o %t.cir
+// RUN: %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-cir %s -o %t.cir
 // RUN: FileCheck --input-file=%t.cir %s -check-prefix=CIR
-// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-llvm %s -o %t-cir.ll
+// RUN: %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-llvm %s -o %t-cir.ll
 // RUN: FileCheck --input-file=%t-cir.ll %s -check-prefix=LLVM
-// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -Wno-unused-value -emit-llvm %s -o %t.ll
+// RUN: %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -Wno-unused-value -emit-llvm %s -o %t.ll
 // RUN: FileCheck --input-file=%t.ll %s -check-prefix=OGCG
 
 template<typename T, typename U>
@@ -101,3 +101,20 @@ void test_short() {
 //
 // OGCG: define{{.*}} i32 @_ZN1XIsE1fEv
 // OGCG:   ret i32 0
+
+// Two lambda NTTP values instantiate this same template pattern to identical
+// CIR signatures. The source point of instantiation is an exact producer fact
+// that distinguishes the otherwise ambiguous specializations.
+template <auto Callback>
+void same_signature_nttp() {}
+
+void instantiate_same_signature_nttp() {
+  same_signature_nttp<[] {}>();
+  same_signature_nttp<[] {}>();
+}
+
+// CIR: cir.func{{.*}} @[[NTTP_ONE:[^ (]*same_signature_nttp[^ (]*]]()
+// CIR-SAME: ast_decl_specialization_identity = {{.*}}mangled_name = "[[NTTP_ONE]]"{{.*}}poi = "[[NTTP_ONE_POI:v1:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+]]"{{.*}}template_pattern_usr = "[[NTTP_PATTERN:[^"]+]]"
+// CIR: cir.func{{.*}} @[[NTTP_TWO:[^ (]*same_signature_nttp[^ (]*]]()
+// CIR-NOT: poi = "[[NTTP_ONE_POI]]"
+// CIR-SAME: ast_decl_specialization_identity = {{.*}}mangled_name = "[[NTTP_TWO]]"{{.*}}poi = "[[NTTP_TWO_POI:v1:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+]]"{{.*}}template_pattern_usr = "[[NTTP_PATTERN]]"

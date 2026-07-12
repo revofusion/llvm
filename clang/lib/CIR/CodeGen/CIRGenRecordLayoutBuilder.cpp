@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CIRGenBuilder.h"
+#include "CIRGenCXXABI.h"
 #include "CIRGenModule.h"
 #include "CIRGenTypes.h"
 
@@ -18,10 +19,15 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/RecordLayout.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
 #include "clang/CIR/Dialect/IR/CIRDataLayout.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "clang/UnifiedSymbolResolution/USRGeneration.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <memory>
 
@@ -238,6 +244,192 @@ private:
   CIRRecordLowering(const CIRRecordLowering &) = delete;
   void operator=(const CIRRecordLowering &) = delete;
 }; // CIRRecordLowering
+static const FunctionTemplateDecl *
+getEnclosingFunctionTemplatePattern(const RecordDecl *record,
+                                    bool &isLocalRecord) {
+  for (const DeclContext *context = record->getDeclContext(); context;
+       context = context->getParent()) {
+    const auto *function = dyn_cast<FunctionDecl>(context);
+    if (!function)
+      continue;
+
+    isLocalRecord = true;
+    const FunctionDecl *pattern = function->getTemplateInstantiationPattern();
+    if (!pattern)
+      pattern = function;
+    if (const auto *functionTemplate =
+            pattern->getDescribedFunctionTemplate())
+      return functionTemplate;
+  }
+  return nullptr;
+}
+
+struct StableSourceRecordLocation final {
+  std::string file;
+  unsigned offset;
+  unsigned line;
+  unsigned column;
+};
+
+static std::optional<StableSourceRecordLocation>
+stableSourceRecordLocation(const SourceManager &sourceManager,
+                           SourceLocation location) {
+  if (location.isInvalid() || location.isMacroID())
+    return std::nullopt;
+  FileIDAndOffset decomposed = sourceManager.getDecomposedLoc(location);
+  if (decomposed.first.isInvalid())
+    return std::nullopt;
+  PresumedLoc presumed = sourceManager.getPresumedLoc(location);
+  if (!presumed.isValid() || !presumed.getFilename())
+    return std::nullopt;
+
+  llvm::SmallString<256> normalizedFile(presumed.getFilename());
+  if (!llvm::sys::path::is_absolute(normalizedFile)) {
+    llvm::StringRef workingDirectory = sourceManager.getFileManager()
+                                           .getFileSystemOpts()
+                                           .WorkingDir;
+    if (workingDirectory.empty())
+      return std::nullopt;
+    llvm::SmallString<256> resolvedFile(workingDirectory);
+    llvm::sys::path::append(resolvedFile, normalizedFile);
+    normalizedFile = resolvedFile;
+  }
+  llvm::sys::path::remove_dots(normalizedFile, /*remove_dot_dot=*/true);
+  if (normalizedFile.empty() || !llvm::sys::path::is_absolute(normalizedFile))
+    return std::nullopt;
+
+  return StableSourceRecordLocation{normalizedFile.str().str(),
+                                    decomposed.second, presumed.getLine(),
+                                    presumed.getColumn()};
+}
+
+static std::optional<llvm::StringRef>
+stableSourceRecordTagKind(const RecordDecl *record) {
+  if (record->isStruct())
+    return "struct";
+  if (record->isClass())
+    return "class";
+  if (record->isUnion())
+    return "union";
+  return std::nullopt;
+}
+
+static std::optional<std::string>
+stableSourceRecordPatternUSR(const FunctionTemplateDecl *enclosingTemplate) {
+  if (!enclosingTemplate)
+    return std::string();
+
+  llvm::SmallString<256> usr;
+  if (clang::index::generateUSRForDecl(enclosingTemplate->getTemplatedDecl(),
+                                       usr))
+    return std::nullopt;
+  return usr.str().str();
+}
+
+static std::optional<std::string>
+localRecordSourceIdentity(CIRGenModule &cgm, const RecordDecl *record) {
+  bool isLocalRecord = false;
+  const FunctionTemplateDecl *enclosingTemplate =
+      getEnclosingFunctionTemplatePattern(record, isLocalRecord);
+  SourceLocation recordLocation = record->getLocation();
+  if (!isLocalRecord || recordLocation.isInvalid() ||
+      recordLocation.isMacroID())
+    return std::nullopt;
+
+  const SourceManager &sourceManager =
+      cgm.getASTContext().getSourceManager();
+  auto sourceLocation = stableSourceRecordLocation(
+      sourceManager, sourceManager.getSpellingLoc(recordLocation));
+  auto tagKind = stableSourceRecordTagKind(record);
+  auto patternUSR = stableSourceRecordPatternUSR(enclosingTemplate);
+  if (!sourceLocation || !tagKind || !patternUSR)
+    return std::nullopt;
+
+  std::string identity;
+  llvm::raw_string_ostream stream(identity);
+  stream << "cxx-source-record:v1:" << sourceLocation->file.size() << ':'
+         << sourceLocation->file << ':' << sourceLocation->offset << ':'
+         << sourceLocation->line << ':' << sourceLocation->column << ':'
+         << *tagKind << ':' << patternUSR->size() << ':' << *patternUSR;
+  stream.flush();
+  return identity;
+}
+
+static std::optional<std::string>
+localMacroRecordSourceIdentity(CIRGenModule &cgm, const RecordDecl *record) {
+  bool isLocalRecord = false;
+  const FunctionTemplateDecl *enclosingTemplate =
+      getEnclosingFunctionTemplatePattern(record, isLocalRecord);
+  SourceLocation recordLocation = record->getLocation();
+  if (!isLocalRecord || recordLocation.isInvalid() ||
+      !recordLocation.isMacroID())
+    return std::nullopt;
+
+  const SourceManager &sourceManager =
+      cgm.getASTContext().getSourceManager();
+  auto expansionLocation = stableSourceRecordLocation(
+      sourceManager, sourceManager.getExpansionLoc(recordLocation));
+  auto spellingLocation = stableSourceRecordLocation(
+      sourceManager, sourceManager.getSpellingLoc(recordLocation));
+  auto tagKind = stableSourceRecordTagKind(record);
+  auto patternUSR = stableSourceRecordPatternUSR(enclosingTemplate);
+  if (!expansionLocation || !spellingLocation || !tagKind || !patternUSR)
+    return std::nullopt;
+
+  std::string identity;
+  llvm::raw_string_ostream stream(identity);
+  stream << "cxx-source-record:v2:" << expansionLocation->file.size() << ':'
+         << expansionLocation->file << ':' << expansionLocation->offset << ':'
+         << expansionLocation->line << ':' << expansionLocation->column << ':'
+         << spellingLocation->file.size() << ':' << spellingLocation->file
+         << ':' << spellingLocation->offset << ':' << spellingLocation->line
+         << ':' << spellingLocation->column << ':' << *tagKind << ':'
+         << patternUSR->size() << ':' << *patternUSR;
+  stream.flush();
+  return identity;
+}
+
+std::optional<std::string>
+recordDeclIdentity(CIRGenModule &cgm, const RecordDecl *decl) {
+  if (!decl)
+    return std::nullopt;
+  const RecordDecl *definition = decl->getDefinition();
+  const RecordDecl *record = definition ? definition : decl;
+  if (const auto *canonical =
+          dyn_cast_or_null<RecordDecl>(record->getCanonicalDecl()))
+    record = canonical;
+  if (const RecordDecl *canonicalDefinition = record->getDefinition())
+    record = canonicalDefinition;
+
+  llvm::SmallString<256> usr;
+  if (!clang::index::generateUSRForDecl(record, usr))
+    return usr.str().str();
+
+  // Local records without a direct Clang USR need an identity that survives
+  // ABI lambda discriminator changes. A nonmacro definition uses v1 source
+  // provenance; a macro definition uses v2's expansion-and-spelling pair so
+  // repeated macro expansions cannot collide. Both variants require the exact
+  // enclosing function-template pattern USR and otherwise fail closed to RTTI.
+  if (auto sourceIdentity = localRecordSourceIdentity(cgm, record))
+    return sourceIdentity;
+  if (auto macroSourceIdentity = localMacroRecordSourceIdentity(cgm, record))
+    return macroSourceIdentity;
+  const auto *cxxRecord = dyn_cast<CXXRecordDecl>(record);
+  if (!cxxRecord)
+    return std::nullopt;
+
+  std::string rttiName;
+  llvm::raw_string_ostream rttiNameStream(rttiName);
+  QualType canonicalType =
+      cgm.getASTContext().getCanonicalTagType(cxxRecord);
+  cgm.getCXXABI().getMangleContext().mangleCXXRTTIName(canonicalType,
+                                                        rttiNameStream);
+  rttiNameStream.flush();
+  if (rttiName.empty())
+    return std::nullopt;
+  return "cxx-rtti-name:" + rttiName;
+}
+
 } // namespace
 
 CIRRecordLowering::CIRRecordLowering(CIRGenTypes &cirGenTypes,
@@ -740,6 +932,18 @@ CIRGenTypes::computeRecordLayout(const RecordDecl *rd, cir::RecordType *ty) {
       hasTrivialDestructor = cxxRD->hasTrivialDestructor();
     const auto &astLayout = astContext.getASTRecordLayout(rd);
     uint64_t recordAlignInBytes = astLayout.getAlignment().getQuantity();
+
+    if (auto identity = recordDeclIdentity(cgm, rd); identity.has_value())
+      cgm.addRecordDeclIdentity(
+          ty->getName(), mlir::StringAttr::get(mlirCtx, *identity));
+    bool hasEmptyProjectedSchema = rd->field_empty();
+    if (const auto *cxx = dyn_cast<CXXRecordDecl>(rd)) {
+      hasEmptyProjectedSchema =
+          hasEmptyProjectedSchema && cxx->getNumBases() == 0 &&
+          !cxx->isDynamicClass();
+    }
+    if (hasEmptyProjectedSchema)
+      cgm.addEmptyRecordSchema(ty->getName());
 
     cgm.addRecordLayout(ty->getName(), cir::RecordLayoutAttr::get(
                                            mlirCtx, apk, hasTrivialDestructor,

@@ -36,6 +36,11 @@ module attributes {cir.triple = "x86_64-unknown-linux-gnu"} {
     %constptr2 = cir.const #cir.ptr<null> : !dmp_ptr
     // CHECK: cir.const #cir.ptr<null> : !cir.ptr<!s64i>
 
+    // The alloca is reconstructed because !dmp lowers to !s64i. Preserve the
+    // producer-owned CXXBindTemporaryExpr identity exactly while doing so.
+    %temporary = cir.alloca "temporary" align(8) : !cir.ptr<!dmp> {ast_temporary_object_identity = {begin_raw = 17 : i64, cleanup_kind = "cxx_destructor", destructor_symbol = "_ZN1SD1Ev", end_raw = 19 : i64, function = @helper, instance_token = "cxx.temporary.instance.0"}}
+    // CHECK: %{{.*}} = cir.alloca "temporary" align(8) : !cir.ptr<!s64i> {ast_temporary_object_identity = {begin_raw = 17 : i64, cleanup_kind = "cxx_destructor", destructor_symbol = "_ZN1SD1Ev", end_raw = 19 : i64, function = @helper, instance_token = "cxx.temporary.instance.0"}}
+
     // cir::ConstRecordAttr
     %constrecord = cir.const #cir.const_record<{#cir.data_member<null> : !dmp }> : !rec_Struct
     // CHECK: cir.const #cir.const_record<{#cir.int<-1> : !s64i}> : !rec_Struct
