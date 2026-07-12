@@ -1,0 +1,28 @@
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/config.py:561: note: using clang: /Users/revofusion/Projects/llvm/build/bin/clang
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find apinotes-test in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find c-index-test in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-diff in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-format in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-repl in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-offload-binary in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-scan-deps in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-installapi in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find opt in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-ifs in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find yaml2obj in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-linker-wrapper in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-nvlink-wrapper in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-sycl-linker in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-lto in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-lto2 in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-profdata in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-readtapi in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-check in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/util.py:363: note: using SDKROOT: '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk'
+-- Testing: 1 tests, 1 workers --
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.. 70.. 80.. 90.. 
+
+Testing Time: 0.38s
+
+Total Discovered Tests: 1
+  Passed: 1 (100.00%)

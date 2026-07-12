@@ -1,0 +1,192 @@
+=== clang/test/CIR/CodeGenOpenACC/atomic-update.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/ loc\([^)]*\)//g; s/ ,/,/g; s/ \)/)/g' | FileCheck %s
+
+struct HasOps {
+  operator float();
+  int thing();
+=== clang/test/CIR/CodeGenOpenACC/combined-firstprivate-clause.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+
+struct NoCopyConstruct {};
+
+struct CopyConstruct {
+=== clang/test/CIR/CodeGenOpenACC/combined-private-clause.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+
+struct NoCopyConstruct {};
+
+struct CopyConstruct {
+=== clang/test/CIR/CodeGenOpenACC/combined-reduction-clause-default-ops.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+struct DefaultOperators {
+  int i;
+=== clang/test/CIR/CodeGenOpenACC/combined-reduction-clause-float.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+template<typename T>
+void acc_combined() {
+=== clang/test/CIR/CodeGenOpenACC/combined-reduction-clause-inline-ops.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+
+struct HasOperatorsInline {
+  int i;
+  unsigned u;
+=== clang/test/CIR/CodeGenOpenACC/combined-reduction-clause-int.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+template<typename T>
+void acc_combined() {
+=== clang/test/CIR/CodeGenOpenACC/combined-reduction-clause-outline-ops.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+struct HasOperatorsOutline {
+  int i;
+  unsigned u;
+  float f;
+=== clang/test/CIR/CodeGenOpenACC/compute-firstprivate-clause.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.ll
+// RUN: FileCheck --input-file=%t.ll %s
+
+struct NoCopyConstruct {};
+
+=== clang/test/CIR/CodeGenOpenACC/compute-reduction-clause-default-ops.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+struct DefaultOperators {
+  int i;
+=== clang/test/CIR/CodeGenOpenACC/compute-reduction-clause-float.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+template<typename T>
+void acc_compute() {
+=== clang/test/CIR/CodeGenOpenACC/compute-reduction-clause-inline-ops.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+
+struct HasOperatorsInline {
+  int i;
+  unsigned u;
+=== clang/test/CIR/CodeGenOpenACC/compute-reduction-clause-int.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+template<typename T>
+void acc_compute() {
+=== clang/test/CIR/CodeGenOpenACC/compute-reduction-clause-outline-ops.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+struct HasOperatorsOutline {
+  int i;
+  unsigned u;
+  float f;
+=== clang/test/CIR/CodeGenOpenACC/firstprivate-clause-recipes.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+
+// Note: unlike the 'private' recipe checks, this is just for spot-checking,
+// so this test isn't as comprehensive.  The same code paths are used for
+// 'private', so we just count on those to catch the errors.
+=== clang/test/CIR/CodeGenOpenACC/loop-private-clause.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+
+struct NoCopyConstruct {};
+
+struct CopyConstruct {
+=== clang/test/CIR/CodeGenOpenACC/loop-reduction-clause-default-ops.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+struct DefaultOperators {
+  int i;
+=== clang/test/CIR/CodeGenOpenACC/loop-reduction-clause-float.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+template<typename T>
+void acc_loop() {
+=== clang/test/CIR/CodeGenOpenACC/loop-reduction-clause-inline-ops.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+
+struct HasOperatorsInline {
+  int i;
+  unsigned u;
+=== clang/test/CIR/CodeGenOpenACC/loop-reduction-clause-int.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+template<typename T>
+void acc_loop() {
+=== clang/test/CIR/CodeGenOpenACC/loop-reduction-clause-outline-ops.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+struct HasOperatorsOutline {
+  int i;
+  unsigned u;
+  float f;
+=== clang/test/CIR/CodeGenOpenACC/private-clause-array-recipes-CtorDtor.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+
+struct CtorDtor {
+  int i;
+  CtorDtor();
+=== clang/test/CIR/CodeGenOpenACC/private-clause-pointer-array-recipes-CtorDtor.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g; s/ ,/,/g; s/ \)/)/g' | FileCheck %s
+
+struct CtorDtor {
+  int i;
+  CtorDtor();
+=== clang/test/CIR/CodeGenOpenACC/private-clause-pointer-array-recipes-int.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g; s/ ,/,/g; s/ \)/)/g' | FileCheck %s
+
+template<typename T>
+void do_things(unsigned A, unsigned B) {
+  T *OnePtr;
+=== clang/test/CIR/CodeGenOpenACC/private-clause-pointer-recipes-CtorDtor.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+
+struct CtorDtor {
+  int i;
+  CtorDtor();
+=== clang/test/CIR/CodeGenOpenACC/private-clause-pointer-recipes-NoOps.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+
+struct NoOps { int i = 0; };
+
+template<typename T>
+=== clang/test/CIR/CodeGenOpenACC/reduction-clause-recipes.cpp ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+
+// Note: unlike the 'private' recipe checks, this is just for spot-checking,
+// so this test isn't as comprehensive.  The same code paths are used for
+// 'private', so we just count on those to catch the errors.
+=== clang/test/CIR/CodeGenOpenACC/compute-firstprivate-clause.c ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o - | sed -E 's/loc\([^)]*\)//g' | FileCheck %s
+
+struct NoCopyConstruct {};
+
+// CHECK: acc.firstprivate.recipe @firstprivatization__ZTSi : !cir.ptr<!s32i> init {
+=== clang/test/CIR/CodeGenOpenACC/compute-reduction-clause-default-ops.c ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -std=c23 -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+struct DefaultOperators {
+  int i;
+=== clang/test/CIR/CodeGenOpenACC/compute-reduction-clause-float.c ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+void acc_compute() {
+  float someVar;
+=== clang/test/CIR/CodeGenOpenACC/compute-reduction-clause-int.c ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+void acc_compute() {
+  int someVar;
+=== clang/test/CIR/CodeGenOpenACC/compute-reduction-clause-unsigned-int.c ===
+// RUN: %clang_cc1 -fopenacc -triple x86_64-linux-gnu -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir -triple x86_64-linux-pc %s -o %t.cir
+// RUN: FileCheck --input-file=%t.cir %s
+
+void acc_compute() {
+  unsigned int someVar;

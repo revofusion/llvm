@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "createdAt": "2026-06-25T08:21:51.620Z",
+  "updatedAt": "2026-06-25T08:31:52.703Z",
+  "briefPath": ".omo/ulw-loop/019efddd-b6ed-75a0-984d-d877491408d9/brief.md",
+  "goalsPath": ".omo/ulw-loop/019efddd-b6ed-75a0-984d-d877491408d9/goals.json",
+  "ledgerPath": ".omo/ulw-loop/019efddd-b6ed-75a0-984d-d877491408d9/ledger.jsonl",
+  "codexGoalMode": "aggregate",
+  "goals": [
+    {
+      "id": "G001-implement-minimal-llvm-cir-fix-for-m",
+      "title": "Implement minimal LLVM CIR fix for member-pointer zero-initialization...",
+      "objective": "Implement minimal LLVM CIR fix for member-pointer zero-initialization soundness. Deliverable: patch only scoped files if possible so clang/test/CIR/CodeGen/nonzeroinit-struct.cpp fails-loud for non-zero-initializable Itanium data member pointers. Success criteria: (1) RED evidence from build/bin/llvm-lit -sv clang/test/CIR/CodeGen/nonzeroinit-struct.cpp before patch shows cc1 succeeds and FileCheck fails; (2) GREEN evidence after patch from ninja -C build clang and build/bin/llvm-lit -sv clang/test/CIR/CodeGen/nonzeroinit-struct.cpp; (3) manual CLI QA via tmux reruns the exact lit command and captures transcript showing PASS; (4) git diff/status evidence shows only intended scoped tracked files changed and unrelated existing edits untouched.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "CLI RED: run build/bin/llvm-lit -sv clang/test/CIR/CodeGen/nonzeroinit-struct.cpp before code edits; PASS iff output contains FAIL and FileCheck reports missing NYI while cc1 emitted #cir.zero.",
+          "userModel": "happy",
+          "expectedEvidence": ".omo/ulw-loop/evidence/member-pointer-red-live.txt",
+          "capturedEvidence": "RED: .omo/ulw-loop/evidence/member-pointer-red-live.txt shows FAIL, emitted #cir.zero, LIT_EXIT:1 | cleanup: no runtime resources",
+          "status": "pass",
+          "capturedAt": "2026-06-25T08:31:52.584Z"
+        },
+        {
+          "id": "C002",
+          "scenario": "CLI GREEN: run ninja -C build clang, then build/bin/llvm-lit -sv clang/test/CIR/CodeGen/nonzeroinit-struct.cpp after patch; PASS iff ninja exits 0 and lit reports Passed: 1.",
+          "userModel": "edge",
+          "expectedEvidence": ".omo/ulw-loop/evidence/member-pointer-green.txt",
+          "capturedEvidence": "GREEN: .omo/ulw-loop/evidence/member-pointer-ninja.txt has NINJA_EXIT:0; .omo/ulw-loop/evidence/member-pointer-green.txt has Passed: 1 and LIT_EXIT:0 | cleanup: no runtime resources",
+          "status": "pass",
+          "capturedAt": "2026-06-25T08:31:52.643Z"
+        },
+        {
+          "id": "C003",
+          "scenario": "tmux manual QA: create tmux session ulw-qa-member-pointer, send build/bin/llvm-lit -sv clang/test/CIR/CodeGen/nonzeroinit-struct.cpp; printf EXIT:$?; capture pane; PASS iff transcript contains Passed: 1 and EXIT:0, then kill session and confirm it is gone.",
+          "userModel": "regression",
+          "expectedEvidence": ".omo/ulw-loop/evidence/member-pointer-tmux-qa.txt",
+          "capturedEvidence": "tmux QA: .omo/ulw-loop/evidence/member-pointer-tmux-qa.txt has Passed: 1 and EXIT:0 | cleanup: killed tmux session ulw-qa-member-pointer; confirmed absent",
+          "status": "pass",
+          "capturedAt": "2026-06-25T08:31:52.703Z"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-06-25T08:21:51.620Z",
+      "updatedAt": "2026-06-25T08:31:52.703Z"
+    }
+  ],
+  "codexObjective": "Complete the durable ulw-loop plan in .omo/ulw-loop/019efddd-b6ed-75a0-984d-d877491408d9/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/019efddd-b6ed-75a0-984d-d877491408d9/ledger.jsonl as the audit trail."
+}

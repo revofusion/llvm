@@ -1,0 +1,82 @@
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/config.py:561: note: using clang: /Users/revofusion/Projects/llvm/build/bin/clang
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find apinotes-test in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find c-index-test in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-diff in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-format in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-repl in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-offload-binary in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-scan-deps in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-installapi in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find opt in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-ifs in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find yaml2obj in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-linker-wrapper in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-nvlink-wrapper in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-sycl-linker in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-lto in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-lto2 in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-profdata in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-readtapi in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-check in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/util.py:363: note: using SDKROOT: '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk'
+-- Testing: 1 tests, 1 workers --
+Testing: 
+FAIL: Clang :: CIR/CodeGen/nonzeroinit-struct.cpp (1 of 1)
+******************** TEST 'Clang :: CIR/CodeGen/nonzeroinit-struct.cpp' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+not /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/nonzeroinit-struct.cpp -o - 2>&1 | /Users/revofusion/Projects/llvm/build/bin/FileCheck /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/nonzeroinit-struct.cpp
+# executed command: not /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/nonzeroinit-struct.cpp -o -
+# note: command had no output on stdout or stderr
+# error: command failed with exit status: 1
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/nonzeroinit-struct.cpp
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/nonzeroinit-struct.cpp:19:11: error: CHECK: expected string not found in input
+# | // CHECK: error: ClangIR code gen Not Yet Implemented: tryEmitPrivateForVarInit: non-zero-initializable cxx record
+# |           ^
+# | <stdin>:1:1: note: scanning from here
+# | !s32i = !cir.int<s, 32>
+# | ^
+# | 
+# | Input file: <stdin>
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/nonzeroinit-struct.cpp
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |           1: !s32i = !cir.int<s, 32> 
+# | check:19     X~~~~~~~~~~~~~~~~~~~~~~~ error: no match found
+# |           2: !rec_Other = !cir.record<struct "Other" {!s32i}> 
+# | check:19     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           3: !rec_Trivial = !cir.record<struct "Trivial" {!s32i, !cir.double, !cir.data_member<!s32i in !rec_Other>}> 
+# | check:19     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           4: module @"/Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/nonzeroinit-struct.cpp" attributes {cir.lang = #cir.lang<cxx>, cir.module_asm = [], cir.triple = "x86_64-unknown-linux-gnu", dlti.dl_spec = #dlti.dl_spec<!llvm.ptr<270> = dense<32> : vector<4xi64>, !llvm.ptr<271> = dense<32> : vector<4xi64>, !llvm.ptr<272> = dense<64> : vector<4xi64>, i64 = dense<64> : vector<2xi64>, i128 = dense<128> : vector<2xi64>, f80 = dense<128> : vector<2xi64>, !llvm.ptr = dense<64> : vector<4xi64>, i1 = dense<8> : vector<2xi64>, i8 = dense<8> : vector<2xi64>, i16 = dense<16> : vector<2xi64>, i32 = dense<32> : vector<2xi64>, f16 = dense<16> : vector<2xi64>, f64 = dense<64> : vector<2xi64>, f128 = dense<128> : vector<2xi64>, "dlti.endianness" = "little", "dlti.mangling_mode" = "e", "dlti.legal_int_widths" = array<i32: 8, 16, 32, 64>, "dlti.stack_alignment" = 128 : i64>} { 
+# | check:19     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           5:  cir.global external @t = #cir.zero : !rec_Trivial {alignment = 8 : i64} loc(#loc3) 
+# | check:19     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           6: } loc(#loc) 
+# | check:19     ~~~~~~~~~~~~
+# |           .
+# |           .
+# |           .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.. 70.. 80.. 90.. 
+********************
+Failed Tests (1):
+  Clang :: CIR/CodeGen/nonzeroinit-struct.cpp
+
+
+Testing Time: 0.23s
+
+Total Discovered Tests: 1
+  Failed: 1 (100.00%)

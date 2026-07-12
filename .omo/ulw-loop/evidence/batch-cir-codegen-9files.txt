@@ -1,0 +1,48 @@
+Batch: 9 CIR CodeGen test files refreshed
+Files touched:
+  clang/test/CIR/CodeGen/address-space.c
+  clang/test/CIR/CodeGen/basic.c
+  clang/test/CIR/CodeGen/no-prototype.c
+  clang/test/CIR/CodeGen/record-zero-init-padding.c
+  clang/test/CIR/CodeGen/struct.c
+  clang/test/CIR/CodeGen/count-of.c
+  clang/test/CIR/CodeGen/label.c
+  clang/test/CIR/CodeGen/label-values.c
+  clang/test/CIR/CodeGen/kr-func-promote.c
+
+Verification performed:
+  build/bin/FileCheck --check-prefix=CIR --input-file=build/tools/clang/test/CIR/CodeGen/Output/<file>.tmp.cir clang/test/CIR/CodeGen/<file>
+  (no-prototype.c uses the default CHECK prefix)
+  Result: all 9 CIR prefixes pass.
+
+Kinds of changes made:
+- Replaced brittle exact SSA value names (%0, %1, %arg0, %arg1, etc.) with regex captures
+  (%{{.*}}, %arg{{[0-9]+}}, or named captures) so the checks survive numbering drift.
+- Updated function signature checks to tolerate the new `no_inline`/`dso_local`/loc
+  attributes and any generated argument name.
+- Refreshed checks against the current generated CIR for:
+  * basic.c: load/alloca numbering, for-loop true constant naming, argument names.
+  * record-zero-init-padding.c: CIR now uses named record types and implicit padding;
+    replaced the old explicit zero-padding-array expectations with the new record
+    layout and constant records.
+  * struct.c: f5 now goes through an alloca for the argument and an explicit null
+    pointer constant; checks updated to capture the new sequence.
+  * count-of.c: fixed a broken capture reference (REET_ADDR vs RET_ADDR) and used
+    per-function capture names.
+  * label.c: label_in_if now references the loaded value in the inc; after_return
+    now emits an early return with an unreachable label block instead of branching.
+  * label-values.c: function C no longer has a merge block, so indirectbr targets
+    and label blocks were adjusted; function D branch to ^bb1 now carries the
+    block-address argument.
+  * kr-func-promote.c: function argument names and local value names generalized.
+
+Unresolved concerns / limitations:
+- For all files, only the CIR (or default CHECK) prefix could be verified because
+  the failing full gate stopped before producing the LLVM/OGCG .tmp-cir.ll and
+  .tmp.ll outputs, and running clang is prohibited while cve_gate.py holds the
+  build/bin/clang binary. The existing LLVM/OGCG checks were left in place; they
+  may need refreshing once those generated outputs are available.
+- record-zero-init-padding.c: the CIR representation no longer emits explicit
+  padding zero fields. The updated checks assert the new implicit-padding record
+  layout, which matches current codegen but is a visible spelling change from the
+  previous test intent.

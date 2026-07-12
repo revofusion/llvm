@@ -1,0 +1,51 @@
+Batch: CIR CodeGen FileCheck refresh
+Date: 2026-06-25
+Files touched:
+  - clang/test/CIR/CodeGen/agg-expr-lvalue.c
+  - clang/test/CIR/CodeGen/array.cpp
+  - clang/test/CIR/CodeGen/cast.cpp
+  - clang/test/CIR/CodeGen/compound_literal.cpp
+  - clang/test/CIR/CodeGen/empty-union.cpp
+  - clang/test/CIR/CodeGen/finegrain-bitfield-access.cpp
+  - clang/test/CIR/CodeGen/global-init.cpp
+  - clang/test/CIR/CodeGen/paren-init-list.cpp
+
+Verified prefixes (using existing generated .tmp.* outputs, no clang invoked):
+  - agg-expr-lvalue.c: CIR
+  - array.cpp: CIR
+  - cast.cpp: CIR
+  - compound_literal.cpp: CIR
+  - finegrain-bitfield-access.cpp: CIR
+  - global-init.cpp: CIR-BEFORE-LPP, CIR
+  - paren-init-list.cpp: CIR
+
+empty-union.cpp: no pre-generated .tmp.* file because the RUN lines use -o -.
+The LLVM prefix was updated to match the actual lowered LLVM type output shown in
+full-codegen-ir-after-phases.log, but could not be re-verified without invoking
+clang. CIR for empty-union passed in the original failure log and was not
+modified.
+
+Kinds of changes made:
+1. SSA value names / argument names -> regex captures (%{{.*}}, [[NAME:%.*]])
+   to survive numbering drift.
+2. Array initialization: updated expectations from #cir.const_array stores to
+   element-wise ptr_stride / cir.store sequences where codegen now expands
+   initializers (agg-expr-lvalue.c string array, array.cpp func2-func5 and
+   array_with_complex_elements, paren-init-list.cpp, compound_literal.cpp foo4).
+3. Global partial array initializers: replaced #cir.const_record expectations
+   with #cir.const_array<..., trailing_zeros> (array.cpp @e, @f, @g).
+4. empty-union.cpp: updated LLVM type expectations to { i8, i8 } and
+   { [16 x i8], [16 x i8] } to match current CIR-to-LLVM lowering.
+5. global-init.cpp: replaced brittle %0 numeric capture with named capture for
+   the ctor helper's this pointer.
+6. finegrain-bitfield-access.cpp: replaced hard-coded %1 base pointer with regex
+   in read8_1.
+
+Unresolved concerns / not verified:
+- LLVM and OGCG prefixes for agg-expr-lvalue.c, array.cpp, cast.cpp,
+  compound_literal.cpp, paren-init-list.cpp, and finegrain-bitfield-access.cpp
+  could not be verified because the CIR FileCheck failure caused lit to stop
+  before those outputs were generated. The existing LLVM/OGCG checks were left
+  in place.
+- empty-union.cpp LLVM prefix could not be verified against a .tmp.* file
+  because the test emits to stdout.

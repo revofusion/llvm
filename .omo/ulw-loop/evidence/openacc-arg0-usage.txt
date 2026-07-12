@@ -1,0 +1,8 @@
+==clang/test/CIR/CodeGenOpenACC/atomic-update.cpp==
+==clang/test/CIR/CodeGenOpenACC/combined-firstprivate-clause.cpp==
+==clang/test/CIR/CodeGenOpenACC/combined-private-clause.cpp==
+==clang/test/CIR/CodeGenOpenACC/firstprivate-clause-recipes.cpp==
+==clang/test/CIR/CodeGenOpenACC/loop-private-clause.cpp==
+==clang/test/CIR/CodeGenOpenACC/private-clause-array-recipes-CtorDtor.cpp==
+==clang/test/CIR/CodeGenOpenACC/private-clause-pointer-recipes-CtorDtor.cpp==
+==clang/test/CIR/CodeGenOpenACC/private-clause-pointer-recipes-NoOps.cpp==

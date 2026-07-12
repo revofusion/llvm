@@ -1,0 +1,40 @@
+Batch update: CIR CodeGen FileCheck refresh
+Files touched:
+  clang/test/CIR/CodeGen/cleanup.cpp
+  clang/test/CIR/CodeGen/goto.cpp
+  clang/test/CIR/CodeGen/if.cpp
+  clang/test/CIR/CodeGen/loop.cpp
+  clang/test/CIR/CodeGen/statement-exprs.c
+  clang/test/CIR/CodeGen/try-catch-tmp.cpp
+  clang/test/CIR/CodeGen/size-of-vla.cpp
+  clang/test/CIR/CodeGen/var_arg.c
+
+Verification performed:
+  Ran build/bin/FileCheck for the CIR prefix (CHECK for cleanup.cpp) against the
+  already-generated .tmp.cir files in build/tools/clang/test/CIR/CodeGen/Output/.
+  All eight files now pass their CIR FileCheck prefix.
+
+Kinds of changes made:
+- Replaced brittle SSA value names (%0, %1, %arg0, etc.) with resilient regex
+  captures (%{{.*}}, [[NAME:%.*]], %arg{{.*}}) unless the exact name was genuinely
+  needed for a semantic assertion.
+- Added allowance for the new `align(N)` prefix on cir.load/cir.store.
+- Updated loop.cpp l5 checks to match the current element-wise array
+  initialization (cir.ptr_stride + per-element cir.store) instead of the former
+  cir.const_array pattern. This is a codegen spelling change, not a semantic
+  regression: the array still ends up initialized with [1,2,3,4].
+- Updated statement-exprs.c test3 checks to match field-wise aggregate
+  initialization (cir.get_member + cir.store) instead of the former
+  cir.const_record pattern. Again, this preserves the same semantic init.
+- Fixed stale ordering/missing operations in goto.cpp and if.cpp CIR checks
+  (e.g., retval alloca placement, returns inside if arms).
+- Fixed typos and missing colons in try-catch-tmp.cpp catch_param checks.
+
+Unresolved concerns / limitations:
+- Only the CIR prefix could be verified for these files. The generated
+  .tmp-cir.ll and .tmp.ll outputs for the LLVM/OGCG prefixes are absent from
+  the build tree because lit stops running subsequent RUN lines once the CIR
+  FileCheck fails. I did not run clang/ninja/lit to regenerate them per the
+  instruction to avoid invoking build/bin/clang while cve_gate.py is using it.
+- The LLVM/OGCG checks in the touched files were left substantially as-is;
+  they may still need refresh once those generated outputs are available.

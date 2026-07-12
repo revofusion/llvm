@@ -412,6 +412,35 @@ CIRGenCXXABI *CreateCIRGenItaniumCXXABI(CIRGenModule &cgm);
 
 CIRGenCXXABI *CreateCIRGenMicrosoftCXXABI(CIRGenModule &cgm);
 
+/// Attribute payload for `cir.vtable.get_virtual_fn_addr`'s optional
+/// `method`/`method_usr`/`root_method_usr`/`declaring_class_usr` fields (see
+/// that op's own .td doc comment for the exact contract each one carries).
+/// Purely additive source-provenance metadata -- never consumed by codegen.
+struct CIRGenVirtualMethodIdentityAttrs {
+  mlir::FlatSymbolRefAttr method;
+  mlir::StringAttr methodUSR;
+  mlir::StringAttr rootMethodUSR;
+  mlir::StringAttr declaringClassUSR;
+};
+
+/// Builds the identity attribute payload for one `cir.vtable.get_virtual_fn_
+/// addr` construction site, given the real, statically-resolved
+/// `CXXMethodDecl` CIRGen already has in hand there (the ITanium and
+/// Microsoft `getVirtualFunctionPointer` implementations each already
+/// resolve one via `cast<CXXMethodDecl>(gd.getDecl())` before this point).
+/// `mangledName` is `method`'s own linkage name (`CIRGenModule::
+/// getMangledName(gd)`, computed identically by both callers). The three USR
+/// fields are computed directly from `methodDecl`, independent of
+/// `mangledName`: no join, no string matching -- each is simply absent
+/// (`nullptr`) when Clang cannot assign a USR to the relevant decl, or when
+/// walking to the method's root declaration ever finds more than one
+/// overridden method at some step (a genuine multiple/virtual-inheritance
+/// ambiguity this never guesses through by priority).
+CIRGenVirtualMethodIdentityAttrs
+buildCIRGenVirtualMethodIdentityAttrs(mlir::MLIRContext &mlirContext,
+                                      llvm::StringRef mangledName,
+                                      const CXXMethodDecl *methodDecl);
+
 } // namespace clang::CIRGen
 
 #endif

@@ -1368,18 +1368,90 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     return RValue::getIgnored();
   case Builtin::BI__builtin_powi:
   case Builtin::BI__builtin_powif:
-  case Builtin::BI__builtin_powil:
+  case Builtin::BI__builtin_powil: {
+    // `powi(base, exp)`: base raised to an *integer* power. Real result,
+    // no out-parameter -- unlike frexp/modf below, this is a plain
+    // `llvm.powi.<basety>.<expty>` call with no struct result. Confirmed
+    // this (and frexp/modf) were previously mis-grouped into the
+    // `isnan`-style FP-class-check case immediately below, which is wrong
+    // for two independent reasons: (1) semantically nonsensical (a
+    // one-argument NaN test has nothing to do with a two-argument power or
+    // an out-parameter split), and (2) for these three builtins specifically
+    // (unlike isnan/isinf/isgreater/etc., which all return `int`), the
+    // expression's own result type is a floating type, so
+    // `createBoolToInt(..., convertType(e->getType()))` tried to build a
+    // `bool_to_int` cast with a non-integer result type, which
+    // `CastOp::verify()` rejects (confirmed directly: instrumented the
+    // dispatch and observed `__builtin_frexp`/`__builtin_modf`/
+    // `__builtin_powi` genuinely reach that case body, then hit exactly
+    // this verifier failure). Cross-referenced classic (non-CIR) CodeGen's
+    // `CGBuiltin.cpp` (`BI__builtin_powi` case, `emitFrexpBuiltin`,
+    // `emitModfBuiltin`) for the correct, intended lowering, mirrored here.
+    mlir::Value src0 = emitScalarExpr(e->getArg(0));
+    mlir::Value src1 = emitScalarExpr(e->getArg(1));
+    mlir::Location loc = getLoc(e->getExprLoc());
+    return RValue::get(emitIntrinsicCallOp(builder, loc, "powi",
+                                           src0.getType(),
+                                           mlir::ValueRange{src0, src1}));
+  }
   case Builtin::BI__builtin_frexpl:
   case Builtin::BI__builtin_frexp:
   case Builtin::BI__builtin_frexpf:
   case Builtin::BI__builtin_frexpf128:
-  case Builtin::BI__builtin_frexpf16:
+  case Builtin::BI__builtin_frexpf16: {
+    // `frexp(x, &exp)`: splits `x` into a normalized fractional mantissa
+    // (the return value) and an integer power-of-two exponent (written
+    // through the second, pointer argument). `llvm.frexp.<fty>.<ity>`
+    // returns both as a `{fty, ity}` struct in one call; see
+    // `emitFrexpBuiltin` in classic CodeGen for the reference lowering this
+    // mirrors (extract element 0 as the return value, store element 1
+    // through the out-parameter).
+    mlir::Value src0 = emitScalarExpr(e->getArg(0));
+    mlir::Value src1 = emitScalarExpr(e->getArg(1));
+    mlir::Location loc = getLoc(e->getExprLoc());
+    QualType intPtrTy = e->getArg(1)->getType()->getPointeeType();
+    mlir::Type intTy = convertType(intPtrTy);
+    cir::RecordType resRecord = cir::RecordType::get(
+        &getMLIRContext(), {src0.getType(), intTy}, /*packed=*/false,
+        /*padded=*/false, cir::RecordType::RecordKind::Struct);
+    mlir::Value call = emitIntrinsicCallOp(builder, loc, "frexp", resRecord,
+                                           mlir::ValueRange{src0});
+    mlir::Value fractional =
+        cir::ExtractMemberOp::create(builder, loc, src0.getType(), call, 0);
+    mlir::Value exponent =
+        cir::ExtractMemberOp::create(builder, loc, intTy, call, 1);
+    LValue destLV = makeNaturalAlignAddrLValue(src1, intPtrTy);
+    emitStoreOfScalar(exponent, destLV, /*isInit=*/false);
+    return RValue::get(fractional);
+  }
   case Builtin::BImodf:
   case Builtin::BImodff:
   case Builtin::BImodfl:
   case Builtin::BI__builtin_modf:
   case Builtin::BI__builtin_modff:
-  case Builtin::BI__builtin_modfl:
+  case Builtin::BI__builtin_modfl: {
+    // `modf(x, &ipart)`: splits `x` into a fractional part (the return
+    // value) and an integral part of the *same* floating type (written
+    // through the second, pointer argument). `llvm.modf.<fty>` returns
+    // both as an `{fty, fty}` struct; see `emitModfBuiltin` in classic
+    // CodeGen for the reference lowering this mirrors.
+    mlir::Value src0 = emitScalarExpr(e->getArg(0));
+    mlir::Value src1 = emitScalarExpr(e->getArg(1));
+    mlir::Location loc = getLoc(e->getExprLoc());
+    QualType destPtrTy = e->getArg(1)->getType()->getPointeeType();
+    cir::RecordType resRecord = cir::RecordType::get(
+        &getMLIRContext(), {src0.getType(), src0.getType()},
+        /*packed=*/false, /*padded=*/false, cir::RecordType::RecordKind::Struct);
+    mlir::Value call = emitIntrinsicCallOp(builder, loc, "modf", resRecord,
+                                           mlir::ValueRange{src0});
+    mlir::Value fractional =
+        cir::ExtractMemberOp::create(builder, loc, src0.getType(), call, 0);
+    mlir::Value integral =
+        cir::ExtractMemberOp::create(builder, loc, src0.getType(), call, 1);
+    LValue destLV = makeNaturalAlignAddrLValue(src1, destPtrTy);
+    emitStoreOfScalar(integral, destLV, /*isInit=*/false);
+    return RValue::get(fractional);
+  }
   case Builtin::BI__builtin_isgreater:
   case Builtin::BI__builtin_isgreaterequal:
   case Builtin::BI__builtin_isless:
@@ -1574,8 +1646,6 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_reduce_add:
   case Builtin::BI__builtin_reduce_mul:
   case Builtin::BI__builtin_reduce_xor:
-  case Builtin::BI__builtin_reduce_or:
-  case Builtin::BI__builtin_reduce_and:
   case Builtin::BI__builtin_reduce_maximum:
   case Builtin::BI__builtin_reduce_minimum:
   case Builtin::BI__builtin_matrix_transpose:
@@ -1590,6 +1660,24 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_flt_rounds:
   case Builtin::BI__builtin_set_flt_rounds:
     return errorBuiltinNYI(*this, e, builtinID);
+  case Builtin::BI__builtin_reduce_or:
+  case Builtin::BI__builtin_reduce_and: {
+    // Horizontal bitwise reduction across all lanes of an integer (including
+    // bool) vector, e.g. libc++'s `__any_of`/`__all_of` SIMD idiom
+    // (`__builtin_reduce_or(__builtin_convertvector(v, boolVec))`). Unlike
+    // `reduce_fadd`/`reduce_fmul` (see CIRGenBuiltinX86.cpp's
+    // `__builtin_ia32_reduce_fadd_*` handling), the integer `and`/`or`
+    // reductions are associative and need no start/identity operand -- same
+    // single-operand shape as that file's `reduce_fmax`/`reduce_fmin`
+    // handling, which this mirrors.
+    mlir::Value arg = emitScalarExpr(e->getArg(0));
+    const char *intrinsic = builtinIDIfNoAsmLabel == Builtin::BI__builtin_reduce_or
+                                ? "vector.reduce.or"
+                                : "vector.reduce.and";
+    mlir::Type resTy = convertType(e->getType());
+    return RValue::get(emitIntrinsicCallOp(builder, loc, intrinsic, resTy,
+                                           mlir::ValueRange{arg}));
+  }
   case Builtin::BI__builtin_elementwise_min: {
     mlir::Value lhs = emitScalarExpr(e->getArg(0));
     mlir::Value rhs = emitScalarExpr(e->getArg(1));

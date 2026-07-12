@@ -1,0 +1,255 @@
+=== address-space.c prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/address-space.c.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/address-space.c.tmp.ll for OGCG
+=== agg-expr-lvalue.c prefixes: CIR,CIR-LABEL,LLVM,LLVM-LABEL,OGCG,OGCG-LABEL,
+  pass CIR
+  pass CIR-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp-cir.ll for LLVM-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp.ll for OGCG
+  no build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp.ll for OGCG-LABEL
+=== array.cpp prefixes: CIR,LLVM,LLVM-NEXT,LLVM-SAME,OGCG,OGCG-SAME,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp-cir.ll for LLVM-NEXT
+  no build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp-cir.ll for LLVM-SAME
+  no build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp.ll for OGCG
+  no build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp.ll for OGCG-SAME
+=== assign-operator.cpp prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/assign-operator.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/assign-operator.cpp.tmp.ll for OGCG
+=== basic.c prefixes: CHECK,CIR,CIR-NEXT,LLVM,LLVM-NEXT,OGCG,OGCG-NEXT,
+  FAIL CHECK (will see details from log)
+  pass CIR
+  FAIL CIR-NEXT (will see details from log)
+  no build/tools/clang/test/CIR/CodeGen/Output/basic.c.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/basic.c.tmp-cir.ll for LLVM-NEXT
+  no build/tools/clang/test/CIR/CodeGen/Output/basic.c.tmp.ll for OGCG
+  no build/tools/clang/test/CIR/CodeGen/Output/basic.c.tmp.ll for OGCG-NEXT
+=== cast.cpp prefixes: CIR,CIR-NOT,LLVM,LLVM-LABEL,
+  pass CIR
+  pass CIR-NOT
+  no build/tools/clang/test/CIR/CodeGen/Output/cast.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/cast.cpp.tmp-cir.ll for LLVM-LABEL
+=== class.cpp prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/class.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/class.cpp.tmp.ll for OGCG
+=== cleanup.cpp prefixes: CHECK,
+  pass CHECK
+=== cmp.cpp prefixes: CIR,CIR-LABEL,LLVM,LLVM-LABEL,OGCG,OGCG-LABEL,
+  pass CIR
+  pass CIR-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/cmp.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/cmp.cpp.tmp-cir.ll for LLVM-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/cmp.cpp.tmp.ll for OGCG
+  no build/tools/clang/test/CIR/CodeGen/Output/cmp.cpp.tmp.ll for OGCG-LABEL
+=== complex-mul-div.cpp prefixes: CIR-AFTER-BASIC,CIR-AFTER-FULL,CIR-AFTER-IMPROVED,CIR-AFTER-INT,CIR-AFTER-MUL-COMBINED,CIR-AFTER-PROMOTED,CIR-BEFORE-BASIC,CIR-BEFORE-FULL,CIR-BEFORE-IMPROVED,CIR-BEFORE-PROMOTED,CIR-COMBINED,LLVM-BASIC,LLVM-COMBINED,LLVM-FULL,LLVM-IMPROVED,LLVM-INT,LLVM-MUL-COMBINED,LLVM-PROMOTED,OGCG-BASIC,OGCG-COMBINED,OGCG-FULL,OGCG-IMPROVED,OGCG-INT,OGCG-MUL-COMBINED,OGCG-PROMOTED,
+  FAIL CIR-AFTER-BASIC (will see details from log)
+  FAIL CIR-AFTER-FULL (will see details from log)
+  FAIL CIR-AFTER-IMPROVED (will see details from log)
+  pass CIR-AFTER-INT
+  pass CIR-AFTER-MUL-COMBINED
+  FAIL CIR-AFTER-PROMOTED (will see details from log)
+  FAIL CIR-BEFORE-BASIC (will see details from log)
+  FAIL CIR-BEFORE-FULL (will see details from log)
+  FAIL CIR-BEFORE-IMPROVED (will see details from log)
+  FAIL CIR-BEFORE-PROMOTED (will see details from log)
+  FAIL CIR-COMBINED (will see details from log)
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp-cir.ll for LLVM-BASIC
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp-cir.ll for LLVM-COMBINED
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp-cir.ll for LLVM-FULL
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp-cir.ll for LLVM-IMPROVED
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp-cir.ll for LLVM-INT
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp-cir.ll for LLVM-MUL-COMBINED
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp-cir.ll for LLVM-PROMOTED
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp.ll for OGCG-BASIC
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp.ll for OGCG-COMBINED
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp.ll for OGCG-FULL
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp.ll for OGCG-IMPROVED
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp.ll for OGCG-INT
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp.ll for OGCG-MUL-COMBINED
+  no build/tools/clang/test/CIR/CodeGen/Output/complex-mul-div.cpp.tmp.ll for OGCG-PROMOTED
+=== compound_literal.cpp prefixes: CIR,CIR-LABEL,LLVM,LLVM-LABEL,OGCG,OGCG-LABEL,
+  pass CIR
+  pass CIR-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp-cir.ll for LLVM-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp.ll for OGCG
+  no build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp.ll for OGCG-LABEL
+=== coro-task.cpp prefixes: CHECK,CIR,CIR-DAG,CIR-NEXT,CIR-NOT,
+  FAIL CHECK (will see details from log)
+  pass CIR
+  FAIL CIR-DAG (will see details from log)
+  pass CIR-NEXT
+  pass CIR-NOT
+=== count-of.c prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/count-of.c.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/count-of.c.tmp.ll for OGCG
+=== ctor-alias.cpp prefixes: CHECK,CHECK-NOT,LLVM,OGCG,
+  pass CHECK
+  FAIL CHECK-NOT (will see details from log)
+  no build/tools/clang/test/CIR/CodeGen/Output/ctor-alias.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/ctor-alias.cpp.tmp.ll for OGCG
+=== ctor.cpp prefixes: CHECK,CHECK-NEXT,CHECK-NOT,
+  pass CHECK
+  pass CHECK-NEXT
+  FAIL CHECK-NOT (will see details from log)
+=== cxx-special-member-attr.cpp prefixes: CIR,
+  pass CIR
+=== dtor-alias.cpp prefixes: CHECK,CHECK-NOT,LLVM,OGCG,
+  pass CHECK
+  FAIL CHECK-NOT (will see details from log)
+  no build/tools/clang/test/CIR/CodeGen/Output/dtor-alias.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/dtor-alias.cpp.tmp.ll for OGCG
+=== embed-expr.c prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp.ll for OGCG
+=== empty-union.cpp prefixes: CIR,LLVM,OGCG,
+  no build/tools/clang/test/CIR/CodeGen/Output/empty-union.cpp.tmp.cir for CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/empty-union.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/empty-union.cpp.tmp.ll for OGCG
+=== finegrain-bitfield-access.cpp prefixes: CIR,CIR-DAG,CIR-LABEL,LLVM,LLVM-DAG,LLVM-LABEL,OGCG,OGCG-DAG,OGCG-LABEL,OGCG-NEXT,
+  pass CIR
+  FAIL CIR-DAG (will see details from log)
+  pass CIR-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/finegrain-bitfield-access.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/finegrain-bitfield-access.cpp.tmp-cir.ll for LLVM-DAG
+  no build/tools/clang/test/CIR/CodeGen/Output/finegrain-bitfield-access.cpp.tmp-cir.ll for LLVM-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/finegrain-bitfield-access.cpp.tmp.ll for OGCG
+  no build/tools/clang/test/CIR/CodeGen/Output/finegrain-bitfield-access.cpp.tmp.ll for OGCG-DAG
+  no build/tools/clang/test/CIR/CodeGen/Output/finegrain-bitfield-access.cpp.tmp.ll for OGCG-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/finegrain-bitfield-access.cpp.tmp.ll for OGCG-NEXT
+=== global-init.cpp prefixes: CIR,CIR-BEFORE-LPP,CIR-BEFORE-LPP-SAME,CIR-SAME,LLVM,OGCG,
+  pass CIR
+  FAIL CIR-BEFORE-LPP (will see details from log)
+  FAIL CIR-BEFORE-LPP-SAME (will see details from log)
+  pass CIR-SAME
+  no build/tools/clang/test/CIR/CodeGen/Output/global-init.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/global-init.cpp.tmp.ll for OGCG
+=== goto.cpp prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp.ll for OGCG
+=== if.cpp prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/if.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/if.cpp.tmp.ll for OGCG
+=== inline-attributes.cpp prefixes: CIR-LABEL,CIR-NOT,CIR-SAME,LLVM,LLVM-NOT,LLVM-SAME,OGCG,OGCG-NOT,OGCG-SAME,
+  pass CIR-LABEL
+  pass CIR-NOT
+  pass CIR-SAME
+  no build/tools/clang/test/CIR/CodeGen/Output/inline-attributes.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/inline-attributes.cpp.tmp-cir.ll for LLVM-NOT
+  no build/tools/clang/test/CIR/CodeGen/Output/inline-attributes.cpp.tmp-cir.ll for LLVM-SAME
+  no build/tools/clang/test/CIR/CodeGen/Output/inline-attributes.cpp.tmp.ll for OGCG
+  no build/tools/clang/test/CIR/CodeGen/Output/inline-attributes.cpp.tmp.ll for OGCG-NOT
+  no build/tools/clang/test/CIR/CodeGen/Output/inline-attributes.cpp.tmp.ll for OGCG-SAME
+=== kr-func-promote.c prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/kr-func-promote.c.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/kr-func-promote.c.tmp.ll for OGCG
+=== label-values.c prefixes: CIR,CIR-DAG,CIR-NEXT,OGCG,
+  pass CIR
+  pass CIR-DAG
+  pass CIR-NEXT
+  no build/tools/clang/test/CIR/CodeGen/Output/label-values.c.tmp.ll for OGCG
+=== label.c prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp.ll for OGCG
+=== lambda-static-invoker.cpp prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/lambda-static-invoker.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/lambda-static-invoker.cpp.tmp.ll for OGCG
+=== lambda.cpp prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/lambda.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/lambda.cpp.tmp.ll for OGCG
+=== loop.cpp prefixes: CIR,CIR-NEXT,LLVM,LLVM-SAME,OGCG,
+  pass CIR
+  pass CIR-NEXT
+  no build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp-cir.ll for LLVM-SAME
+  no build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp.ll for OGCG
+=== no-prototype.c prefixes: CHECK,
+  pass CHECK
+=== paren-init-list.cpp prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp.ll for OGCG
+=== pointer-to-member-func.cpp prefixes: CIR-AFTER,CIR-BEFORE,LLVM,OGCG,
+  pass CIR-AFTER
+  FAIL CIR-BEFORE (will see details from log)
+  no build/tools/clang/test/CIR/CodeGen/Output/pointer-to-member-func.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/pointer-to-member-func.cpp.tmp.ll for OGCG
+=== record-zero-init-padding.c prefixes: CIR,CIR-DAG,CIR-LABEL,LLVM,LLVM-DAG,LLVM-LABEL,OGCG,OGCG-DAG,OGCG-LABEL,
+  pass CIR
+  FAIL CIR-DAG (will see details from log)
+  pass CIR-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp-cir.ll for LLVM-DAG
+  no build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp-cir.ll for LLVM-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.ll for OGCG
+  no build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.ll for OGCG-DAG
+  no build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.ll for OGCG-LABEL
+=== size-of-vla.cpp prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/size-of-vla.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/size-of-vla.cpp.tmp.ll for OGCG
+=== statement-exprs.c prefixes: CIR,CIR-LABEL,CIR-NEXT,LLVM,LLVM-LABEL,OGCG,
+  pass CIR
+  pass CIR-LABEL
+  pass CIR-NEXT
+  no build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp-cir.ll for LLVM-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp.ll for OGCG
+=== struct.c prefixes: CIR,CIR-DAG,CIR-NEXT,LLVM,LLVM-DAG,LLVM-NEXT,OGCG,OGCG-DAG,OGCG-NEXT,
+  pass CIR
+  FAIL CIR-DAG (will see details from log)
+  FAIL CIR-NEXT (will see details from log)
+  no build/tools/clang/test/CIR/CodeGen/Output/struct.c.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/struct.c.tmp-cir.ll for LLVM-DAG
+  no build/tools/clang/test/CIR/CodeGen/Output/struct.c.tmp-cir.ll for LLVM-NEXT
+  no build/tools/clang/test/CIR/CodeGen/Output/struct.c.tmp.ll for OGCG
+  no build/tools/clang/test/CIR/CodeGen/Output/struct.c.tmp.ll for OGCG-DAG
+  no build/tools/clang/test/CIR/CodeGen/Output/struct.c.tmp.ll for OGCG-NEXT
+=== try-catch-tmp.cpp prefixes: CIR,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/try-catch-tmp.cpp.tmp.ll for OGCG
+=== var_arg.c prefixes: CIR,CIR-LABEL,LLVM,LLVM-LABEL,OGCG,OGCG-LABEL,
+  pass CIR
+  pass CIR-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/var_arg.c.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/var_arg.c.tmp-cir.ll for LLVM-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/var_arg.c.tmp.ll for OGCG
+  no build/tools/clang/test/CIR/CodeGen/Output/var_arg.c.tmp.ll for OGCG-LABEL
+=== variable-decomposition.cpp prefixes: CIR,CIR-LABEL,LLVM,LLVM-LABEL,OGCG,OGCG-LABEL,
+  pass CIR
+  pass CIR-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp-cir.ll for LLVM-LABEL
+  no build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp.ll for OGCG
+  no build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp.ll for OGCG-LABEL
+=== vector-ext.cpp prefixes: CIR,CIR-SAME,LLVM,OGCG,
+  pass CIR
+  pass CIR-SAME
+  no build/tools/clang/test/CIR/CodeGen/Output/vector-ext.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/vector-ext.cpp.tmp.ll for OGCG
+=== vector.cpp prefixes: CIR,CIR-SAME,LLVM,OGCG,
+  pass CIR
+  pass CIR-SAME
+  no build/tools/clang/test/CIR/CodeGen/Output/vector.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/vector.cpp.tmp.ll for OGCG
+=== virtual-function-calls.cpp prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/virtual-function-calls.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/virtual-function-calls.cpp.tmp.ll for OGCG
+=== volatile.cpp prefixes: CIR,LLVM,OGCG,
+  pass CIR
+  no build/tools/clang/test/CIR/CodeGen/Output/volatile.cpp.tmp-cir.ll for LLVM
+  no build/tools/clang/test/CIR/CodeGen/Output/volatile.cpp.tmp.ll for OGCG

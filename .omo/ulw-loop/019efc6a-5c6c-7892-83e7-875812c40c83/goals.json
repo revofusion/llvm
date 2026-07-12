@@ -1,0 +1,187 @@
+{
+  "version": 1,
+  "createdAt": "2026-06-25T08:18:41.709Z",
+  "updatedAt": "2026-06-25T08:18:41.709Z",
+  "briefPath": ".omo/ulw-loop/019efc6a-5c6c-7892-83e7-875812c40c83/brief.md",
+  "goalsPath": ".omo/ulw-loop/019efc6a-5c6c-7892-83e7-875812c40c83/goals.json",
+  "ledgerPath": ".omo/ulw-loop/019efc6a-5c6c-7892-83e7-875812c40c83/ledger.jsonl",
+  "codexGoalMode": "aggregate",
+  "goals": [
+    {
+      "id": "G001-member-pointer-null-soundness-the-ci",
+      "title": "member_pointer_null_soundness: The CIR path must not emit `#cir.zero`...",
+      "objective": "member_pointer_null_soundness: The CIR path must not emit `#cir.zero` for an Itanium data member pointer null in `clang/test/CIR/CodeGen/nonzeroinit-struct.cpp`. Automated test: `build/bin/llvm-lit -sv clang/test/CIR/CodeGen/nonzeroinit-struct.cpp`, with RED evidence before implementation and GREEN after. Manual QA channel: tmux session `ulw-qa-member-pointer` running `build/bin/clang -cc1 -internal-isystem build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir clang/test/CIR/CodeGen/nonzeroinit-struct.cpp -o -` and checking the transcript contains a correct null data member pointer representation or a precise NYI, never `cir.global external @t = #cir.zero : !rec_Trivial`. Artifact: `.omo/ulw-loop/evidence/member-pointer.transcript`.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: member_pointer_null_soundness: The CIR path must not emit `#cir.zero` for an...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 1.",
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: member_pointer_null_soundness: The CIR path must not emit `#cir.zero` for an....",
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: member_pointer_null_soundness: The CIR path must not emit `#cir.zero` for an....",
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-06-25T08:18:41.709Z",
+      "updatedAt": "2026-06-25T08:18:41.709Z"
+    },
+    {
+      "id": "G002-bitfield-constant-retargeting-consta",
+      "title": "bitfield_constant_retargeting: `constant-inits.cpp` and `struct-init....",
+      "objective": "bitfield_constant_retargeting: `constant-inits.cpp` and `struct-init.cpp` must compile and check, with byte-exact initialized memory preserved. Automated test: `build/bin/llvm-lit -sv clang/test/CIR/CodeGen/constant-inits.cpp clang/test/CIR/CodeGen/struct-init.cpp`, RED before implementation and GREEN after. Manual QA channel: tmux session `ulw-qa-bitfield-retarget` running the same lit command plus direct `-emit-cir` snippets, artifact `.omo/ulw-loop/evidence/bitfield-retarget.transcript`.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: bitfield_constant_retargeting: `constant-inits.cpp` and `struct-init.cpp` mus...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 2.",
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: bitfield_constant_retargeting: `constant-inits.cpp` and `struct-init.cpp` mus....",
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: bitfield_constant_retargeting: `constant-inits.cpp` and `struct-init.cpp` mus....",
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-06-25T08:18:41.709Z",
+      "updatedAt": "2026-06-25T08:18:41.709Z"
+    },
+    {
+      "id": "G003-forward-decls-recursive-output-forwa",
+      "title": "forward_decls_recursive_output: `forward-decls.cpp` must pass after d...",
+      "objective": "forward_decls_recursive_output: `forward-decls.cpp` must pass after deciding whether incomplete recursive records are canonical or producer completion needs fixing. Automated test: `build/bin/llvm-lit -sv clang/test/CIR/CodeGen/forward-decls.cpp`, RED before and GREEN after. Manual QA channel: tmux session `ulw-qa-forward-decls` running the lit command and showing CHECK5 passes, artifact `.omo/ulw-loop/evidence/forward-decls.transcript`.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: forward_decls_recursive_output: `forward-decls.cpp` must pass after deciding...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 3.",
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: forward_decls_recursive_output: `forward-decls.cpp` must pass after deciding....",
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: forward_decls_recursive_output: `forward-decls.cpp` must pass after deciding....",
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-06-25T08:18:41.709Z",
+      "updatedAt": "2026-06-25T08:18:41.709Z"
+    },
+    {
+      "id": "G004-full-codegen-ir-gate-the-full-48-fai",
+      "title": "full_codegen_ir_gate: The full 48-failure gate must pass with no regr...",
+      "objective": "full_codegen_ir_gate: The full 48-failure gate must pass with no regressions in the requested surface. Automated test: `build/bin/llvm-lit -s clang/test/CIR/CodeGen clang/test/CIR/IR`, RED baseline and GREEN final. Manual QA channel: tmux session `ulw-qa-full-cir-gate` running `ninja -C build clang split-file FileCheck && build/bin/llvm-lit -s clang/test/CIR/CodeGen clang/test/CIR/IR`, artifact `.omo/ulw-loop/evidence/full-cir-gate.transcript`.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: full_codegen_ir_gate: The full 48-failure gate must pass with no regressions...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 4.",
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: full_codegen_ir_gate: The full 48-failure gate must pass with no regressions....",
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: full_codegen_ir_gate: The full 48-failure gate must pass with no regressions....",
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-06-25T08:18:41.709Z",
+      "updatedAt": "2026-06-25T08:18:41.709Z"
+    },
+    {
+      "id": "G005-adjacent-regression-broad-the-broade",
+      "title": "adjacent_regression_broad: The broader CIR/broad sample surfaces must...",
+      "objective": "adjacent_regression_broad: The broader CIR/broad sample surfaces must be measured and regressions reported. Automated tests: `build/bin/llvm-lit -s clang/test/CIR` and `python3 /tmp/broad.py base/` if present. Manual QA channel: tmux session `ulw-qa-adjacent-regression` running those commands, artifact `.omo/ulw-loop/evidence/adjacent-regression.transcript`.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: adjacent_regression_broad: The broader CIR/broad sample surfaces must be meas...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 5.",
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: adjacent_regression_broad: The broader CIR/broad sample surfaces must be meas....",
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: adjacent_regression_broad: The broader CIR/broad sample surfaces must be meas....",
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-06-25T08:18:41.709Z",
+      "updatedAt": "2026-06-25T08:18:41.709Z"
+    }
+  ],
+  "codexObjective": "Complete the durable ulw-loop plan in .omo/ulw-loop/019efc6a-5c6c-7892-83e7-875812c40c83/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/019efc6a-5c6c-7892-83e7-875812c40c83/ledger.jsonl as the audit trail."
+}

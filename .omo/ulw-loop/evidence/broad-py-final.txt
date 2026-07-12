@@ -1,0 +1,12 @@
+broad sample over ['base/']: clean 32/40  (parsefail-skipped 0, crashes 0)
+   48  emitGlobalVarDeclLValue: thread_local variable
+    3  emitCXXMemberCallExpr: C++ binary operator
+    2  TLS dynamic
+    2  appendParameterTypes: hasExtParameterInfos
+    2  call to functions with extra parameter info
+    2  emitForwardingCallToLambda: return slot is not nul
+    1  l-value not implemented for 'PseudoObjectExpr'
+    1  emitCall: call argument without a value
+    1  AggExprEmitter: VisitCXXRewrittenBinaryOperator
+    1  ConstantLValueEmitter: local var decl
+    1  emitForMemory: atomic type

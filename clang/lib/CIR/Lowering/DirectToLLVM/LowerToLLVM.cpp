@@ -1194,8 +1194,15 @@ mlir::LogicalResult CIRToLLVMCastOpLowering::matchAndRewrite(
   }
   case cir::CastKind::int_to_bool: {
     mlir::Value llvmSrcVal = adaptor.getSrc();
-    mlir::Value zeroInt = mlir::LLVM::ConstantOp::create(
-        rewriter, castOp.getLoc(), llvmSrcVal.getType(), 0);
+    // `ConstantOp::create(..., int64_t)` builds its attribute via
+    // `getIntegerAttr`, which requires a scalar integer/float type, so it
+    // cannot represent a zero of a vector type (see the identical
+    // `isVector` split for `UnaryOpKind::Minus` above in this same file).
+    // `LLVM::ZeroOp` is the generic, type-parametric "zero of this type"
+    // op (`llvm.mlir.zero`) and already covers both the scalar and vector
+    // cases uniformly.
+    mlir::Value zeroInt =
+        mlir::LLVM::ZeroOp::create(rewriter, castOp.getLoc(), llvmSrcVal.getType());
     rewriter.replaceOpWithNewOp<mlir::LLVM::ICmpOp>(
         castOp, mlir::LLVM::ICmpPredicate::ne, llvmSrcVal, zeroInt);
     break;
@@ -1258,10 +1265,12 @@ mlir::LogicalResult CIRToLLVMCastOpLowering::matchAndRewrite(
     mlir::Value llvmSrcVal = adaptor.getSrc();
     auto kind = mlir::LLVM::FCmpPredicate::une;
 
-    // Check if float is not equal to zero.
-    auto zeroFloat = mlir::LLVM::ConstantOp::create(
-        rewriter, castOp.getLoc(), llvmSrcVal.getType(),
-        mlir::FloatAttr::get(llvmSrcVal.getType(), 0.0));
+    // Check if float is not equal to zero. `FloatAttr::get` requires a
+    // scalar float type, so (mirroring the `int_to_bool` case above) use
+    // the generic, type-parametric `LLVM::ZeroOp` instead -- it already
+    // covers vector float operands correctly.
+    auto zeroFloat = mlir::LLVM::ZeroOp::create(rewriter, castOp.getLoc(),
+                                                llvmSrcVal.getType());
 
     // Extend comparison result to either bool (C++) or int (C).
     rewriter.replaceOpWithNewOp<mlir::LLVM::FCmpOp>(castOp, kind, llvmSrcVal,

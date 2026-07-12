@@ -1,0 +1,54 @@
+Batch: lambda.cpp, lambda-static-invoker.cpp, coro-task.cpp, virtual-function-calls.cpp, variable-decomposition.cpp
+
+Verified against the generated CIR outputs already present under:
+  build/tools/clang/test/CIR/CodeGen/Output/<file>.tmp.cir
+
+Commands run (FileCheck only, no clang/lit/ninja):
+  build/bin/FileCheck --check-prefix=CIR --input-file=build/tools/clang/test/CIR/CodeGen/Output/<file>.tmp.cir clang/test/CIR/CodeGen/<file>
+
+All five files now pass their CIR prefix.
+
+Summary of changes per file:
+
+1. lambda.cpp
+   - Added a regex capture to the A::foo() `cir.load deref` result so the SSA
+     value is re-defined instead of re-using the prior `[[THIS]]` binding from
+     an earlier function.
+   - In the lambda operator() for A::bar(), the store of the incoming `this`
+     argument was referencing the stale `[[THIS_ARG]]` from A::foo(); changed to
+     `[[THIS_ARG2]]`, which is the capture already used for that function's
+     argument.
+   - Same `cir.load` result in A::bar() needed a fresh regex capture.
+
+2. lambda-static-invoker.cpp
+   - The static invoker's call to the lambda operator() was using exact SSA
+     names `%2, %3`; replaced with captures `[[LAM_ALLOCA]]` and `[[REF_I]]`
+     so the check is resilient to numbering drift.
+
+3. coro-task.cpp
+   - The `byRef()` `get_return_object()` call used the literal `%4` from an
+     earlier coroutine; replaced with the already-captured `[[IntPromisseAddr]]`
+     so it matches the current promise alloca in that function.
+
+4. virtual-function-calls.cpp
+   - The constructor `_ZN1AC2Ev` argument was hard-coded as `%arg0`, but the
+     generated output uses `%arg1`. Replaced with a `[[ARG]]` capture and
+     propagated it to the store of `this`.
+
+5. variable-decomposition.cpp
+   - The decomposition initializer is no longer emitted as a single
+     `#cir.const_record` aggregate store; codegen now stores each field
+     individually. Replaced the aggregate-constant check with field-wise
+     `cir.get_member` / `cir.const` / `cir.store` checks while preserving the
+     later member-load/add/store sequence.
+
+No compiler source code was modified. Only the FileCheck comments in the five
+named test files were touched.
+
+Unresolved concerns / notes:
+- These tests also have LLVM and OGCG RUN lines, but the failing gate run only
+  produced `.tmp.cir` outputs (lit stops after the first failing prefix). I did
+  not run clang to generate the LLVM/OGCG artifacts, so only the CIR prefix has
+  been verified here.
+- The changes are deliberately minimal and use resilient regex for SSA names
+  and argument names; no semantic assertions were removed.

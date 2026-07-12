@@ -1,0 +1,73 @@
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/config.py:561: note: using clang: /Users/revofusion/Projects/llvm/build/bin/clang
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find apinotes-test in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find c-index-test in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-diff in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-format in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-repl in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-offload-binary in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-scan-deps in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-installapi in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find opt in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-ifs in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find yaml2obj in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-linker-wrapper in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-nvlink-wrapper in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-sycl-linker in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-lto in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-lto2 in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-profdata in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-readtapi in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-check in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/util.py:363: note: using SDKROOT: '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk'
+-- Testing: 2 tests, 2 workers --
+Testing: 
+FAIL: Clang :: CIR/CodeGen/struct-init.cpp (1 of 2)
+******************** TEST 'Clang :: CIR/CodeGen/struct-init.cpp' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/struct-init.cpp.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/struct-init.cpp.tmp.cir
+# .---command stderr------------
+# | error: ClangIR code gen Not Yet Implemented: emitForMemory: initializer type does not match memory type: !cir.record<struct  {!cir.int<u, 8>, !cir.int<u, 8>, !cir.int<u, 8>, !cir.int<u, 8>}> -> !cir.record<struct "BitfieldStruct" {!cir.int<u, 32>}>
+# | 1 error generated.
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20.. 30.. 40
+FAIL: Clang :: CIR/CodeGen/constant-inits.cpp (2 of 2)
+******************** TEST 'Clang :: CIR/CodeGen/constant-inits.cpp' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++20 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/constant-inits.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/constant-inits.cpp.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++20 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/constant-inits.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/constant-inits.cpp.tmp.cir
+# .---command stderr------------
+# | error: ClangIR code gen Not Yet Implemented: emitForMemory: initializer type does not match memory type: !cir.record<struct  {!cir.int<u, 8>, !cir.int<u, 8>, !cir.int<u, 8>, !cir.int<u, 8>}> -> !cir.record<struct "byte_aligned_bitfields" {!cir.int<u, 32>}>
+# | error: ClangIR code gen Not Yet Implemented: emitForMemory: initializer type does not match memory type: !cir.record<struct  {!cir.int<u, 8>, !cir.int<u, 8>, !cir.array<!cir.int<u, 8> x 2>}> -> !cir.record<struct "signed_byte_aligned_bitfields" padded {!cir.int<u, 16>, !cir.array<!cir.int<u, 8> x 2>}>
+# | error: ClangIR code gen Not Yet Implemented: emitForMemory: initializer type does not match memory type: !cir.record<struct  {!cir.int<u, 8>, !cir.int<u, 8>, !cir.array<!cir.int<u, 8> x 2>}> -> !cir.record<struct "partial_bitfields" padded {!cir.int<u, 16>, !cir.array<!cir.int<u, 8> x 2>}>
+# | 3 errors generated.
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.. 70.. 80.. 90.. 
+********************
+Failed Tests (2):
+  Clang :: CIR/CodeGen/constant-inits.cpp
+  Clang :: CIR/CodeGen/struct-init.cpp
+
+
+Testing Time: 0.19s
+
+Total Discovered Tests: 2
+  Failed: 2 (100.00%)

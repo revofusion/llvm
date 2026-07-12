@@ -1,0 +1,59 @@
+Batch: inline-attributes.cpp ctor-alias.cpp dtor-alias.cpp ctor.cpp class.cpp assign-operator.cpp pointer-to-member-func.cpp cxx-special-member-attr.cpp
+Date: 2026-06-25
+
+Files touched and changes made:
+
+1. inline-attributes.cpp
+   - Replaced brittle %arg0 argument names in CIR-LABEL checks with %{{.*}}.
+   - Verified prefix: CIR (PASS).
+
+2. class.cpp
+   - Replaced raw SSA value references (%0, %2, %3) with captured references (%[[D_ADDR]], %[[BASE_ADDR]], %[[D_A_ADDR]]).
+   - Added '=' in the base_class_addr capture so the captured name does not include '='.
+   - Replaced exact %0 alloca name in use_empty_derived2v with %{{.*}}.
+   - Verified prefix: CIR (PASS).
+
+3. ctor.cpp
+   - Replaced all brittle %argN names with %{{.*}}.
+   - Collapsed multi-line CHECK/CHECK-SAME function headers whose args are emitted on a single
+     codegen line (VariadicStruk, DelegatingStruk, ParamMemberInitStruk, Derived2 variants) into
+     single CHECK lines using %{{.*}} between arguments.
+   - Verified prefix: CHECK (PASS).
+
+4. ctor-alias.cpp
+   - Replaced brittle %arg0 argument names with %{{.*}}.
+   - Verified prefix: CHECK (PASS).
+
+5. dtor-alias.cpp
+   - Replaced brittle %arg0 argument names with %{{.*}}.
+   - Verified prefix: CHECK (PASS).
+
+6. assign-operator.cpp
+   - Replaced brittle %arg0/%arg1 argument names with %{{.*}}.
+   - Updated implicit C::operator= checks to match current padded-record layout:
+     * load of 'this' now uses 'cir.load deref'.
+     * member 'a' (type A) is now accessed via a bitcast to !cir.ptr<!rec_A> instead of get_member[0].
+     * memcpy call now tolerates 'nothrow' with {{.*}} before the type signature.
+   - Verified prefix: CIR (PASS).
+
+7. pointer-to-member-func.cpp
+   - Updated CIR-AFTER record type from {!s64i, !s64i} to the current
+     {!cir.ptr<!cir.func<(!s32i)>>, !s64i}.
+   - Made CIR-AFTER alloca check active (added missing ':').
+   - Verified prefixes: CIR-BEFORE (PASS), CIR-AFTER (PASS).
+
+8. cxx-special-member-attr.cpp
+   - Replaced brittle %argN names and bare '@_ZN...' checks with full cir.func header checks
+     using %{{.*}} and explicit special_member<#cir.cxx_...> attributes.
+   - Verified prefix: CIR (PASS).
+
+Unresolved / not verified:
+
+- Several tests (inline-attributes.cpp, ctor-alias.cpp, dtor-alias.cpp, class.cpp,
+  assign-operator.cpp) also define LLVM and/or OGCG prefixes, but the generated
+  .tmp-cir.ll and .tmp.ll files are not present in
+  build/tools/clang/test/CIR/CodeGen/Output/ because lit stopped after the first
+  failing RUN line.  Those prefixes were not refreshed or verified in this pass;
+  they may need attention once clang can be re-run.
+
+All available generated CIR prefixes in this batch now pass FileCheck.

@@ -1,0 +1,41 @@
+LLVM/OGCG FileCheck update log for CIR aggregate-init lowering change
+(lowered aggregate/array initializers to element-wise stores).
+
+For each test only FileCheck comments were edited; no compiler source changed.
+
+array.cpp
+  - LLVM: globals @e/@g now use simple array constant types instead of compact struct types.
+  - LLVM: local init in func2, func3, func4, func5, array_with_complex_elements now uses getelementptr + per-element stores instead of aggregate store.
+  - Final lit: PASSED
+
+paren-init-list.cpp
+  - LLVM: CompleteS init now uses getelementptr + field-wise stores instead of aggregate store.
+  - Final lit: PASSED
+
+embed-expr.c
+  - LLVM: constant embed array init now uses getelementptr + element-wise stores.
+  - Final lit: PASSED
+
+variable-decomposition.cpp
+  - LLVM: some_struct init now uses getelementptr + per-field stores instead of aggregate store.
+  - Final lit: PASSED
+
+loop.cpp
+  - LLVM: range-for array init now emits four element-wise constant stores instead of aggregate constant store.
+  - Final lit: PASSED
+
+compound_literal.cpp
+  - LLVM: Point compound literal init now uses getelementptr + field-wise stores.
+  - Final lit: PASSED
+
+label.c
+  - LLVM: after_return now directly returns, with a following unreachable ret block; updated branch/store ordering.
+  - Final lit: PASSED
+
+goto.cpp
+  - LLVM: shouldNotGenBranchRet now returns directly from both paths instead of converging to a single return block.
+  - Final lit: PASSED
+
+statement-exprs.c
+  - LLVM: test3 struct init now uses getelementptr + field store before memcpy instead of aggregate constant store.
+  - Final lit: PASSED

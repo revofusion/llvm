@@ -582,6 +582,26 @@ public:
         castKind = cir::CastKind::integral;
       else if (mlir::isa<cir::FPTypeInterface>(dstTy))
         castKind = cir::CastKind::int_to_float;
+      else if (mlir::isa<cir::BoolType>(dstTy))
+        // Elementwise (scalar or vector) conversion from an integer to a
+        // boolean, e.g. `__builtin_convertvector(intVec, boolVec)`.
+        // `emitScalarConversion`'s `dstType->isBooleanType()` fast path
+        // above only special-cases a *scalar* boolean destination
+        // (`QualType::isBooleanType()` does not recognize a vector-of-bool
+        // `ext_vector_type`), so a vector-shaped int-to-bool conversion
+        // reaches this generic path instead of `emitConversionToBool`.
+        // `cir::CastKind::int_to_bool` models this precisely at the CIR
+        // level for both shapes: `CastOp::verify()` unwraps vector operands
+        // to their element type before checking the kind (mirroring the
+        // unwrap above), so `cir.cast int_to_bool` on a vector operand is a
+        // well-formed, verifier-accepted op, not a placeholder. (The
+        // DirectToLLVM lowering's own `int_to_bool`/`float_to_bool` handlers
+        // still assume a scalar operand when building the zero constant to
+        // compare against and would need a follow-up fix to lower a vector
+        // operand correctly; that path is unreached here because this
+        // exporter only ever runs `-fsyntax-only`/CIR-generation, never CIR
+        // to LLVM lowering.)
+        castKind = cir::CastKind::int_to_bool;
       else
         llvm_unreachable("Internal error: Cast to unexpected type");
     } else if (mlir::isa<cir::FPTypeInterface>(srcTy)) {

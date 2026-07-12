@@ -59,6 +59,7 @@ add_clang_library(clangCIR
   LINK_LIBS
   clangAST
   clangBasic
+  clangIndex
   clangLex
   ${dialect_libs}
   CIROpenACCSupport

@@ -1,0 +1,168 @@
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/config.py:561: note: using clang: /Users/revofusion/Projects/llvm/build/bin/clang
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find apinotes-test in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find c-index-test in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-diff in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-format in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-repl in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-offload-binary in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-scan-deps in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-installapi in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find opt in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-ifs in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find yaml2obj in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-linker-wrapper in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-nvlink-wrapper in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-sycl-linker in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-lto in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-lto2 in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-profdata in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-readtapi in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-check in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/util.py:363: note: using SDKROOT: '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk'
+-- Testing: 2 tests, 2 workers --
+Testing: 
+FAIL: Clang :: CIR/CodeGen/constant-inits.cpp (1 of 2)
+******************** TEST 'Clang :: CIR/CodeGen/constant-inits.cpp' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++20 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/constant-inits.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/constant-inits.cpp.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++20 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/constant-inits.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/constant-inits.cpp.tmp.cir
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/constant-inits.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/constant-inits.cpp -check-prefix=CIR
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/constant-inits.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/constant-inits.cpp -check-prefix=CIR
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/constant-inits.cpp:105:13: error: CIR-DAG: expected string not found in input
+# | // CIR-DAG: !rec_anon_struct = !cir.record<struct {!u8i, !u8i, !u8i, !u8i}>
+# |             ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/constant-inits.cpp.tmp.cir:1:1: note: scanning from here
+# | !s16i = !cir.int<s, 16>
+# | ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/constant-inits.cpp.tmp.cir:12:1: note: possible intended match here
+# | !rec_simple = !cir.record<struct "simple" {!s32i, !s32i}>
+# | ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/constant-inits.cpp.tmp.cir
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/constant-inits.cpp
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |            1: !s16i = !cir.int<s, 16> 
+# | dag:105'0     X~~~~~~~~~~~~~~~~~~~~~~~ error: no match found
+# |            2: !s32i = !cir.int<s, 32> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~
+# |            3: !s8i = !cir.int<s, 8> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~
+# |            4: !u16i = !cir.int<u, 16> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~
+# |            5: !u32i = !cir.int<u, 32> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~
+# |            6: !u8i = !cir.int<u, 8> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~
+# |            7: !rec_byte_aligned_bitfields = !cir.record<struct "byte_aligned_bitfields" {!u32i}> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            8: !rec_empty = !cir.record<struct "empty" padded {!u8i}> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            9: !rec_mixed_partial_bitfields = !cir.record<struct "mixed_partial_bitfields" {!u8i}> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           10: !rec_packed = !cir.record<struct "packed" packed {!s8i, !s32i}> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           11: !rec_packed_and_aligned = !cir.record<struct "packed_and_aligned" packed padded {!s16i, !s8i, !cir.float, !u8i}> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           12: !rec_simple = !cir.record<struct "simple" {!s32i, !s32i}> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# | dag:105'1     ?                                                          possible intended match
+# |           13: !rec_single_byte_bitfield = !cir.record<struct "single_byte_bitfield" {!u8i}> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           14: !rec_Point = !cir.record<struct "Point" {!s32i, !s32i, !cir.array<!s8i x 3>, !s32i}> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           15: !rec_partial_bitfields = !cir.record<struct "partial_bitfields" padded {!u16i, !cir.array<!u8i x 2>}> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           16: !rec_signed_byte_aligned_bitfields = !cir.record<struct "signed_byte_aligned_bitfields" padded {!u16i, !cir.array<!u8i x 2>}> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           17: !rec_signed_partial_bitfields = !cir.record<struct "signed_partial_bitfields" padded {!u8i, !cir.array<!u8i x 3>}> 
+# | dag:105'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            .
+# |            .
+# |            .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.
+FAIL: Clang :: CIR/CodeGen/struct-init.cpp (2 of 2)
+******************** TEST 'Clang :: CIR/CodeGen/struct-init.cpp' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/struct-init.cpp.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/struct-init.cpp.tmp.cir
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp:211:9: warning: function 'cxx_default_init_with_struct_field()::Parent::getA' has internal linkage but is not defined [-Wundefined-internal]
+# |   211 |     int getA();
+# |       |         ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp:212:13: note: used here
+# |   212 |     int a = getA();
+# |       |             ^
+# | 1 warning generated.
+# `-----------------------------
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=CIR --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/struct-init.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=CIR --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/struct-init.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp:19:9: error: CIR: expected string not found in input
+# | // CIR: cir.global external @overlapping_init = #cir.const_record<{#cir.int<35> : !u8i, #cir.int<0> : !u8i, #cir.int<4> : !u8i, #cir.int<0> : !u8i}> : !rec_anon_struct
+# |         ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/struct-init.cpp.tmp.cir:1:1: note: scanning from here
+# | !s32i = !cir.int<s, 32>
+# | ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/struct-init.cpp.tmp.cir
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |           1: !s32i = !cir.int<s, 32> 
+# | check:19     X~~~~~~~~~~~~~~~~~~~~~~~ error: no match found
+# |           2: !u16i = !cir.int<u, 16> 
+# | check:19     ~~~~~~~~~~~~~~~~~~~~~~~~
+# |           3: !u32i = !cir.int<u, 32> 
+# | check:19     ~~~~~~~~~~~~~~~~~~~~~~~~
+# |           4: #loc29 = loc("/Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp":88:15) 
+# | check:19     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           5: #loc30 = loc("/Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp":88:19) 
+# | check:19     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           6: #loc31 = loc("/Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/struct-init.cpp":88:22) 
+# | check:19     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           .
+# |           .
+# |           .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.. 70.. 80.. 90.. 
+********************
+Failed Tests (2):
+  Clang :: CIR/CodeGen/constant-inits.cpp
+  Clang :: CIR/CodeGen/struct-init.cpp
+
+
+Testing Time: 0.31s
+
+Total Discovered Tests: 2
+  Failed: 2 (100.00%)

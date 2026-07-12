@@ -2017,8 +2017,22 @@ CIRGenCallee CIRGenItaniumCXXABI::getVirtualFunctionPointer(
           builder, loc, cgm.uInt8PtrTy, vtableBytePtr, relativeOffset);
       vfuncLoad = builder.createBitcast(vfuncBytePtr, tyPtr);
     } else {
+      // Record which statically-named virtual method this vtable slot
+      // corresponds to, plus its real USR identity triple (method_usr/
+      // root_method_usr/declaring_class_usr). `methodDecl` (the
+      // `CXXMethodDecl` this whole function's `gd` wraps) is already in
+      // hand at this exact construction site -- see the
+      // `cast<CXXMethodDecl>(gd.getDecl())` above -- so this is a no-cost,
+      // purely additive annotation: it carries no codegen meaning and is
+      // not read by CastOp/verify or the DirectToLLVM lowering
+      // (CIRToLLVMVTableGetVirtualFnAddrOpLowering only reads
+      // getType()/getIndex()/getVptr()).
+      auto identityAttrs = buildCIRGenVirtualMethodIdentityAttrs(
+          cgm.getMLIRContext(), cgm.getMangledName(gd), methodDecl);
       auto vtableSlotPtr = cir::VTableGetVirtualFnAddrOp::create(
-          builder, loc, builder.getPointerTo(tyPtr), vtable, vtableIndex);
+          builder, loc, builder.getPointerTo(tyPtr), vtable, vtableIndex,
+          identityAttrs.method, identityAttrs.methodUSR,
+          identityAttrs.rootMethodUSR, identityAttrs.declaringClassUSR);
       vfuncLoad = builder.createAlignedLoad(loc, tyPtr, vtableSlotPtr,
                                             cgf.getPointerAlign());
     }

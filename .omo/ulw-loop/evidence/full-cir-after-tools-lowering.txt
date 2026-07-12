@@ -1,0 +1,158 @@
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/config.py:561: note: using clang: /Users/revofusion/Projects/llvm/build/bin/clang
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find apinotes-test in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find c-index-test in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-diff in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-format in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-repl in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-offload-binary in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-scan-deps in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-installapi in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find opt in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-ifs in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find yaml2obj in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-linker-wrapper in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-nvlink-wrapper in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-sycl-linker in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-lto in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-lto2 in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-profdata in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-readtapi in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-check in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/util.py:363: note: using SDKROOT: '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk'
+-- Testing: 455 tests, 18 workers --
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/private-clause-pointer-recipes-CtorDtor.cpp (6 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/private-clause-pointer-recipes-NoOps.cpp (8 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/combined-reduction-clause-outline-ops.cpp (15 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-outline-ops.cpp (16 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/combined-firstprivate-clause.cpp (17 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/loop-reduction-clause-outline-ops.cpp (18 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/combined-reduction-clause-inline-ops.cpp (19 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/combined-private-clause.cpp (20 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-default-ops.c (21 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-int.c (22 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/loop-reduction-clause-inline-ops.cpp (23 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/combined-reduction-clause-default-ops.cpp (24 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-inline-ops.cpp (25 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/private-clause-array-recipes-int.cpp (26 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-default-ops.cpp (27 of 455)
+Testing: 
+FAIL: Clang :: CIR/CodeGenOpenACC/loop-reduction-clause-default-ops.cpp (29 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/private-clause-pointer-array-recipes-CtorDtor.cpp (31 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/compute-firstprivate-clause.cpp (32 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/loop-private-clause.cpp (35 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-float.cpp (40 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/loop-reduction-clause-float.cpp (42 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/private-clause-pointer-array-recipes-int.cpp (43 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/compute-firstprivate-clause.c (45 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenBuiltins/builtin_call.cpp (46 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/private-clause-array-recipes-NoOps.cpp (49 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/private-clause-pointer-array-recipes-NoOps.cpp (50 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-int.cpp (51 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenBuiltins/X86/ms-x86-intrinsics.c (54 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/atomic-update.cpp (59 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/combined-reduction-clause-int.cpp (60 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/combined-reduction-clause-float.cpp (61 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/firstprivate-clause-recipes.cpp (63 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/reduction-clause-recipes.cpp (64 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-float.c (66 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenBuiltins/X86/avx-shuffle-builtins.c (67 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/loop-reduction-clause-int.cpp (73 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/private-clause-array-recipes-CtorDtor.cpp (75 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/compute-private-clause.cpp (76 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-unsigned-int.c (78 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenBuiltins/X86/avx512f-builtins.c (79 of 455)
+Testing:  0
+FAIL: Clang :: CIR/CodeGenBuiltins/X86/avx2-builtins.c (80 of 455)
+Testing:  0.
+FAIL: Clang :: CIR/CodeGenBuiltins/X86/avx-builtins.c (81 of 455)
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.. 70.. 80.. 90.. 
+********************
+Failed Tests (42):
+  Clang :: CIR/CodeGenBuiltins/X86/avx-builtins.c
+  Clang :: CIR/CodeGenBuiltins/X86/avx-shuffle-builtins.c
+  Clang :: CIR/CodeGenBuiltins/X86/avx2-builtins.c
+  Clang :: CIR/CodeGenBuiltins/X86/avx512f-builtins.c
+  Clang :: CIR/CodeGenBuiltins/X86/ms-x86-intrinsics.c
+  Clang :: CIR/CodeGenBuiltins/builtin_call.cpp
+  Clang :: CIR/CodeGenOpenACC/atomic-update.cpp
+  Clang :: CIR/CodeGenOpenACC/combined-firstprivate-clause.cpp
+  Clang :: CIR/CodeGenOpenACC/combined-private-clause.cpp
+  Clang :: CIR/CodeGenOpenACC/combined-reduction-clause-default-ops.cpp
+  Clang :: CIR/CodeGenOpenACC/combined-reduction-clause-float.cpp
+  Clang :: CIR/CodeGenOpenACC/combined-reduction-clause-inline-ops.cpp
+  Clang :: CIR/CodeGenOpenACC/combined-reduction-clause-int.cpp
+  Clang :: CIR/CodeGenOpenACC/combined-reduction-clause-outline-ops.cpp
+  Clang :: CIR/CodeGenOpenACC/compute-firstprivate-clause.c
+  Clang :: CIR/CodeGenOpenACC/compute-firstprivate-clause.cpp
+  Clang :: CIR/CodeGenOpenACC/compute-private-clause.cpp
+  Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-default-ops.c
+  Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-default-ops.cpp
+  Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-float.c
+  Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-float.cpp
+  Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-inline-ops.cpp
+  Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-int.c
+  Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-int.cpp
+  Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-outline-ops.cpp
+  Clang :: CIR/CodeGenOpenACC/compute-reduction-clause-unsigned-int.c
+  Clang :: CIR/CodeGenOpenACC/firstprivate-clause-recipes.cpp
+  Clang :: CIR/CodeGenOpenACC/loop-private-clause.cpp
+  Clang :: CIR/CodeGenOpenACC/loop-reduction-clause-default-ops.cpp
+  Clang :: CIR/CodeGenOpenACC/loop-reduction-clause-float.cpp
+  Clang :: CIR/CodeGenOpenACC/loop-reduction-clause-inline-ops.cpp
+  Clang :: CIR/CodeGenOpenACC/loop-reduction-clause-int.cpp
+  Clang :: CIR/CodeGenOpenACC/loop-reduction-clause-outline-ops.cpp
+  Clang :: CIR/CodeGenOpenACC/private-clause-array-recipes-CtorDtor.cpp
+  Clang :: CIR/CodeGenOpenACC/private-clause-array-recipes-NoOps.cpp
+  Clang :: CIR/CodeGenOpenACC/private-clause-array-recipes-int.cpp
+  Clang :: CIR/CodeGenOpenACC/private-clause-pointer-array-recipes-CtorDtor.cpp
+  Clang :: CIR/CodeGenOpenACC/private-clause-pointer-array-recipes-NoOps.cpp
+  Clang :: CIR/CodeGenOpenACC/private-clause-pointer-array-recipes-int.cpp
+  Clang :: CIR/CodeGenOpenACC/private-clause-pointer-recipes-CtorDtor.cpp
+  Clang :: CIR/CodeGenOpenACC/private-clause-pointer-recipes-NoOps.cpp
+  Clang :: CIR/CodeGenOpenACC/reduction-clause-recipes.cpp
+
+
+Testing Time: 6.17s
+
+Total Discovered Tests: 455
+  Passed: 413 (90.77%)
+  Failed:  42 (9.23%)

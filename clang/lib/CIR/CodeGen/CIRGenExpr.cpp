@@ -566,20 +566,30 @@ void CIRGenFunction::emitStoreOfScalar(mlir::Value value, Address addr,
   }
 
   if (const auto *clangVecTy = ty->getAs<clang::VectorType>()) {
-    // Boolean vectors use `iN` as storage type.
-    if (clangVecTy->isExtVectorBoolType())
-      cgm.errorNYI(addr.getPointer().getLoc(),
-                   "emitStoreOfScalar ExtVectorBoolType");
+    // Classic LLVM codegen packs boolean vectors into an `iN` storage type
+    // in memory (see CGExpr.cpp's EmitToMemory/EmitFromMemory) because
+    // plain LLVM IR does not otherwise guarantee a compact bit-packed
+    // layout for `<N x i1>`. ClangIR does not need an analogous repacking
+    // step here: exactly like scalar `cir.bool` (see emitToMemory and
+    // emitLoadOfScalar's own comment on this same point), a vector of
+    // `cir.bool` has an identical memory and value representation --
+    // `CIRGenTypes::convertTypeForMem` is a pure passthrough to
+    // `convertType` for every type, including `ExtVectorType`, so `addr`'s
+    // element type here is always exactly `value`'s type already. The
+    // ordinary `cir.store` below is therefore correct as-is; any actual
+    // `iN`-packed layout is a CIR-to-LLVM lowering concern (DirectToLLVM's
+    // own type conversion), not something CIRGen needs to pre-pack.
+    if (!clangVecTy->isExtVectorBoolType()) {
+      // Handle vectors of size 3 like size 4 for better performance.
+      const mlir::Type elementType = addr.getElementType();
+      const auto vecTy = cast<cir::VectorType>(elementType);
 
-    // Handle vectors of size 3 like size 4 for better performance.
-    const mlir::Type elementType = addr.getElementType();
-    const auto vecTy = cast<cir::VectorType>(elementType);
-
-    // TODO(CIR): Use `ABIInfo::getOptimalVectorMemoryType` once it upstreamed
-    assert(!cir::MissingFeatures::cirgenABIInfo());
-    if (vecTy.getSize() == 3 && !getLangOpts().PreserveVec3Type)
-      cgm.errorNYI(addr.getPointer().getLoc(),
-                   "emitStoreOfScalar Vec3 & PreserveVec3Type disabled");
+      // TODO(CIR): Use `ABIInfo::getOptimalVectorMemoryType` once it upstreamed
+      assert(!cir::MissingFeatures::cirgenABIInfo());
+      if (vecTy.getSize() == 3 && !getLangOpts().PreserveVec3Type)
+        cgm.errorNYI(addr.getPointer().getLoc(),
+                     "emitStoreOfScalar Vec3 & PreserveVec3Type disabled");
+    }
   }
 
   value = emitToMemory(value, ty);
@@ -932,18 +942,20 @@ mlir::Value CIRGenFunction::emitLoadOfScalar(Address addr, bool isVolatile,
   mlir::Type eltTy = addr.getElementType();
 
   if (const auto *clangVecTy = ty->getAs<clang::VectorType>()) {
-    if (clangVecTy->isExtVectorBoolType()) {
-      cgm.errorNYI(loc, "emitLoadOfScalar: ExtVectorBoolType");
-      return nullptr;
+    // See the symmetric comment in emitStoreOfScalar: ClangIR keeps the
+    // memory and value representations of a vector of `cir.bool` identical
+    // (`convertTypeForMem` is a passthrough to `convertType`), so `eltTy`
+    // here is already exactly `convertType(ty)` -- an ordinary `cir.load`
+    // below, with no truncation/unpacking step, is correct as-is.
+    if (!clangVecTy->isExtVectorBoolType()) {
+      const auto vecTy = cast<cir::VectorType>(eltTy);
+
+      // Handle vectors of size 3 like size 4 for better performance.
+      assert(!cir::MissingFeatures::cirgenABIInfo());
+      if (vecTy.getSize() == 3 && !getLangOpts().PreserveVec3Type)
+        cgm.errorNYI(addr.getPointer().getLoc(),
+                     "emitLoadOfScalar Vec3 & PreserveVec3Type disabled");
     }
-
-    const auto vecTy = cast<cir::VectorType>(eltTy);
-
-    // Handle vectors of size 3 like size 4 for better performance.
-    assert(!cir::MissingFeatures::cirgenABIInfo());
-    if (vecTy.getSize() == 3 && !getLangOpts().PreserveVec3Type)
-      cgm.errorNYI(addr.getPointer().getLoc(),
-                   "emitLoadOfScalar Vec3 & PreserveVec3Type disabled");
   }
 
   assert(!cir::MissingFeatures::opLoadStoreTbaa());

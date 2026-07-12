@@ -1,0 +1,983 @@
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/config.py:561: note: using clang: /Users/revofusion/Projects/llvm/build/bin/clang
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find apinotes-test in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find c-index-test in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-diff in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-format in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-repl in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-offload-binary in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-scan-deps in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-installapi in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find opt in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-ifs in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find yaml2obj in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-linker-wrapper in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-nvlink-wrapper in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-sycl-linker in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-lto in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-lto2 in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-profdata in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find llvm-readtapi in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/llvm/subst.py:126: note: Did not find clang-check in /Users/revofusion/Projects/llvm/build/bin:/Users/revofusion/Projects/llvm/build/bin
+llvm-lit: /Users/revofusion/Projects/llvm/llvm/utils/lit/lit/util.py:363: note: using SDKROOT: '/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk'
+-- Testing: 13 tests, 13 workers --
+Testing: 
+FAIL: Clang :: CIR/CodeGen/variable-decomposition.cpp (1 of 13)
+******************** TEST 'Clang :: CIR/CodeGen/variable-decomposition.cpp' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++17 -triple x86_64-pc-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/variable-decomposition.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++17 -triple x86_64-pc-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/variable-decomposition.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp.cir
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=CIR --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/variable-decomposition.cpp
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=CIR --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/variable-decomposition.cpp
+# RUN: at line 3
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++17 -triple x86_64-pc-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/variable-decomposition.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp-cir.ll
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++17 -triple x86_64-pc-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/variable-decomposition.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp-cir.ll
+# RUN: at line 4
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=LLVM --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/variable-decomposition.cpp
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=LLVM --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/variable-decomposition.cpp
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/variable-decomposition.cpp:41:10: error: LLVM: expected string not found in input
+# | // LLVM: store %struct.some_struct { i32 1, float 2.000000e+00 }, ptr %[[STRUCT]]
+# |          ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp-cir.ll:11:40: note: scanning from here
+# |  %2 = alloca %struct.some_struct, i64 1, align 4
+# |                                        ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp-cir.ll:11:40: note: with "STRUCT" equal to "2"
+# |  %2 = alloca %struct.some_struct, i64 1, align 4
+# |                                        ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp-cir.ll:12:17: note: possible intended match here
+# |  %3 = getelementptr %struct.some_struct, ptr %2, i32 0, i32 0
+# |                 ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/variable-decomposition.cpp.tmp-cir.ll
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/variable-decomposition.cpp
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |             .
+# |             .
+# |             .
+# |             6: %struct.some_struct = type { i32, float } 
+# |             7:  
+# |             8: ; Function Attrs: noinline 
+# |             9: define dso_local float @_Z8functionv() #0 { 
+# |            10:  %1 = alloca float, i64 1, align 4 
+# |            11:  %2 = alloca %struct.some_struct, i64 1, align 4 
+# | check:41'0                                            X~~~~~~~~~ error: no match found
+# | check:41'1                                                       with "STRUCT" equal to "2"
+# |            12:  %3 = getelementptr %struct.some_struct, ptr %2, i32 0, i32 0 
+# | check:41'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# | check:41'2                     ?                                              possible intended match
+# |            13:  store i32 1, ptr %3, align 4 
+# | check:41'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            14:  %4 = getelementptr %struct.some_struct, ptr %2, i32 0, i32 1 
+# | check:41'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            15:  store float 2.000000e+00, ptr %4, align 4 
+# | check:41'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            16:  %5 = getelementptr %struct.some_struct, ptr %2, i32 0, i32 0 
+# | check:41'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            17:  %6 = load i32, ptr %5, align 4 
+# | check:41'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |             .
+# |             .
+# |             .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.
+FAIL: Clang :: CIR/CodeGen/paren-init-list.cpp (2 of 13)
+******************** TEST 'Clang :: CIR/CodeGen/paren-init-list.cpp' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++20 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/paren-init-list.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++20 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/paren-init-list.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp.cir
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=CIR --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/paren-init-list.cpp
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=CIR --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/paren-init-list.cpp
+# RUN: at line 3
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++20 -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/paren-init-list.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp-cir.ll
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++20 -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/paren-init-list.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp-cir.ll
+# RUN: at line 4
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=LLVM --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/paren-init-list.cpp
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=LLVM --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/paren-init-list.cpp
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/paren-init-list.cpp:24:10: error: LLVM: expected string not found in input
+# | // LLVM: store %struct.CompleteS { i32 1, i8 97 }, ptr %[[A_ADDR]], align 4
+# |          ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp-cir.ll:10:47: note: scanning from here
+# |  %1 = alloca %struct.CompleteS, i64 1, align 4
+# |                                               ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp-cir.ll:10:47: note: with "A_ADDR" equal to "1"
+# |  %1 = alloca %struct.CompleteS, i64 1, align 4
+# |                                               ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp-cir.ll:11:17: note: possible intended match here
+# |  %2 = getelementptr %struct.CompleteS, ptr %1, i32 0, i32 0
+# |                 ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/paren-init-list.cpp.tmp-cir.ll
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/paren-init-list.cpp
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |             .
+# |             .
+# |             .
+# |             5:  
+# |             6: %struct.CompleteS = type { i32, i8 } 
+# |             7:  
+# |             8: ; Function Attrs: noinline 
+# |             9: define dso_local void @_Z24cxx_paren_list_init_exprv() #0 { 
+# |            10:  %1 = alloca %struct.CompleteS, i64 1, align 4 
+# | check:24'0                                                   X error: no match found
+# | check:24'1                                                     with "A_ADDR" equal to "1"
+# |            11:  %2 = getelementptr %struct.CompleteS, ptr %1, i32 0, i32 0 
+# | check:24'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# | check:24'2                     ?                                            possible intended match
+# |            12:  store i32 1, ptr %2, align 4 
+# | check:24'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            13:  %3 = getelementptr %struct.CompleteS, ptr %1, i32 0, i32 1 
+# | check:24'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            14:  store i8 97, ptr %3, align 4 
+# | check:24'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            15:  ret void 
+# | check:24'0     ~~~~~~~~~~
+# |            16: } 
+# | check:24'0     ~~
+# |             .
+# |             .
+# |             .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10
+FAIL: Clang :: CIR/CodeGen/embed-expr.c (3 of 13)
+******************** TEST 'Clang :: CIR/CodeGen/embed-expr.c' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c23 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c23 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp.cir
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c:12:1: warning: excess elements in array initializer [-Wexcess-initializers]
+# |    12 | #embed __FILE__
+# |       | ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c:40:1: warning: excess elements in array initializer [-Wexcess-initializers]
+# |    40 | #embed __FILE__
+# |       | ^
+# | 2 warnings generated.
+# `-----------------------------
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c -check-prefix=CIR
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c -check-prefix=CIR
+# RUN: at line 3
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c23 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp-cir.ll
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c23 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp-cir.ll
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c:12:1: warning: excess elements in array initializer [-Wexcess-initializers]
+# |    12 | #embed __FILE__
+# |       | ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c:40:1: warning: excess elements in array initializer [-Wexcess-initializers]
+# |    40 | #embed __FILE__
+# |       | ^
+# | 2 warnings generated.
+# `-----------------------------
+# RUN: at line 4
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c -check-prefix=LLVM
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c -check-prefix=LLVM
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c:30:10: error: LLVM: expected string not found in input
+# | // LLVM: store [3 x i32] [i32 1, i32 2, i32 47], ptr %[[A_ADDR]], align 4
+# |          ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp-cir.ll:8:39: note: scanning from here
+# |  %1 = alloca [3 x i32], i64 1, align 4
+# |                                       ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp-cir.ll:8:39: note: with "A_ADDR" equal to "1"
+# |  %1 = alloca [3 x i32], i64 1, align 4
+# |                                       ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp-cir.ll:14:2: note: possible intended match here
+# |  store i32 47, ptr %4, align 4
+# |  ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/embed-expr.c.tmp-cir.ll
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |             1: ; ModuleID = '/Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c' 
+# |             2: source_filename = "/Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/embed-expr.c" 
+# |             3: target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128" 
+# |             4: target triple = "x86_64-unknown-linux-gnu" 
+# |             5:  
+# |             6: ; Function Attrs: noinline 
+# |             7: define dso_local void @embed_expr_on_scalar_with_constants() #0 { 
+# |             8:  %1 = alloca [3 x i32], i64 1, align 4 
+# | check:30'0                                           X error: no match found
+# | check:30'1                                             with "A_ADDR" equal to "1"
+# |             9:  %2 = getelementptr i32, ptr %1, i32 0 
+# | check:30'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            10:  store i32 1, ptr %2, align 4 
+# | check:30'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            11:  %3 = getelementptr i32, ptr %2, i64 1 
+# | check:30'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            12:  store i32 2, ptr %3, align 4 
+# | check:30'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            13:  %4 = getelementptr i32, ptr %2, i64 2 
+# | check:30'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            14:  store i32 47, ptr %4, align 4 
+# | check:30'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# | check:30'2      ?                              possible intended match
+# |            15:  ret void 
+# | check:30'0     ~~~~~~~~~~
+# |            16: } 
+# | check:30'0     ~~
+# |            17:  
+# | check:30'0     ~
+# |            18: ; Function Attrs: noinline 
+# | check:30'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            19: define dso_local void @embed_expr_on_scalar_with_non_constants() #0 { 
+# | check:30'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |             .
+# |             .
+# |             .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 
+FAIL: Clang :: CIR/CodeGen/compound_literal.cpp (4 of 13)
+******************** TEST 'Clang :: CIR/CodeGen/compound_literal.cpp' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/compound_literal.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/compound_literal.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp.cir
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/compound_literal.cpp -check-prefix=CIR
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/compound_literal.cpp -check-prefix=CIR
+# RUN: at line 3
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/compound_literal.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp-cir.ll
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/compound_literal.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp-cir.ll
+# RUN: at line 4
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/compound_literal.cpp -check-prefix=LLVM
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/compound_literal.cpp -check-prefix=LLVM
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/compound_literal.cpp:119:10: error: LLVM: expected string not found in input
+# | // LLVM: store %struct.Point { i32 5, i32 10 }, ptr %[[P]], align 4
+# |          ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp-cir.ll:41:27: note: scanning from here
+# |  %1 = alloca %struct.Point, i64 1, align 4
+# |                           ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp-cir.ll:41:27: note: with "P" equal to "1"
+# |  %1 = alloca %struct.Point, i64 1, align 4
+# |                           ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp-cir.ll:42:17: note: possible intended match here
+# |  %2 = getelementptr %struct.Point, ptr %1, i32 0, i32 0
+# |                 ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/compound_literal.cpp.tmp-cir.ll
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/compound_literal.cpp
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |              .
+# |              .
+# |              .
+# |             36:  ret void 
+# |             37: } 
+# |             38:  
+# |             39: ; Function Attrs: noinline 
+# |             40: define dso_local void @_Z4foo4v() #0 { 
+# |             41:  %1 = alloca %struct.Point, i64 1, align 4 
+# | check:119'0                               X~~~~~~~~~~~~~~~~ error: no match found
+# | check:119'1                                                 with "P" equal to "1"
+# |             42:  %2 = getelementptr %struct.Point, ptr %1, i32 0, i32 0 
+# | check:119'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# | check:119'2                     ?                                        possible intended match
+# |             43:  store i32 5, ptr %2, align 4 
+# | check:119'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |             44:  %3 = getelementptr %struct.Point, ptr %1, i32 0, i32 1 
+# | check:119'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |             45:  store i32 10, ptr %3, align 4 
+# | check:119'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |             46:  ret void 
+# | check:119'0     ~~~~~~~~~~
+# |             47: } 
+# | check:119'0     ~~
+# |              .
+# |              .
+# |              .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20..
+FAIL: Clang :: CIR/CodeGen/agg-expr-lvalue.c (5 of 13)
+******************** TEST 'Clang :: CIR/CodeGen/agg-expr-lvalue.c' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/agg-expr-lvalue.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/agg-expr-lvalue.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp.cir
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=CIR --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/agg-expr-lvalue.c
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=CIR --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/agg-expr-lvalue.c
+# RUN: at line 3
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/agg-expr-lvalue.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp-cir.ll
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/agg-expr-lvalue.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp-cir.ll
+# RUN: at line 4
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=LLVM --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/agg-expr-lvalue.c
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --check-prefix=LLVM --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/agg-expr-lvalue.c
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/agg-expr-lvalue.c:126:10: error: LLVM: expected string not found in input
+# | // LLVM: store [2 x [6 x i8]] {{\[}}[6 x i8] c"hello\00", [6 x i8] c"world\00"], ptr %[[MATRIX]]
+# |          ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp-cir.ll:52:28: note: scanning from here
+# |  %1 = alloca [2 x [6 x i8]], i64 1, align 1
+# |                            ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp-cir.ll:52:28: note: with "MATRIX" equal to "1"
+# |  %1 = alloca [2 x [6 x i8]], i64 1, align 1
+# |                            ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/agg-expr-lvalue.c.tmp-cir.ll
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/agg-expr-lvalue.c
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |              .
+# |              .
+# |              .
+# |             47:  ret void 
+# |             48: } 
+# |             49:  
+# |             50: ; Function Attrs: noinline 
+# |             51: define dso_local void @test_string_array_in_array() #0 { 
+# |             52:  %1 = alloca [2 x [6 x i8]], i64 1, align 1 
+# | check:126'0                                X~~~~~~~~~~~~~~~~ error: no match found
+# | check:126'1                                                  with "MATRIX" equal to "1"
+# |             53:  %2 = getelementptr [6 x i8], ptr %1, i32 0 
+# | check:126'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |             54:  %3 = getelementptr i8, ptr %2, i32 0 
+# | check:126'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |             55:  store i8 104, ptr %3, align 1 
+# | check:126'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |             56:  %4 = getelementptr i8, ptr %3, i64 1 
+# | check:126'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |             57:  store i8 101, ptr %4, align 1 
+# | check:126'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |              .
+# |              .
+# |              .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20.. 30.
+FAIL: Clang :: CIR/CodeGen/loop.cpp (6 of 13)
+******************** TEST 'Clang :: CIR/CodeGen/loop.cpp' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/loop.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/loop.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp.cir
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/loop.cpp:305:8: warning: range-based for loop initialization statements are a C++20 extension [-Wc++20-extensions]
+# |   305 |   for (int arr[]{1,2,3,4}; auto x : arr) {} 
+# |       |        ^~~~~~~~~~~~~~~~~~~
+# | 1 warning generated.
+# `-----------------------------
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/loop.cpp --check-prefix=CIR
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/loop.cpp --check-prefix=CIR
+# RUN: at line 3
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/loop.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp-cir.ll
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/loop.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp-cir.ll
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/loop.cpp:305:8: warning: range-based for loop initialization statements are a C++20 extension [-Wc++20-extensions]
+# |   305 |   for (int arr[]{1,2,3,4}; auto x : arr) {} 
+# |       |        ^~~~~~~~~~~~~~~~~~~
+# | 1 warning generated.
+# `-----------------------------
+# RUN: at line 4
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/loop.cpp --check-prefix=LLVM
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/loop.cpp --check-prefix=LLVM
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/loop.cpp:366:10: error: LLVM: expected string not found in input
+# | // LLVM: store [4 x i32] [i32 1, i32 2, i32 3, i32 4], ptr %[[ARR_ADDR]]
+# |          ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp-cir.ll:164:3: note: scanning from here
+# | 6: ; preds = %0
+# |   ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp-cir.ll:164:3: note: with "ARR_ADDR" equal to "1"
+# | 6: ; preds = %0
+# |   ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp-cir.ll:166:2: note: possible intended match here
+# |  store i32 1, ptr %7, align 4
+# |  ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/loop.cpp.tmp-cir.ll
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/loop.cpp
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |              .
+# |              .
+# |              .
+# |            159:  %3 = alloca ptr, i64 1, align 8 
+# |            160:  %4 = alloca ptr, i64 1, align 8 
+# |            161:  %5 = alloca i32, i64 1, align 4 
+# |            162:  br label %6 
+# |            163:  
+# |            164: 6: ; preds = %0 
+# | check:366'0       X~~~~~~~~~~~~~ error: no match found
+# | check:366'1                      with "ARR_ADDR" equal to "1"
+# |            165:  %7 = getelementptr i32, ptr %1, i32 0 
+# | check:366'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            166:  store i32 1, ptr %7, align 4 
+# | check:366'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# | check:366'2      ?                             possible intended match
+# |            167:  %8 = getelementptr i32, ptr %7, i64 1 
+# | check:366'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            168:  store i32 2, ptr %8, align 4 
+# | check:366'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            169:  %9 = getelementptr i32, ptr %7, i64 2 
+# | check:366'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            170:  store i32 3, ptr %9, align 4 
+# | check:366'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            171:  %10 = getelementptr i32, ptr %7, i64 3 
+# | check:366'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |              .
+# |              .
+# |              .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20.. 30.. 40.
+FAIL: Clang :: CIR/CodeGen/array.cpp (7 of 13)
+******************** TEST 'Clang :: CIR/CodeGen/array.cpp' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/array.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/array.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp.cir
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/array.cpp -check-prefix=CIR
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/array.cpp -check-prefix=CIR
+# RUN: at line 3
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/array.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp-cir.ll
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/array.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp-cir.ll
+# RUN: at line 4
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/array.cpp -check-prefix=LLVM
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/array.cpp -check-prefix=LLVM
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/array.cpp:50:10: error: LLVM: expected string not found in input
+# | // LLVM: @e = global <{ i32, i32, [8 x i32] }> <{ i32 1, i32 2, [8 x i32] zeroinitializer }>
+# |          ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp-cir.ll:12:108: note: scanning from here
+# | @dd = global [3 x [2 x i32]] [[2 x i32] [i32 1, i32 2], [2 x i32] [i32 3, i32 4], [2 x i32] [i32 5, i32 6]], align 16
+# |                                                                                                            ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp-cir.ll:14:1: note: possible intended match here
+# | @f = global [5 x i32] [i32 1, i32 2, i32 0, i32 0, i32 0], align 16
+# | ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/array.cpp.tmp-cir.ll
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/array.cpp
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |             .
+# |             .
+# |             .
+# |             7:  
+# |             8: @a = global [10 x i32] zeroinitializer, align 16 
+# |             9: @aa = global [10 x [5 x i32]] zeroinitializer, align 16 
+# |            10: @c = global [10 x i32] zeroinitializer, align 16 
+# |            11: @d = global [3 x i32] [i32 1, i32 2, i32 3], align 4 
+# |            12: @dd = global [3 x [2 x i32]] [[2 x i32] [i32 1, i32 2], [2 x i32] [i32 3, i32 4], [2 x i32] [i32 5, i32 6]], align 16 
+# | check:50'0                                                                                                                X~~~~~~~~~~ error: no match found
+# |            13: @e = global [10 x i32] [i32 1, i32 2, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0], align 16 
+# | check:50'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            14: @f = global [5 x i32] [i32 1, i32 2, i32 0, i32 0, i32 0], align 16 
+# | check:50'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# | check:50'1     ?                                                                    possible intended match
+# |            15: @g = global [16 x i32] [i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0, i32 0], align 16 
+# | check:50'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            16: @b = external global [10 x i32], align 16 
+# | check:50'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            17: @bb = external global [10 x [5 x i32]], align 16 
+# | check:50'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            18:  
+# | check:50'0     ~
+# |            19: ; Function Attrs: noinline 
+# | check:50'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |             .
+# |             .
+# |             .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20.. 30.. 40.. 50.
+FAIL: Clang :: CIR/CodeGen/label.c (8 of 13)
+******************** TEST 'Clang :: CIR/CodeGen/label.c' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp.cir
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c:108:1: warning: label at end of compound statement is a C23 extension [-Wc23-extensions]
+# |   108 | }
+# |       | ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c:132:1: warning: label at end of compound statement is a C23 extension [-Wc23-extensions]
+# |   132 | }
+# |       | ^
+# | 2 warnings generated.
+# `-----------------------------
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c --check-prefix=CIR
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c --check-prefix=CIR
+# RUN: at line 3
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp-cir.ll
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp-cir.ll
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c:108:1: warning: label at end of compound statement is a C23 extension [-Wc23-extensions]
+# |   108 | }
+# |       | ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c:132:1: warning: label at end of compound statement is a C23 extension [-Wc23-extensions]
+# |   132 | }
+# |       | ^
+# | 2 warnings generated.
+# `-----------------------------
+# RUN: at line 4
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c --check-prefix=LLVM
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c --check-prefix=LLVM
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c:121:10: error: LLVM: expected string not found in input
+# | // LLVM: br label %1
+# |          ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp-cir.ll:87:3: note: scanning from here
+# | 2: ; preds = %0
+# |   ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp-cir.ll:88:2: note: possible intended match here
+# |  br label %3
+# |  ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/label.c.tmp-cir.ll
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/label.c
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |              .
+# |              .
+# |              .
+# |             82: ; Function Attrs: noinline 
+# |             83: define dso_local void @foo() #0 { 
+# |             84:  %1 = alloca %struct.S, i64 1, align 1 
+# |             85:  br label %2 
+# |             86:  
+# |             87: 2: ; preds = %0 
+# | check:121'0       X~~~~~~~~~~~~~ error: no match found
+# |             88:  br label %3 
+# | check:121'0     ~~~~~~~~~~~~~
+# | check:121'1      ?            possible intended match
+# |             89:  
+# | check:121'0     ~
+# |             90: 3: ; preds = %2 
+# | check:121'0     ~~~~~~~~~~~~~~~~
+# |             91:  %4 = call %struct.S @get() 
+# | check:121'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |             92:  store %struct.S %4, ptr %1, align 1 
+# | check:121'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |             93:  %5 = load %struct.S, ptr %1, align 1 
+# | check:121'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |              .
+# |              .
+# |              .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60
+FAIL: Clang :: CIR/CodeGen/statement-exprs.c (9 of 13)
+******************** TEST 'Clang :: CIR/CodeGen/statement-exprs.c' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp.cir
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:9:13: warning: expression result unused [-Wunused-value]
+# |     9 |   return ({ 3;;4; });
+# |       |             ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:47:13: warning: expression result unused [-Wunused-value]
+# |    47 |   return ({ 3;;4;; });
+# |       |             ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:47:16: warning: expression result unused [-Wunused-value]
+# |    47 |   return ({ 3;;4;; });
+# |       |                ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:57:5: warning: expression result unused [-Wunused-value]
+# |    57 |   ({123;});
+# |       |     ^~~
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:60:34: warning: expression result unused [-Wunused-value]
+# |    60 |     return ({ ({ int asdf = 123; asdf; }); ({9999;}); });
+# |       |                                  ^~~~
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:193:29: warning: expression result unused [-Wunused-value]
+# |   193 | void test2() { ({int x = 3; x; }); }
+# |       |                             ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:281:25: warning: unknown attribute 'gsl::suppress' ignored [-Wunknown-attributes]
+# |   281 | void test4(int x) { ({[[gsl::suppress("foo")]] x;}); }
+# |       |                         ^~~~~~~~~~~~~
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:281:48: warning: expression result unused [-Wunused-value]
+# |   281 | void test4(int x) { ({[[gsl::suppress("foo")]] x;}); }
+# |       |                                                ^
+# | 8 warnings generated.
+# `-----------------------------
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c -check-prefix=CIR
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c -check-prefix=CIR
+# RUN: at line 3
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp-cir.ll
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp-cir.ll
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:9:13: warning: expression result unused [-Wunused-value]
+# |     9 |   return ({ 3;;4; });
+# |       |             ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:47:13: warning: expression result unused [-Wunused-value]
+# |    47 |   return ({ 3;;4;; });
+# |       |             ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:47:16: warning: expression result unused [-Wunused-value]
+# |    47 |   return ({ 3;;4;; });
+# |       |                ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:57:5: warning: expression result unused [-Wunused-value]
+# |    57 |   ({123;});
+# |       |     ^~~
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:60:34: warning: expression result unused [-Wunused-value]
+# |    60 |     return ({ ({ int asdf = 123; asdf; }); ({9999;}); });
+# |       |                                  ^~~~
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:193:29: warning: expression result unused [-Wunused-value]
+# |   193 | void test2() { ({int x = 3; x; }); }
+# |       |                             ^
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:281:25: warning: unknown attribute 'gsl::suppress' ignored [-Wunknown-attributes]
+# |   281 | void test4(int x) { ({[[gsl::suppress("foo")]] x;}); }
+# |       |                         ^~~~~~~~~~~~~
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:281:48: warning: expression result unused [-Wunused-value]
+# |   281 | void test4(int x) { ({[[gsl::suppress("foo")]] x;}); }
+# |       |                                                ^
+# | 8 warnings generated.
+# `-----------------------------
+# RUN: at line 4
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c -check-prefix=LLVM
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c -check-prefix=LLVM
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c:258:10: error: LLVM: expected string not found in input
+# | // LLVM: store %struct.S { i32 1 }, ptr %[[VAR3]]
+# |          ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp-cir.ll:121:3: note: scanning from here
+# | 6: ; preds = %5
+# |   ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp-cir.ll:121:3: note: with "VAR3" equal to "3"
+# | 6: ; preds = %5
+# |   ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp-cir.ll:122:17: note: possible intended match here
+# |  %7 = getelementptr %struct.S, ptr %3, i32 0, i32 0
+# |                 ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/statement-exprs.c.tmp-cir.ll
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/statement-exprs.c
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |              .
+# |              .
+# |              .
+# |            116:  br label %5 
+# |            117:  
+# |            118: 5: ; preds = %0 
+# |            119:  br label %6 
+# |            120:  
+# |            121: 6: ; preds = %5 
+# | check:258'0       X~~~~~~~~~~~~~ error: no match found
+# | check:258'1                      with "VAR3" equal to "3"
+# |            122:  %7 = getelementptr %struct.S, ptr %3, i32 0, i32 0 
+# | check:258'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# | check:258'2                     ?                                    possible intended match
+# |            123:  store i32 1, ptr %7, align 4 
+# | check:258'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            124:  call void @llvm.memcpy.p0.p0.i32(ptr %1, ptr %3, i32 4, i1 false) 
+# | check:258'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |            125:  br label %8 
+# | check:258'0     ~~~~~~~~~~~~~
+# |            126:  
+# | check:258'0     ~
+# |            127: 8: ; preds = %6 
+# | check:258'0     ~~~~~~~~~~~~~~~~
+# |              .
+# |              .
+# |              .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.. 70.
+FAIL: Clang :: CIR/CodeGen/goto.cpp (11 of 13)
+******************** TEST 'Clang :: CIR/CodeGen/goto.cpp' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/goto.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/goto.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp.cir
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/goto.cpp -check-prefix=CIR
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/goto.cpp -check-prefix=CIR
+# RUN: at line 3
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/goto.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp-cir.ll
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/goto.cpp -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp-cir.ll
+# RUN: at line 4
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/goto.cpp --check-prefix=LLVM
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/goto.cpp --check-prefix=LLVM
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/goto.cpp:53:10: error: LLVM: expected string not found in input
+# | // LLVM: store i32 -1, ptr %[[RETVAL]], align 4
+# |          ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp-cir.ll:177:4: note: scanning from here
+# | 11: ; preds = %5
+# |    ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp-cir.ll:177:4: note: with "RETVAL" equal to "3"
+# | 11: ; preds = %5
+# |    ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp-cir.ll:191:2: note: possible intended match here
+# |  store i32 %0, ptr %2, align 4
+# |  ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/goto.cpp.tmp-cir.ll
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/goto.cpp
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |             .
+# |             .
+# |             .
+# |           172:  br label %10 
+# |           173:  
+# |           174: 10: ; preds = %9 
+# |           175:  br label %12 
+# |           176:  
+# |           177: 11: ; preds = %5 
+# | check:53'0        X~~~~~~~~~~~~~ error: no match found
+# | check:53'1                       with "RETVAL" equal to "3"
+# |           178:  call void @action2() 
+# | check:53'0     ~~~~~~~~~~~~~~~~~~~~~~
+# |           179:  br label %8 
+# | check:53'0     ~~~~~~~~~~~~~
+# |           180:  
+# | check:53'0     ~
+# |           181: 12: ; preds = %10 
+# | check:53'0     ~~~~~~~~~~~~~~~~~~
+# |           182:  br label %13 
+# | check:53'0     ~~~~~~~~~~~~~~
+# |             .
+# |             .
+# |             .
+# |           186: } 
+# | check:53'0     ~~
+# |           187:  
+# | check:53'0     ~
+# |           188: ; Function Attrs: noinline 
+# | check:53'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           189: define dso_local void @default_follow_label(i32 %0) #0 { 
+# | check:53'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           190:  %2 = alloca i32, i64 1, align 4 
+# | check:53'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           191:  store i32 %0, ptr %2, align 4 
+# | check:53'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# | check:53'2      ?                              possible intended match
+# |           192:  br label %3 
+# | check:53'0     ~~~~~~~~~~~~~
+# |           193:  
+# | check:53'0     ~
+# |           194: 3: ; preds = %1 
+# | check:53'0     ~~~~~~~~~~~~~~~~
+# |           195:  %4 = load i32, ptr %2, align 4 
+# | check:53'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           196:  br label %5 
+# | check:53'0     ~~~~~~~~~~~~~
+# |             .
+# |             .
+# |             .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.. 70.. 80.. 90
+FAIL: Clang :: CIR/CodeGen/record-zero-init-padding.c (13 of 13)
+******************** TEST 'Clang :: CIR/CodeGen/record-zero-init-padding.c' FAILED ********************
+Exit Code: 1
+
+Command Output (stdout):
+--
+# RUN: at line 1
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.cir
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.cir
+# RUN: at line 2
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c -check-prefix=CIR
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.cir /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c -check-prefix=CIR
+# RUN: at line 3
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp-cir.ll
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp-cir.ll
+# RUN: at line 4
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c -check-prefix=LLVM
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp-cir.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c -check-prefix=LLVM
+# RUN: at line 5
+/Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.ll
+# executed command: /Users/revofusion/Projects/llvm/build/bin/clang -cc1 -internal-isystem /Users/revofusion/Projects/llvm/build/lib/clang/22/include -nostdsysteminc -triple x86_64-unknown-linux-gnu -emit-llvm /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c -o /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.ll
+# RUN: at line 6
+/Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c -check-prefix=OGCG
+# executed command: /Users/revofusion/Projects/llvm/build/bin/FileCheck --input-file=/Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.ll /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c -check-prefix=OGCG
+# .---command stderr------------
+# | /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c:66:14: error: OGCG-DAG: expected string not found in input
+# | // OGCG-DAG: @test_zero_init_padding.paf = internal constant %struct.padding_after_field { i8 1, i32 42 }, align 4
+# |              ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.ll:1:1: note: scanning from here
+# | ; ModuleID = '/Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c'
+# | ^
+# | /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.ll:6:1: note: possible intended match here
+# | @test_zero_init_padding.paf = internal constant { i8, [3 x i8], i32 } { i8 1, [3 x i8] zeroinitializer, i32 42 }, align 4
+# | ^
+# | 
+# | Input file: /Users/revofusion/Projects/llvm/build/tools/clang/test/CIR/CodeGen/Output/record-zero-init-padding.c.tmp.ll
+# | Check file: /Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c
+# | 
+# | -dump-input=help explains the following input dump.
+# | 
+# | Input was:
+# | <<<<<<
+# |           1: ; ModuleID = '/Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c' 
+# | dag:66'0     X~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ error: no match found
+# |           2: source_filename = "/Users/revofusion/Projects/llvm/clang/test/CIR/CodeGen/record-zero-init-padding.c" 
+# | dag:66'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           3: target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128" 
+# | dag:66'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           4: target triple = "x86_64-unknown-linux-gnu" 
+# | dag:66'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           5:  
+# | dag:66'0     ~
+# |           6: @test_zero_init_padding.paf = internal constant { i8, [3 x i8], i32 } { i8 1, [3 x i8] zeroinitializer, i32 42 }, align 4 
+# | dag:66'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# | dag:66'1     ?                                                                                                                          possible intended match
+# |           7: @test_zero_init_padding.bfp = internal constant { i8, [3 x i8], i32 } { i8 17, [3 x i8] zeroinitializer, i32 99 }, align 4 
+# | dag:66'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           8: @test_zero_init_padding.tp = internal constant { i32, i8, [3 x i8] } { i32 10, i8 20, [3 x i8] zeroinitializer }, align 4 
+# | dag:66'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           9: @test_zero_init_padding.mp = internal constant { i8, i8, i16, [4 x i8], i64 } { i8 5, i8 0, i16 10, [4 x i8] zeroinitializer, i64 100 }, align 8 
+# | dag:66'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |          10:  
+# | dag:66'0     ~
+# |          11: ; Function Attrs: noinline nounwind optnone 
+# | dag:66'0     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# |           .
+# |           .
+# |           .
+# | >>>>>>
+# `-----------------------------
+# error: command failed with exit status: 1
+
+--
+
+********************
+Testing:  0.. 10.. 20.. 30.. 40.. 50.. 60.. 70.. 80.. 90.. 
+********************
+Failed Tests (11):
+  Clang :: CIR/CodeGen/agg-expr-lvalue.c
+  Clang :: CIR/CodeGen/array.cpp
+  Clang :: CIR/CodeGen/compound_literal.cpp
+  Clang :: CIR/CodeGen/embed-expr.c
+  Clang :: CIR/CodeGen/goto.cpp
+  Clang :: CIR/CodeGen/label.c
+  Clang :: CIR/CodeGen/loop.cpp
+  Clang :: CIR/CodeGen/paren-init-list.cpp
+  Clang :: CIR/CodeGen/record-zero-init-padding.c
+  Clang :: CIR/CodeGen/statement-exprs.c
+  Clang :: CIR/CodeGen/variable-decomposition.cpp
+
+
+Testing Time: 0.38s
+
+Total Discovered Tests: 13
+  Passed:  2 (15.38%)
+  Failed: 11 (84.62%)

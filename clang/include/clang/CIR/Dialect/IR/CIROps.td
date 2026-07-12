@@ -2415,12 +2415,49 @@ def CIR_VTableGetVirtualFnAddrOp : CIR_Op<"vtable.get_virtual_fn_addr", [
 
     The return type is a pointer-to-pointer to the function type.
 
+    The optional `method` attribute is a symbol reference to the statically-
+    named C++ virtual method declaration (`CXXMethodDecl`) this vtable slot
+    corresponds to -- the interface being dispatched through syntactically,
+    not a claim about which concrete override runs at any given call (that
+    is a dynamic-dispatch fact ordinary CIR consumers must not assume from
+    this attribute alone). It carries no codegen meaning and is not
+    consumed by any CIR-to-CIR pass or the DirectToLLVM lowering; it exists
+    purely so that later, source-provenance-aware readers (e.g. an
+    analysis/exporter walking the CIR module) can recover which method a
+    given indirect vtable dispatch corresponds to, information that is
+    otherwise irrecoverably lost once this op is lowered to a bare integer
+    slot index. Absent (the default) on any input that predates this field,
+    or wherever the frontend does not have a resolved `CXXMethodDecl` handy
+    at the construction site.
+
+    The optional `method_usr`, `root_method_usr`, and `declaring_class_usr`
+    attributes carry the SAME statically-named method's real clang USR
+    (Unified Symbol Resolution string) identity, in the SAME identity space
+    a separate, ordinary-AST-based class-hierarchy/override census would
+    compute for it (e.g. via `clang::index::generateUSRForDecl`) -- so a
+    downstream reader can join this op's identity directly against such a
+    census without any separate mangled-name-to-USR bridge or string
+    inference. `method_usr` is the USR of `method`'s own `CXXMethodDecl`.
+    `root_method_usr` is the USR of the ROOT declaration of that virtual
+    method (the first declaration anywhere in the hierarchy that itself
+    overrides nothing, found by walking `overridden_methods()` to a fixed
+    point), and `declaring_class_usr` is the USR of that root method's own
+    declaring class. Both are absent whenever the override-chain walk ever
+    finds more than one overridden method at some step (a genuine multiple-
+    or virtual-inheritance ambiguity): this attribute deliberately does not
+    guess by priority in that case, matching the discipline of the ordinary-
+    AST census this identity space is meant to line up with. All three USR
+    attributes carry no codegen meaning and are not consumed by any CIR-to-
+    CIR pass or the DirectToLLVM lowering, and are independently absent (not
+    merely mirroring `method`'s presence) whenever Clang cannot assign a USR
+    to the relevant decl.
+
     Example:
     ```mlir
     %2 = cir.load %0 : !cir.ptr<!cir.ptr<!rec_C>>, !cir.ptr<!rec_C>
     %3 = cir.vtable.get_vptr %2 : !cir.ptr<!rec_C> -> !cir.ptr<!cir.vptr>
     %4 = cir.load %3 : !cir.ptr<!cir.vptr>, !cir.vptr
-    %5 = cir.vtable.get_virtual_fn_addr %4[2] : !cir.vptr
+    %5 = cir.vtable.get_virtual_fn_addr %4[2] {method = @_ZN1C1fEv} : !cir.vptr
                   -> !cir.ptr<!cir.ptr<!cir.func<(!cir.ptr<!rec_C>) -> !s32i>>>
     %6 = cir.load align(8) %5 : !cir.ptr<!cir.ptr<!cir.func<(!cir.ptr<!rec_C>)
                                                                  -> !s32i>>>,
@@ -2432,7 +2469,11 @@ def CIR_VTableGetVirtualFnAddrOp : CIR_Op<"vtable.get_virtual_fn_addr", [
 
   let arguments = (ins
     Arg<CIR_VPtrType, "vptr", [MemRead]>:$vptr,
-    I64Attr:$index);
+    I64Attr:$index,
+    OptionalAttr<FlatSymbolRefAttr>:$method,
+    OptionalAttr<StrAttr>:$method_usr,
+    OptionalAttr<StrAttr>:$root_method_usr,
+    OptionalAttr<StrAttr>:$declaring_class_usr);
 
   let results = (outs CIR_PointerType:$result);
 

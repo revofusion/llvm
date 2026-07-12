@@ -1238,9 +1238,15 @@ CIRGenCallee CIRGenMicrosoftCXXABI::getVirtualFunctionPointer(
   mlir::Value vtable = cgf.getVTablePtr(mlirLoc, vptrThis,
                                         methodDecl->getParent());
   cir::PointerType fnPtrTy = builder.getPointerTo(ty);
+  // See the identical annotation in CIRGenItaniumCXXABI's
+  // getVirtualFunctionPointer: `methodDecl` is already resolved above, so
+  // this is a no-cost, purely additive annotation with no codegen meaning.
+  auto identityAttrs = buildCIRGenVirtualMethodIdentityAttrs(
+      cgm.getMLIRContext(), cgm.getMangledName(gd), methodDecl);
   auto vtableSlotPtr = cir::VTableGetVirtualFnAddrOp::create(
       builder, mlirLoc, builder.getPointerTo(fnPtrTy), vtable,
-      vfTableLoc.Index);
+      vfTableLoc.Index, identityAttrs.method, identityAttrs.methodUSR,
+      identityAttrs.rootMethodUSR, identityAttrs.declaringClassUSR);
   mlir::Value vfunc =
       builder.createAlignedLoad(mlirLoc, fnPtrTy, vtableSlotPtr,
                                 cgf.getPointerAlign());
