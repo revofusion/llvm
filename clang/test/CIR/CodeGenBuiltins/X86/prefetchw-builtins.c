@@ -16,9 +16,9 @@
 #include <x86intrin.h>
 
 void test_m_prefetch_w(void *p) {
-  // CIR-LABEL: test_m_prefetch_w
-  // LLVM-LABEL: test_m_prefetch_w
-  // OGCG-LABEL: test_m_prefetch_w
+  // CIR-LABEL: cir.func{{.*}} @{{[^ (]*}}test_m_prefetch_w{{[^ (]*}}(
+  // LLVM-LABEL: define{{.*}} @{{[^ (]*}}test_m_prefetch_w{{[^ (]*}}(
+  // OGCG-LABEL: define{{.*}} @{{[^ (]*}}test_m_prefetch_w{{[^ (]*}}(
   return _m_prefetchw(p);
   // CIR: cir.prefetch write locality(3) %{{.*}} : !cir.ptr<!void>
   // LLVM: call void @llvm.prefetch.p0(ptr {{.*}}, i32 1, i32 3, i32 1)
@@ -26,9 +26,9 @@ void test_m_prefetch_w(void *p) {
 }
 
 void test_m_prefetch(void *p) {
-  // CIR-LABEL: test_m_prefetch
-  // LLVM-LABEL: test_m_prefetch
-  // OGCG-LABEL: test_m_prefetch
+  // CIR-LABEL: cir.func{{.*}} @{{[^ (]*}}test_m_prefetch{{[^ (_]*}}(
+  // LLVM-LABEL: define{{.*}} @{{[^ (]*}}test_m_prefetch{{[^ (_]*}}(
+  // OGCG-LABEL: define{{.*}} @{{[^ (]*}}test_m_prefetch{{[^ (_]*}}(
   return _m_prefetch(p);
   // CIR: cir.prefetch read locality(3) %{{.*}} : !cir.ptr<!void>
   // LLVM: call void @llvm.prefetch.p0(ptr {{.*}}, i32 0, i32 3, i32 1)

@@ -1481,6 +1481,26 @@ def CIR_BlockAddrInfoAttr : CIR_Attr<"BlockAddrInfo", "block_addr_info"> {
   let canHaveIllegalCXXABIType = 0;
 }
 
+def CIR_BlockAddressAttr : CIR_Attr<"BlockAddress", "block_address", [
+  TypedAttrInterface
+]> {
+  let summary = "Holds a constant label address";
+  let parameters = (ins AttributeSelfTypeParameter<
+                            "", "cir::PointerType">:$type,
+                        "cir::BlockAddrInfoAttr":$block_addr_info);
+  let description = [{
+    A block address attribute represents GCC's labels-as-values extension when
+    the label address appears in a constant initializer.
+  }];
+  let builders = [
+    AttrBuilderWithInferredContext<(ins "cir::PointerType":$type,
+                                        "cir::BlockAddrInfoAttr":$info), [{
+      return $_get(type.getContext(), type, info);
+    }]>
+  ];
+  let assemblyFormat = "`<` $block_addr_info `>`";
+}
+
 //===----------------------------------------------------------------------===//
 // Side Effect
 //===----------------------------------------------------------------------===//

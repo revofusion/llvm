@@ -705,20 +705,23 @@ mlir::LogicalResult CIRGenFunction::emitGotoStmt(const clang::GotoStmt &s) {
 mlir::LogicalResult
 CIRGenFunction::emitIndirectGotoStmt(const IndirectGotoStmt &s) {
   mlir::Value val = emitScalarExpr(s.getTarget());
-  assert(indirectGotoBlock &&
-         "If you jumping to a indirect branch should be alareadye emitted");
+  instantiateIndirectGotoBlock();
   cir::BrOp::create(builder, getLoc(s.getSourceRange()), indirectGotoBlock,
                     val);
-  builder.createBlock(builder.getBlock()->getParent());
+  mlir::Block *nextBlock = builder.createBlock(builder.getBlock()->getParent());
+  builder.setInsertionPointToEnd(nextBlock);
   return mlir::success();
 }
 
 mlir::LogicalResult
 CIRGenFunction::emitContinueStmt(const clang::ContinueStmt &s) {
+  if (curLexScope)
+    curLexScope->forceCleanup();
   builder.createContinue(getLoc(s.getKwLoc()));
 
   // Insert the new block to continue codegen after the continue statement.
-  builder.createBlock(builder.getBlock()->getParent());
+  mlir::Block *nextBlock = builder.createBlock(builder.getBlock()->getParent());
+  builder.setInsertionPointToEnd(nextBlock);
 
   return mlir::success();
 }
@@ -757,7 +760,8 @@ mlir::LogicalResult CIRGenFunction::emitBreakStmt(const clang::BreakStmt &s) {
   builder.createBreak(getLoc(s.getKwLoc()));
 
   // Insert the new block to continue codegen after the break statement.
-  builder.createBlock(builder.getBlock()->getParent());
+  mlir::Block *nextBlock = builder.createBlock(builder.getBlock()->getParent());
+  builder.setInsertionPointToEnd(nextBlock);
 
   return mlir::success();
 }

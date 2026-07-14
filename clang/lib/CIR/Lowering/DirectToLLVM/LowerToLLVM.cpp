@@ -2245,14 +2245,10 @@ mlir::LogicalResult CIRToLLVMFuncOpLowering::matchAndRewrite(
   if (std::optional<llvm::StringRef> aliasee = op.getAliasee())
     return matchAndRewriteAlias(op, *aliasee, llvmFnTy, adaptor, rewriter);
 
-  // LLVMFuncOp expects a single FileLine Location instead of a fused
-  // location.
-  mlir::Location loc = op.getLoc();
-  if (mlir::FusedLoc fusedLoc = mlir::dyn_cast<mlir::FusedLoc>(loc))
-    loc = fusedLoc.getLocations()[0];
-  assert((mlir::isa<mlir::FileLineColLoc>(loc) ||
-          mlir::isa<mlir::UnknownLoc>(loc)) &&
-         "expected single location or unknown location here");
+  // LLVMFuncOp expects one FileLineColLoc rather than CIR's potentially nested
+  // fused source range and declaration locations.
+  mlir::Location loc =
+      op.getLoc()->findInstanceOfOrUnknown<mlir::FileLineColLoc>();
 
   mlir::LLVM::Linkage linkage = convertLinkage(op.getLinkage());
   mlir::LLVM::CConv cconv = convertCallingConv(op.getCallingConv());

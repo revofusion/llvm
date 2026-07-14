@@ -405,15 +405,24 @@ static RValue emitBuiltinAlloca(CIRGenFunction &cgf, const CallExpr *e,
                                 unsigned builtinID) {
   assert(builtinID == Builtin::BI__builtin_alloca ||
          builtinID == Builtin::BI__builtin_alloca_uninitialized ||
+         builtinID == Builtin::BI__builtin_alloca_with_align ||
+         builtinID == Builtin::BI__builtin_alloca_with_align_uninitialized ||
          builtinID == Builtin::BIalloca || builtinID == Builtin::BI_alloca);
 
-  // Get alloca size input
+  // Get alloca size input.
   mlir::Value size = cgf.emitScalarExpr(e->getArg(0));
 
-  // The alignment of the alloca should correspond to __BIGGEST_ALIGNMENT__.
-  const TargetInfo &ti = cgf.getContext().getTargetInfo();
-  const CharUnits suitableAlignmentInBytes =
-      cgf.getContext().toCharUnitsFromBits(ti.getSuitableAlign());
+  const bool hasExplicitAlignment =
+      builtinID == Builtin::BI__builtin_alloca_with_align ||
+      builtinID == Builtin::BI__builtin_alloca_with_align_uninitialized;
+  const CharUnits allocaAlignment =
+      hasExplicitAlignment
+          ? cgf.getContext().toCharUnitsFromBits(
+                e->getArg(1)
+                    ->EvaluateKnownConstInt(cgf.getContext())
+                    .getZExtValue())
+          : cgf.getContext().toCharUnitsFromBits(
+                cgf.getContext().getTargetInfo().getSuitableAlign());
 
   // Emit the alloca op with type `u8 *` to match the semantics of
   // `llvm.alloca`. We later bitcast the type to `void *` to match the
@@ -424,10 +433,11 @@ static RValue emitBuiltinAlloca(CIRGenFunction &cgf, const CallExpr *e,
   CIRGenBuilderTy &builder = cgf.getBuilder();
   mlir::Value allocaAddr = builder.createAlloca(
       cgf.getLoc(e->getSourceRange()), builder.getUInt8PtrTy(),
-      builder.getUInt8Ty(), "bi_alloca", suitableAlignmentInBytes, size);
+      builder.getUInt8Ty(), "bi_alloca", allocaAlignment, size);
 
   // Initialize the allocated buffer if required.
-  if (builtinID != Builtin::BI__builtin_alloca_uninitialized) {
+  if (builtinID != Builtin::BI__builtin_alloca_uninitialized &&
+      builtinID != Builtin::BI__builtin_alloca_with_align_uninitialized) {
     // Initialize the alloca with the given size and alignment according to
     // the lang opts. Only the trivial non-initialization is supported for
     // now.
@@ -1844,6 +1854,7 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     return emitBuiltinAlloca(*this, e, builtinID);
   case Builtin::BI__builtin_alloca_with_align_uninitialized:
   case Builtin::BI__builtin_alloca_with_align:
+    return emitBuiltinAlloca(*this, e, builtinID);
   case Builtin::BI__builtin_infer_alloc_token:
     return errorBuiltinNYI(*this, e, builtinID);
   case Builtin::BIbzero:

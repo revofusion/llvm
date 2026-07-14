@@ -9,7 +9,7 @@ char gbuf[63];
 char *gp;
 int gi, gj;
 
-// CIR-LABEL: @test1
+// CIR-LABEL: @test1(
 // LLVM-LABEL: define {{.*}} void @test1
 // OGCG-LABEL: define {{.*}} void @test1
 void test1(void) {
@@ -19,7 +19,7 @@ void test1(void) {
   gi = __builtin_object_size(&gbuf[4], 1);
 }
 
-// CIR-LABEL: @test2
+// CIR-LABEL: @test2(
 // LLVM-LABEL: define {{.*}} void @test2
 // OGCG-LABEL: define {{.*}} void @test2
 void test2(void) {
@@ -29,7 +29,7 @@ void test2(void) {
   gi = __builtin_object_size(gbuf, 1);
 }
 
-// CIR-LABEL: @test3
+// CIR-LABEL: @test3(
 // LLVM-LABEL: define {{.*}} void @test3
 // OGCG-LABEL: define {{.*}} void @test3
 void test3(void) {
@@ -39,7 +39,7 @@ void test3(void) {
   gi = __builtin_object_size(&gbuf[100], 1);
 }
 
-// CIR-LABEL: @test4
+// CIR-LABEL: @test4(
 // LLVM-LABEL: define {{.*}} void @test4
 // OGCG-LABEL: define {{.*}} void @test4
 void test4(void) {
@@ -49,7 +49,7 @@ void test4(void) {
   gi = __builtin_object_size((char*)(void*)&gbuf[-1], 1);
 }
 
-// CIR-LABEL: @test5
+// CIR-LABEL: @test5(
 // LLVM-LABEL: define {{.*}} void @test5
 // OGCG-LABEL: define {{.*}} void @test5
 void test5(void) {
@@ -59,7 +59,7 @@ void test5(void) {
   gi = __builtin_object_size(gp, 0);
 }
 
-// CIR-LABEL: @test6
+// CIR-LABEL: @test6(
 // LLVM-LABEL: define {{.*}} void @test6
 // OGCG-LABEL: define {{.*}} void @test6
 void test6(void) {
@@ -71,7 +71,7 @@ void test6(void) {
   gi = __builtin_object_size(&buf[4], 1);
 }
 
-// CIR-LABEL: @test18
+// CIR-LABEL: @test18(
 // LLVM-LABEL: define {{.*}} i32 @test18
 // OGCG-LABEL: define {{.*}} i32 @test18
 unsigned test18(int cond) {
@@ -82,7 +82,7 @@ unsigned test18(int cond) {
   return __builtin_object_size(cond ? a : b, 0);
 }
 
-// CIR-LABEL: @test19
+// CIR-LABEL: @test19(
 // LLVM-LABEL: define {{.*}} void @test19
 // OGCG-LABEL: define {{.*}} void @test19
 void test19(void) {
@@ -131,7 +131,7 @@ void test19(void) {
   gi = __builtin_object_size(&foo.b, 3);
 }
 
-// CIR-LABEL: @test20
+// CIR-LABEL: @test20(
 // LLVM-LABEL: define {{.*}} void @test20
 // OGCG-LABEL: define {{.*}} void @test20
 void test20(void) {
@@ -158,7 +158,7 @@ void test20(void) {
   gi = __builtin_object_size(&t[0].t[5], 3);
 }
 
-// CIR-LABEL: @test21
+// CIR-LABEL: @test21(
 // LLVM-LABEL: define {{.*}} void @test21
 // OGCG-LABEL: define {{.*}} void @test21
 void test21(void) {
@@ -205,7 +205,7 @@ void test21(void) {
   gi = __builtin_object_size(&t.t + 1, 3);
 }
 
-// CIR-LABEL: @test22
+// CIR-LABEL: @test22(
 // LLVM-LABEL: define {{.*}} void @test22
 // OGCG-LABEL: define {{.*}} void @test22
 void test22(void) {
@@ -294,7 +294,7 @@ void test22(void) {
 
 struct Test23Ty { int a; int t[10]; };
 
-// CIR-LABEL: @test23
+// CIR-LABEL: @test23(
 // LLVM-LABEL: define {{.*}} void @test23
 // OGCG-LABEL: define {{.*}} void @test23
 void test23(struct Test23Ty *p) {
@@ -359,7 +359,7 @@ void test23(struct Test23Ty *p) {
   gi = __builtin_object_size(&p->t[5], 3);
 }
 
-// CIR-LABEL: @test24
+// CIR-LABEL: @test24(
 // LLVM-LABEL: define {{.*}} void @test24
 // OGCG-LABEL: define {{.*}} void @test24
 void test24(void) {
@@ -384,7 +384,7 @@ void test24(void) {
   gi = __builtin_object_size((void*)0, 3);
 }
 
-// CIR-LABEL: @test25
+// CIR-LABEL: @test25(
 // LLVM-LABEL: define {{.*}} void @test25
 // OGCG-LABEL: define {{.*}} void @test25
 void test25(void) {
@@ -411,7 +411,7 @@ void test25(void) {
   // Skipping (void*)0 + 0x1000 tests - void pointer arithmetic NYI in CIR
 }
 
-// CIR-LABEL: @test26
+// CIR-LABEL: @test26(
 // LLVM-LABEL: define {{.*}} void @test26
 // OGCG-LABEL: define {{.*}} void @test26
 void test26(void) {
@@ -440,7 +440,7 @@ void test26(void) {
 
 struct Test27IncompleteTy;
 
-// CIR-LABEL: @test27
+// CIR-LABEL: @test27(
 // LLVM-LABEL: define {{.*}} void @test27
 // OGCG-LABEL: define {{.*}} void @test27
 void test27(struct Test27IncompleteTy *t) {
@@ -485,7 +485,7 @@ void test27(struct Test27IncompleteTy *t) {
   gi = __builtin_object_size(&test27, 3);
 }
 
-// CIR-LABEL: @test28
+// CIR-LABEL: @test28(
 // LLVM-LABEL: define {{.*}} void @test28
 // OGCG-LABEL: define {{.*}} void @test28
 void test28(void) {
@@ -552,7 +552,7 @@ struct StaticStruct {
   char snd[2];
 };
 
-// CIR-LABEL: @test29
+// CIR-LABEL: @test29(
 // LLVM-LABEL: define {{.*}} void @test29
 // OGCG-LABEL: define {{.*}} void @test29
 void test29(struct DynStructVar *dv, struct DynStruct0 *d0,
@@ -638,7 +638,7 @@ void test29(struct DynStructVar *dv, struct DynStruct0 *d0,
   gi = __builtin_object_size(ss->snd, 3);
 }
 
-// CIR-LABEL: @test30
+// CIR-LABEL: @test30(
 // LLVM-LABEL: define {{.*}} void @test30
 // OGCG-LABEL: define {{.*}} void @test30
 void test30(void) {
@@ -727,7 +727,7 @@ void test30(void) {
   gi = __builtin_object_size(u->d1.snd, 3);
 }
 
-// CIR-LABEL: @test32
+// CIR-LABEL: @test32(
 // LLVM-LABEL: define {{.*}} i64 @test32
 // OGCG-LABEL: define {{.*}} i64 @test32
 static struct DynStructVar D32 = {
@@ -741,7 +741,7 @@ unsigned long test32(void) {
   return __builtin_object_size(&D32, 1);
 }
 
-// CIR-LABEL: @test33
+// CIR-LABEL: @test33(
 // LLVM-LABEL: define {{.*}} i64 @test33
 // OGCG-LABEL: define {{.*}} i64 @test33
 static struct DynStructVar D33 = {
@@ -755,7 +755,7 @@ unsigned long test33(void) {
   return __builtin_object_size(&D33, 1);
 }
 
-// CIR-LABEL: @test34
+// CIR-LABEL: @test34(
 // LLVM-LABEL: define {{.*}} i64 @test34
 // OGCG-LABEL: define {{.*}} i64 @test34
 static struct DynStructVar D34 = {
@@ -768,7 +768,7 @@ unsigned long test34(void) {
   return __builtin_object_size(&D34, 1);
 }
 
-// CIR-LABEL: @test35
+// CIR-LABEL: @test35(
 // LLVM-LABEL: define {{.*}} i64 @test35
 // OGCG-LABEL: define {{.*}} i64 @test35
 unsigned long test35(void) {
@@ -778,7 +778,7 @@ unsigned long test35(void) {
   return __builtin_object_size(&(struct DynStructVar){}, 1);
 }
 
-// CIR-LABEL: @test37
+// CIR-LABEL: @test37(
 // LLVM-LABEL: define {{.*}} i64 @test37
 // OGCG-LABEL: define {{.*}} i64 @test37
 struct Z { struct A { int x, y[]; } z; int a; int b[]; };

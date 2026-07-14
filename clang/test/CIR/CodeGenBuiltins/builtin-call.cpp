@@ -332,6 +332,32 @@ void *test_alloca(unsigned long n) {
 // OGCG-LABEL: @_Z11test_allocam(
 // OGCG:         alloca i8, i64 %{{.+}}
 
+void *test_alloca_with_align(unsigned long n) {
+  return __builtin_alloca_with_align(n, 128);
+}
+
+// CIR-LABEL: @_Z22test_alloca_with_alignm(
+// CIR:         %{{.+}} = cir.alloca "bi_alloca" align(16) size(%{{.+}}) : !cir.ptr<!u8i>
+
+// LLVM-LABEL: @_Z22test_alloca_with_alignm(
+// LLVM:         alloca i8, i64 %{{.+}}, align 16
+
+// OGCG-LABEL: @_Z22test_alloca_with_alignm(
+// OGCG:         alloca i8, i64 %{{.+}}, align 16
+
+void *test_alloca_with_align_uninitialized(unsigned long n) {
+  return __builtin_alloca_with_align_uninitialized(n, 128);
+}
+
+// CIR-LABEL: @_Z36test_alloca_with_align_uninitializedm(
+// CIR:         %{{.+}} = cir.alloca "bi_alloca" align(16) size(%{{.+}}) : !cir.ptr<!u8i>
+
+// LLVM-LABEL: @_Z36test_alloca_with_align_uninitializedm(
+// LLVM:         alloca i8, i64 %{{.+}}, align 16
+
+// OGCG-LABEL: @_Z36test_alloca_with_align_uninitializedm(
+// OGCG:         alloca i8, i64 %{{.+}}, align 16
+
 bool test_multiple_allocas(unsigned long n) {
   void *a = __builtin_alloca(n);
   void *b = __builtin_alloca(n);

@@ -347,8 +347,99 @@ std::optional<size_t> ConstantAggregateBuilder::splitAt(CharUnits pos) {
 /// Hint indicates the location at which we'd like to split, but may be
 /// ignored.
 bool ConstantAggregateBuilder::split(size_t index, CharUnits hint) {
-  cgm.errorNYI("split constant at index");
-  return false;
+  Element elt = elements[index];
+  CharUnits eltEnd = elt.offset + getSize(elt.element);
+  if (hint <= elt.offset || hint >= eltEnd)
+    return false;
+
+  if (!mlir::isa<cir::ZeroAttr>(elt.element) &&
+      !mlir::isa<cir::UndefAttr>(elt.element)) {
+    if (auto record = mlir::dyn_cast<cir::ConstRecordAttr>(elt.element)) {
+      auto recordTy = mlir::cast<cir::RecordType>(record.getType());
+      llvm::SmallVector<Element, 8> replacement;
+      for (auto [i, member] : llvm::enumerate(record.getMembers())) {
+        auto typedMember = mlir::cast<mlir::TypedAttr>(member);
+        CharUnits memberOffset =
+            elt.offset + CharUnits::fromQuantity(
+                             recordTy.getElementOffset(dataLayout.layout, i));
+        replacement.emplace_back(typedMember, memberOffset);
+      }
+      replace(elements, index, index + 1, replacement);
+      naturalLayout = false;
+      return true;
+    }
+    if (auto array = mlir::dyn_cast<cir::ConstArrayAttr>(elt.element)) {
+      auto arrayTy = mlir::cast<cir::ArrayType>(array.getType());
+      mlir::Type elementTy = arrayTy.getElementType();
+      CharUnits elementSize = getSize(elementTy);
+      llvm::SmallVector<Element, 8> replacement;
+      if (auto arrayElements =
+              mlir::dyn_cast<mlir::ArrayAttr>(array.getElts())) {
+        for (auto [i, member] : llvm::enumerate(arrayElements))
+          replacement.emplace_back(
+              mlir::cast<mlir::TypedAttr>(member),
+              elt.offset + CharUnits::fromQuantity(elementSize.getQuantity() *
+                                                   static_cast<int64_t>(i)));
+        for (int i = 0; i < array.getTrailingZerosNum(); ++i)
+          replacement.emplace_back(
+              cgm.getBuilder().getZeroInitAttr(elementTy),
+              elt.offset + CharUnits::fromQuantity(
+                               elementSize.getQuantity() *
+                               static_cast<int64_t>(arrayElements.size() + i)));
+      } else if (auto string =
+                     mlir::dyn_cast<mlir::StringAttr>(array.getElts())) {
+        for (auto [i, ch] : llvm::enumerate(string.getValue())) {
+          auto intTy = mlir::cast<cir::IntType>(elementTy);
+          replacement.emplace_back(
+              cir::IntAttr::get(intTy, static_cast<unsigned char>(ch)),
+              elt.offset + CharUnits::fromQuantity(elementSize.getQuantity() *
+                                                   static_cast<int64_t>(i)));
+        }
+        for (int i = 0; i < array.getTrailingZerosNum(); ++i)
+          replacement.emplace_back(
+              cgm.getBuilder().getZeroInitAttr(elementTy),
+              elt.offset + CharUnits::fromQuantity(
+                               elementSize.getQuantity() *
+                               static_cast<int64_t>(string.size() + i)));
+      } else {
+        return false;
+      }
+      replace(elements, index, index + 1, replacement);
+      naturalLayout = false;
+      return true;
+    }
+    if (auto vector = mlir::dyn_cast<cir::ConstVectorAttr>(elt.element)) {
+      auto vectorTy = mlir::cast<cir::VectorType>(vector.getType());
+      if (vectorTy.getIsScalable()) {
+        cgm.errorNYI("split scalable vector constant at index");
+        return false;
+      }
+      mlir::Type elementTy = vectorTy.getElementType();
+      CharUnits elementSize = getSize(elementTy);
+      llvm::SmallVector<Element, 8> replacement;
+      for (auto [i, member] : llvm::enumerate(vector.getElts()))
+        replacement.emplace_back(
+            mlir::cast<mlir::TypedAttr>(member),
+            elt.offset + CharUnits::fromQuantity(elementSize.getQuantity() *
+                                                 static_cast<int64_t>(i)));
+      replace(elements, index, index + 1, replacement);
+      naturalLayout = false;
+      return true;
+    }
+    cgm.errorNYI("split constant at index");
+    return false;
+  }
+
+  llvm::SmallVector<Element, 2> replacement;
+  CharUnits before = hint - elt.offset;
+  CharUnits after = eltEnd - hint;
+  if (!before.isZero())
+    replacement.emplace_back(getPadding(before), elt.offset);
+  if (!after.isZero())
+    replacement.emplace_back(getPadding(after), hint);
+  replace(elements, index, index + 1, replacement);
+  naturalLayout = false;
+  return true;
 }
 
 void ConstantAggregateBuilder::condense(CharUnits offset,
@@ -830,7 +921,7 @@ mlir::Attribute ConstRecordBuilder::finalize(QualType type) {
   type = type.getNonReferenceType();
   RecordDecl *rd =
       type->castAs<clang::RecordType>()->getDecl()->getDefinitionOrSelf();
-  mlir::Type valTy = cgm.convertType(type);
+  mlir::Type valTy = cgm.getTypes().convertTypeForMem(type);
   return builder.build(valTy, rd->hasFlexibleArrayMember());
 }
 
@@ -1234,6 +1325,8 @@ struct ConstantLValue {
       : value(nullptr), hasOffsetApplied(false) {}
   /*implicit*/ ConstantLValue(cir::GlobalViewAttr address)
       : value(address), hasOffsetApplied(false) {}
+  /*implicit*/ ConstantLValue(cir::BlockAddressAttr address)
+      : value(address), hasOffsetApplied(true) {}
 
   ConstantLValue() : value(nullptr), hasOffsetApplied(false) {}
 };
@@ -1514,8 +1607,21 @@ ConstantLValueEmitter::VisitPredefinedExpr(const PredefinedExpr *e) {
 
 ConstantLValue
 ConstantLValueEmitter::VisitAddrLabelExpr(const AddrLabelExpr *e) {
-  cgm.errorNYI(e->getSourceRange(), "ConstantLValueEmitter: addr label expr");
-  return {};
+  if (!emitter.cgf) {
+    cgm.errorNYI(e->getSourceRange(),
+                 "ConstantLValueEmitter: addr label outside function");
+    return {};
+  }
+
+  CIRGenBuilderTy &builder = cgm.getBuilder();
+  cir::FuncOp func = mlir::cast<cir::FuncOp>(emitter.cgf->curFn);
+  cir::BlockAddrInfoAttr blockInfo = cir::BlockAddrInfoAttr::get(
+      builder.getContext(), func.getSymNameAttr(),
+      builder.getStringAttr(e->getLabel()->getName()));
+  cgm.mapConstantBlockAddress(blockInfo);
+
+  auto ptrTy = mlir::cast<cir::PointerType>(cgm.convertType(e->getType()));
+  return cir::BlockAddressAttr::get(ptrTy, blockInfo);
 }
 
 ConstantLValue ConstantLValueEmitter::VisitCallExpr(const CallExpr *e) {

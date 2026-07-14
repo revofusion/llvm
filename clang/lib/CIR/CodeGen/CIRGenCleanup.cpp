@@ -57,8 +57,7 @@ void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
   if (!binding || !temporary)
     return;
   cir::AllocaOp alloca = address.getUnderlyingAllocaOp();
-  if (!alloca || alloca.getAstTemporaryObjectIdentityAttr() ||
-      alloca.getAstMaterializeTemporaryIdentityAttr())
+  if (!alloca || alloca.getAstTemporaryObjectIdentityAttr())
     return;
 
   auto function = alloca->getParentOfType<cir::FuncOp>();
@@ -90,6 +89,24 @@ void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
   llvm::SmallString<256> destructorUSR;
   if (!clang::index::generateUSRForDecl(destructor, destructorUSR))
     identity.set("destructor_usr", builder.getStringAttr(destructorUSR));
+  bool requiresObservedConstructorCall = false;
+  const Expr *subExpr = binding->getSubExpr()->IgnoreParenImpCasts();
+  if (const auto *construct = dyn_cast<CXXConstructExpr>(subExpr)) {
+    if (const CXXConstructorDecl *constructor =
+            construct->getConstructor()) {
+      requiresObservedConstructorCall = !constructor->isTrivial();
+      identity.set(
+          "constructor_symbol",
+          builder.getStringAttr(
+              cgm.getMangledName(GlobalDecl(constructor, Ctor_Complete))));
+      llvm::SmallString<256> constructorUSR;
+      if (!clang::index::generateUSRForDecl(constructor, constructorUSR))
+        identity.set("constructor_usr",
+                     builder.getStringAttr(constructorUSR));
+    }
+  }
+  identity.set("requires_observed_constructor_call",
+               builder.getBoolAttr(requiresObservedConstructorCall));
 
   alloca.setAstTemporaryObjectIdentityAttr(
       identity.getDictionary(&getMLIRContext()));

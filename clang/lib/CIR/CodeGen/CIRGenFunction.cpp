@@ -108,13 +108,8 @@ mlir::Type CIRGenFunction::convertType(QualType t) {
 mlir::Location CIRGenFunction::getLoc(SourceLocation srcLoc) {
   // Some AST nodes might contain invalid source locations (e.g.
   // CXXDefaultArgExpr), workaround that to still get something out.
-  if (srcLoc.isValid()) {
-    const SourceManager &sm = getContext().getSourceManager();
-    PresumedLoc pLoc = sm.getPresumedLoc(srcLoc);
-    StringRef filename = pLoc.getFilename();
-    return mlir::FileLineColLoc::get(builder.getStringAttr(filename),
-                                     pLoc.getLine(), pLoc.getColumn());
-  }
+  if (srcLoc.isValid())
+    return cgm.getLoc(srcLoc);
   // We expect to have a currSrcLoc set, so we assert here, but it isn't
   // critical for the correctness of compilation, so in non-assert builds
   // we fallback on using an unknown location.
@@ -643,6 +638,15 @@ void CIRGenFunction::finishIndirectBranch() {
   llvm::SmallVector<mlir::ValueRange> rangeOperands;
   mlir::OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointToEnd(indirectGotoBlock);
+  auto func = cast<cir::FuncOp>(curFn);
+  for (cir::BlockAddrInfoAttr blockInfo : cgm.constantBlockAddresses) {
+    if (blockInfo.getFunc().getAttr() != func.getSymName())
+      continue;
+    cir::LabelOp labelOp = cgm.lookupBlockAddressInfo(blockInfo);
+    assert(labelOp && "expected constant block address label to be emitted");
+    succesors.push_back(labelOp->getBlock());
+    rangeOperands.push_back(labelOp->getBlock()->getArguments());
+  }
   for (auto &[blockAdd, labelOp] : cgm.blockAddressToLabel) {
     succesors.push_back(labelOp->getBlock());
     rangeOperands.push_back(labelOp->getBlock()->getArguments());

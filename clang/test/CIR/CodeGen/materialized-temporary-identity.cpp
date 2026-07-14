@@ -76,7 +76,7 @@ void cleanup_owned_bind() {
 // CIR: %[[STANDALONE_TEMP1:.*]] = cir.alloca{{.*}}ast_temporary_object_identity = {{.*}}begin_raw = [[STANDALONE_BEGIN1:[0-9]+]] : i64{{.*}}cleanup_kind = "cxx_destructor"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}end_raw = [[STANDALONE_END1:[0-9]+]] : i64{{.*}}function = @_Z26standalone_temporary_twicev{{.*}}instance_token = "cxx.temporary.instance.1"
 // CIR-LABEL: cir.func{{.*}} @_Z36logging_style_materialized_temporaryv()
 // CIR: %[[AGGREGATE_MTE_TEMP:.*]] = cir.alloca{{.*}}ast_materialize_temporary_identity = {{.*}}begin_raw = [[AGGREGATE_BEGIN:[0-9]+]] : i64{{.*}}function = @_Z36logging_style_materialized_temporaryv{{.*}}instance_token = "mte.instance.0"
-// CIR-NOT: ast_temporary_object_identity
+// CIR-SAME: ast_temporary_object_identity = {{.*}}instance_token = "cxx.temporary.instance.1"
 // CIR: cir.call
 // CIR-LABEL: cir.func{{.*}} @_Z18cleanup_owned_bindv()
 // CIR: %[[CLEANUP_OWNED_TEMP:.*]] = cir.alloca{{.*}}ast_temporary_object_identity = {{.*}}cleanup_kind = "cxx_destructor"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}function = @_Z18cleanup_owned_bindv{{.*}}instance_token = "cxx.temporary.instance.0"

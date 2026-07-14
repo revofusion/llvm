@@ -2713,6 +2713,7 @@ mlir::Value ScalarExprEmitter::VisitUnaryExprOrTypeTraitExpr(
     const UnaryExprOrTypeTraitExpr *e) {
   const QualType typeToSize = e->getTypeOfArgument();
   const mlir::Location loc = cgf.getLoc(e->getSourceRange());
+  const mlir::Type resultType = convertType(e->getType());
   if (auto kind = e->getKind();
       kind == UETT_SizeOf || kind == UETT_DataSizeOf || kind == UETT_CountOf) {
     if (const VariableArrayType *vat =
@@ -2773,16 +2774,16 @@ mlir::Value ScalarExprEmitter::VisitUnaryExprOrTypeTraitExpr(
           e->getSourceRange(),
           "VisitUnaryExprOrTypeTraitExpr: sizeOf scalable vector");
       return builder.getConstant(
-          loc, cir::IntAttr::get(cgf.cgm.uInt64Ty,
+          loc, cir::IntAttr::get(resultType,
                                  e->EvaluateKnownConstInt(cgf.getContext())));
     }
 
-    return builder.getConstant(
-        loc, cir::IntAttr::get(cgf.cgm.uInt64Ty, vecTy.getSize()));
+    return builder.getConstant(loc,
+                               cir::IntAttr::get(resultType, vecTy.getSize()));
   }
 
   return builder.getConstant(
-      loc, cir::IntAttr::get(cgf.cgm.uInt64Ty,
+      loc, cir::IntAttr::get(resultType,
                              e->EvaluateKnownConstInt(cgf.getContext())));
 }
 

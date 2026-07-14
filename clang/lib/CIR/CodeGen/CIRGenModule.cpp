@@ -35,6 +35,7 @@
 #include "clang/CIR/Interfaces/CIROpInterfaces.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "clang/UnifiedSymbolResolution/USRGeneration.h"
+#include "clang/Lex/Lexer.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -370,13 +371,52 @@ const TargetCIRGenInfo &CIRGenModule::getTargetCIRGenInfo() {
   }
 }
 
-mlir::Location CIRGenModule::getLoc(SourceLocation cLoc) {
-  assert(cLoc.isValid() && "expected valid source location");
-  const SourceManager &sm = astContext.getSourceManager();
+static mlir::Location getPresumedFileLineColLoc(mlir::Builder &builder,
+                                                const SourceManager &sm,
+                                                SourceLocation cLoc) {
   PresumedLoc pLoc = sm.getPresumedLoc(cLoc);
   StringRef filename = pLoc.getFilename();
   return mlir::FileLineColLoc::get(builder.getStringAttr(filename),
                                    pLoc.getLine(), pLoc.getColumn());
+}
+
+static mlir::Location getMacroAwareLoc(mlir::Builder &builder,
+                                       const SourceManager &sm,
+                                       const LangOptions &langOpts,
+                                       SourceLocation cLoc) {
+  mlir::Location loc = getPresumedFileLineColLoc(builder, sm, cLoc);
+  if (!cLoc.isMacroID())
+    return loc;
+
+  SourceLocation current = cLoc;
+  for (unsigned depth = 0; depth < 32 && current.isMacroID(); ++depth) {
+    SourceLocation spellingLoc = sm.getImmediateSpellingLoc(current);
+    if (spellingLoc.isInvalid())
+      spellingLoc = sm.getSpellingLoc(current);
+    mlir::Location calleeLoc =
+        spellingLoc.isValid()
+            ? getPresumedFileLineColLoc(builder, sm, spellingLoc)
+            : loc;
+
+    StringRef macroName = Lexer::getImmediateMacroName(current, sm, langOpts);
+    if (!macroName.empty())
+      calleeLoc =
+          mlir::NameLoc::get(builder.getStringAttr(macroName), calleeLoc);
+    loc = mlir::CallSiteLoc::get(calleeLoc, loc);
+
+    CharSourceRange expansion = sm.getImmediateExpansionRange(current);
+    SourceLocation next = expansion.getBegin();
+    if (next.isInvalid() || next == current)
+      break;
+    current = next;
+  }
+  return loc;
+}
+
+mlir::Location CIRGenModule::getLoc(SourceLocation cLoc) {
+  assert(cLoc.isValid() && "expected valid source location");
+  const SourceManager &sm = astContext.getSourceManager();
+  return getMacroAwareLoc(builder, sm, getLangOpts(), cLoc);
 }
 
 mlir::Location CIRGenModule::getLoc(SourceRange cRange) {
@@ -2673,7 +2713,8 @@ void CIRGenModule::loadSelectedDeclRoots() {
 
   selectedDeclRootMode = true;
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> bufferOrErr =
-      llvm::MemoryBuffer::getFile(codeGenOpts.ClangIRSelectedDeclsFile);
+      astContext.getSourceManager().getFileManager().getBufferForFile(
+          codeGenOpts.ClangIRSelectedDeclsFile);
   if (!bufferOrErr) {
     unsigned diagID = diags.getCustomDiagID(
         DiagnosticsEngine::Error,
@@ -3089,6 +3130,86 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
 
     func->setAttr("ast_decl_specialization_identity",
                   identity.getDictionary(&getMLIRContext()));
+  }
+  if (const auto *functionDecl =
+          dyn_cast_or_null<FunctionDecl>(decl)) {
+    auto sourceTypeLayer = [&](QualType type, StringRef kind,
+                               bool referenceStorage) {
+      mlir::NamedAttrList layer;
+      layer.set("kind", builder.getStringAttr(kind));
+      const Qualifiers qualifiers = type.getQualifiers();
+      layer.set("is_const", builder.getBoolAttr(qualifiers.hasConst()));
+      layer.set("is_volatile",
+                builder.getBoolAttr(qualifiers.hasVolatile()));
+      layer.set("is_restrict",
+                builder.getBoolAttr(qualifiers.hasRestrict()));
+      layer.set("is_atomic", builder.getBoolAttr(type->isAtomicType()));
+      layer.set("clang_address_space",
+                builder.getI64IntegerAttr(
+                    static_cast<uint64_t>(qualifiers.getAddressSpace())));
+      layer.set("target_address_space",
+                builder.getI64IntegerAttr(getASTContext().getTargetAddressSpace(
+                    qualifiers.getAddressSpace())));
+      QualType layoutType =
+          referenceStorage ? getASTContext().VoidPtrTy : type;
+      if (!layoutType->isIncompleteType() &&
+          !layoutType->isFunctionType() && !layoutType->isVoidType()) {
+        const TypeInfo info = getASTContext().getTypeInfo(layoutType);
+        layer.set("bit_width", builder.getI64IntegerAttr(info.Width));
+        layer.set("align_bits", builder.getI64IntegerAttr(info.Align));
+      }
+      if (type->isIntegerType() || type->isEnumeralType()) {
+        layer.set("is_signed",
+                  builder.getBoolAttr(
+                      type->isSignedIntegerOrEnumerationType()));
+      }
+      return layer.getDictionary(&getMLIRContext());
+    };
+    auto sourceType = [&](QualType type) {
+      llvm::SmallVector<mlir::Attribute, 4> layers;
+      QualType current = type;
+      while (true) {
+        if (current->isLValueReferenceType()) {
+          layers.push_back(sourceTypeLayer(current, "lvalue_reference", true));
+          current = current->getPointeeType();
+          continue;
+        }
+        if (current->isRValueReferenceType()) {
+          layers.push_back(sourceTypeLayer(current, "rvalue_reference", true));
+          current = current->getPointeeType();
+          continue;
+        }
+        if (current->isPointerType()) {
+          layers.push_back(sourceTypeLayer(current, "pointer", false));
+          current = current->getPointeeType();
+          continue;
+        }
+        layers.push_back(sourceTypeLayer(current, "value", false));
+        break;
+      }
+      return builder.getArrayAttr(layers);
+    };
+    const unsigned explicitParams = functionDecl->getNumParams();
+    const unsigned cirParams = func.getNumArguments();
+    llvm::SmallVector<mlir::Attribute, 8> parameterSourceTypes;
+    parameterSourceTypes.reserve(explicitParams + 1);
+    if (const auto *method = dyn_cast<CXXMethodDecl>(functionDecl);
+        method && !method->isStatic()) {
+      parameterSourceTypes.push_back(sourceType(method->getThisType()));
+    }
+    for (unsigned index = 0; index < explicitParams; ++index) {
+      parameterSourceTypes.push_back(
+          sourceType(functionDecl->getParamDecl(index)->getType()));
+    }
+    func->setAttr("ast_param_source_types",
+                  builder.getArrayAttr(parameterSourceTypes));
+    if (cirParams >= parameterSourceTypes.size()) {
+      const unsigned offset = cirParams - parameterSourceTypes.size();
+      for (unsigned index = 0; index < parameterSourceTypes.size(); ++index) {
+        func.setArgAttr(offset + index, "ast_source_type",
+                        parameterSourceTypes[index]);
+      }
+    }
   }
   if (const auto *method =
           dyn_cast_or_null<CXXMethodDecl>(globalDecl.getDecl());
@@ -3961,6 +4082,11 @@ void CIRGenModule::mapBlockAddress(cir::BlockAddrInfoAttr blockInfo,
       blockAddressInfoToLabel.try_emplace(blockInfo, label);
   assert(result.second &&
          "attempting to map a blockaddress info that is already mapped");
+}
+
+void CIRGenModule::mapConstantBlockAddress(
+    cir::BlockAddrInfoAttr blockInfo) {
+  constantBlockAddresses.insert(blockInfo);
 }
 
 void CIRGenModule::mapUnresolvedBlockAddress(cir::BlockAddressOp op) {
