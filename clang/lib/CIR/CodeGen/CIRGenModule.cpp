@@ -2725,6 +2725,77 @@ void CIRGenModule::emitObjCInterfaceDecl(const ObjCInterfaceDecl *interface) {
   addObjCInterface(interfaceFacts.getDictionary(&getMLIRContext()));
 }
 
+void CIRGenModule::emitObjCCategoryDecl(const ObjCCategoryDecl *category) {
+  std::optional<mlir::StringAttr> categoryUSR =
+      getObjCDeclUSRAttr(*this, category);
+  if (!categoryUSR) {
+    errorNYI(category->getBeginLoc(),
+             "ObjCCategory declaration without a Clang USR");
+    return;
+  }
+
+  const ObjCInterfaceDecl *targetInterface = category->getClassInterface();
+  if (!targetInterface) {
+    errorNYI(category->getBeginLoc(),
+             "ObjCCategory declaration without a target interface");
+    return;
+  }
+  std::optional<mlir::StringAttr> targetInterfaceUSR =
+      getObjCDeclUSRAttr(*this, targetInterface);
+  if (!targetInterfaceUSR) {
+    errorNYI(targetInterface->getBeginLoc(),
+             "ObjCCategory target interface without a Clang USR");
+    return;
+  }
+
+  llvm::SmallVector<mlir::Attribute, 4> protocolUSRs;
+  for (const ObjCProtocolDecl *protocol : category->protocols()) {
+    std::optional<mlir::StringAttr> protocolUSR =
+        getObjCDeclUSRAttr(*this, protocol);
+    if (!protocolUSR) {
+      errorNYI(protocol->getBeginLoc(),
+               "ObjCCategory conformance without a Clang USR");
+      return;
+    }
+    protocolUSRs.push_back(*protocolUSR);
+  }
+
+  llvm::SmallVector<mlir::Attribute, 8> methods;
+  for (const ObjCMethodDecl *method : category->methods()) {
+    std::optional<mlir::DictionaryAttr> methodFacts =
+        getObjCMethodFacts(*this, method);
+    if (!methodFacts) {
+      errorNYI(method->getBeginLoc(),
+               "ObjCCategory method without complete Clang identity");
+      return;
+    }
+    methods.push_back(*methodFacts);
+  }
+
+  llvm::SmallVector<mlir::Attribute, 4> properties;
+  for (const ObjCPropertyDecl *property : category->properties()) {
+    std::optional<mlir::DictionaryAttr> propertyFacts =
+        getObjCPropertyFacts(*this, property);
+    if (!propertyFacts) {
+      errorNYI(property->getBeginLoc(),
+               "ObjCCategory property without complete Clang identity");
+      return;
+    }
+    properties.push_back(*propertyFacts);
+  }
+
+  mlir::NamedAttrList categoryFacts;
+  categoryFacts.set("usr", *categoryUSR);
+  categoryFacts.set("name", builder.getStringAttr(category->getName()));
+  categoryFacts.set("target_interface_usr", *targetInterfaceUSR);
+  categoryFacts.set("protocol_usrs", builder.getArrayAttr(protocolUSRs));
+  categoryFacts.set("methods", builder.getArrayAttr(methods));
+  categoryFacts.set("properties", builder.getArrayAttr(properties));
+  categoryFacts.set("is_class_extension",
+                    builder.getBoolAttr(category->IsClassExtension()));
+  addObjCCategory(categoryFacts.getDictionary(&getMLIRContext()));
+}
+
 void CIRGenModule::emitDeclContext(const DeclContext *dc) {
   for (Decl *decl : dc->decls()) {
     // Unlike other DeclContexts, the contents of an ObjCImplDecl at TU scope
@@ -2759,6 +2830,13 @@ void CIRGenModule::emitTopLevelDecl(Decl *decl) {
     // Objective-C runtime operations.
     if (interface->isThisDeclarationADefinition())
       emitObjCInterfaceDecl(interface);
+    break;
+  }
+  case Decl::ObjCCategory: {
+    const auto *category = cast<ObjCCategoryDecl>(decl);
+    // Categories declare type and dispatch facts but contain no method bodies.
+    // Preserve those facts without synthesizing Objective-C runtime operations.
+    emitObjCCategoryDecl(category);
     break;
   }
   case Decl::ObjCProtocol: {
@@ -4197,6 +4275,9 @@ void CIRGenModule::release() {
   if (!objcInterfaceEntries.empty())
     theModule->setAttr("cir.objc_interfaces",
                        builder.getArrayAttr(objcInterfaceEntries));
+  if (!objcCategoryEntries.empty())
+    theModule->setAttr("cir.objc_categories",
+                       builder.getArrayAttr(objcCategoryEntries));
 
   if (getTriple().isAMDGPU() ||
       (getTriple().isSPIRV() && getTriple().getVendor() == llvm::Triple::AMD))
