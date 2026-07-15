@@ -41,6 +41,11 @@ module attributes {cir.triple = "x86_64-unknown-linux-gnu"} {
     %temporary = cir.alloca "temporary" align(8) : !cir.ptr<!dmp> {ast_temporary_object_identity = {begin_raw = 17 : i64, cleanup_kind = "cxx_destructor", destructor_symbol = "_ZN1SD1Ev", end_raw = 19 : i64, function = @helper, instance_token = "cxx.temporary.instance.0"}}
     // CHECK: %{{.*}} = cir.alloca "temporary" align(8) : !cir.ptr<!s64i> {ast_temporary_object_identity = {begin_raw = 17 : i64, cleanup_kind = "cxx_destructor", destructor_symbol = "_ZN1SD1Ev", end_raw = 19 : i64, function = @helper, instance_token = "cxx.temporary.instance.0"}}
 
+    // The same reconstruction must preserve the automatic-declaration
+    // identity attached to an NRVO-capable cleanup slot.
+    %automatic = cir.alloca "automatic" align(8) : !cir.ptr<!dmp> {ast_automatic_object_identity = {begin_raw = 23 : i64, cleanup_kind = "cxx_destructor", destructor_symbol = "_ZN1SD1Ev", end_raw = 29 : i64, function = @helper, requires_observed_constructor_call = false}}
+    // CHECK: %{{.*}} = cir.alloca "automatic" align(8) : !cir.ptr<!s64i> {ast_automatic_object_identity = {begin_raw = 23 : i64, cleanup_kind = "cxx_destructor", destructor_symbol = "_ZN1SD1Ev", end_raw = 29 : i64, function = @helper, requires_observed_constructor_call = false}}
+
     // cir::ConstRecordAttr
     %constrecord = cir.const #cir.const_record<{#cir.data_member<null> : !dmp }> : !rec_Struct
     // CHECK: cir.const #cir.const_record<{#cir.int<-1> : !s64i}> : !rec_Struct

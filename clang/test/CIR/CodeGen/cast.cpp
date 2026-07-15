@@ -84,6 +84,17 @@ int cStyleCasts_0(unsigned x1, int x2, float x3, short x4, double x5) {
   return 0;
 }
 
+enum class SharedFlag : bool { kNo = false, kYes = true };
+
+// CIR-LABEL: @{{.*}}shared_flag_from_bool
+// CIR: %[[SHARED_BOOL:.*]] = cir.load{{.*}} : !cir.ptr<!cir.bool>, !cir.bool
+// CIR-NEXT: cir.store %[[SHARED_BOOL]], %{{.*}} : !cir.bool, !cir.ptr<!cir.bool>
+// LLVM-LABEL: define{{.*}} i1 @{{.*}}shared_flag_from_bool
+// LLVM: ret i1
+SharedFlag shared_flag_from_bool(bool value) {
+  return SharedFlag(value);
+}
+
 bool cptr(void *d) {
   bool x = d;
   return x;

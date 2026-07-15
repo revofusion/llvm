@@ -19,6 +19,7 @@
 #include "CIRGenCleanup.h"
 #include "CIRGenFunction.h"
 
+#include "clang/AST/ExprCXX.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "clang/UnifiedSymbolResolution/USRGeneration.h"
@@ -109,6 +110,117 @@ void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
                builder.getBoolAttr(requiresObservedConstructorCall));
 
   alloca.setAstTemporaryObjectIdentityAttr(
+      identity.getDictionary(&getMLIRContext()));
+}
+
+void CIRGenFunction::setCXXAutomaticObjectIdentity(
+    const VarDecl *variable, Address address) {
+  if (!variable)
+    return;
+  cir::AllocaOp alloca = address.getUnderlyingAllocaOp();
+  if (!alloca)
+    return;
+
+  const VarDecl *canonicalVariable = variable->getCanonicalDecl();
+  if (!canonicalVariable)
+    return;
+
+  llvm::SmallString<256> declarationUSR;
+  if (clang::index::generateUSRForDecl(canonicalVariable, declarationUSR))
+    return;
+
+  // Cleanup emission may visit the same declaration more than once while
+  // building normal and exceptional paths. That is idempotent. Distinct
+  // declarations sharing one return slot are ambiguous and fail loudly.
+  if (mlir::DictionaryAttr existing =
+          alloca.getAstAutomaticObjectIdentityAttr()) {
+    if (mlir::StringAttr existingUSR =
+            existing.getAs<mlir::StringAttr>("declaration_usr");
+        existingUSR && existingUSR.getValue() == declarationUSR) {
+      return;
+    }
+    cgm.errorNYI(variable->getSourceRange(),
+                 "conflicting automatic cleanup declaration identities");
+    return;
+  }
+
+  auto function = mlir::dyn_cast_or_null<cir::FuncOp>(curFn);
+  SourceLocation begin = variable->getBeginLoc();
+  SourceLocation end = variable->getEndLoc();
+  QualType objectType = getContext().getBaseElementType(variable->getType());
+  const CXXRecordDecl *record = objectType->getAsCXXRecordDecl();
+  if (record && record->getDefinition())
+    record = record->getDefinition();
+  const CXXDestructorDecl *destructor =
+      record ? record->getDestructor() : nullptr;
+  if (!function) {
+    cgm.errorNYI(variable->getSourceRange(),
+                 "automatic cleanup allocation has no owning function");
+    return;
+  }
+  if (begin.isInvalid() || end.isInvalid()) {
+    cgm.errorNYI(variable->getSourceRange(),
+                 "automatic cleanup declaration has no source range");
+    return;
+  }
+  if (!destructor) {
+    cgm.errorNYI(variable->getSourceRange(),
+                 "automatic cleanup declaration has no destructor");
+    return;
+  }
+  if (destructor->isTrivial()) {
+    cgm.errorNYI(variable->getSourceRange(),
+                 "automatic cleanup declaration has a trivial destructor");
+    return;
+  }
+
+  CIRGenBuilderTy &builder = getBuilder();
+  mlir::NamedAttrList identity;
+  identity.set("function",
+               mlir::FlatSymbolRefAttr::get(function.getSymNameAttr()));
+  identity.set("declaration_usr", builder.getStringAttr(declarationUSR));
+  identity.set("begin_raw",
+               builder.getI64IntegerAttr(begin.getRawEncoding()));
+  identity.set("end_raw", builder.getI64IntegerAttr(end.getRawEncoding()));
+  identity.set("cleanup_kind", builder.getStringAttr("cxx_destructor"));
+  identity.set("destructor_symbol",
+               builder.getStringAttr(
+                   cgm.getMangledName(GlobalDecl(destructor, Dtor_Complete))));
+
+  llvm::SmallString<256> destructorUSR;
+  if (!clang::index::generateUSRForDecl(destructor, destructorUSR))
+    identity.set("destructor_usr", builder.getStringAttr(destructorUSR));
+
+  bool requiresObservedConstructorCall = false;
+  const Expr *initializer = variable->getInit();
+  while (initializer) {
+    initializer = initializer->IgnoreParenImpCasts();
+    if (const auto *cleanups = dyn_cast<ExprWithCleanups>(initializer)) {
+      initializer = cleanups->getSubExpr();
+      continue;
+    }
+    if (const auto *constant = dyn_cast<ConstantExpr>(initializer)) {
+      initializer = constant->getSubExpr();
+      continue;
+    }
+    break;
+  }
+  if (const auto *construct = dyn_cast_or_null<CXXConstructExpr>(initializer)) {
+    if (const CXXConstructorDecl *constructor = construct->getConstructor()) {
+      requiresObservedConstructorCall = !constructor->isTrivial();
+      identity.set(
+          "constructor_symbol",
+          builder.getStringAttr(
+              cgm.getMangledName(GlobalDecl(constructor, Ctor_Complete))));
+      llvm::SmallString<256> constructorUSR;
+      if (!clang::index::generateUSRForDecl(constructor, constructorUSR))
+        identity.set("constructor_usr",
+                     builder.getStringAttr(constructorUSR));
+    }
+  }
+  identity.set("requires_observed_constructor_call",
+               builder.getBoolAttr(requiresObservedConstructorCall));
+  alloca.setAstAutomaticObjectIdentityAttr(
       identity.getDictionary(&getMLIRContext()));
 }
 
@@ -307,18 +419,60 @@ void CIRGenFunction::FullExprCleanupScope::exit(
           // possibility that we could have a second address that uses an
           // alloca that has already been hoisted but a different cast chain.
           // This assert guards against that possibility.
-          assert(entry.addr.getUnderlyingAllocaOp() &&
-                 (entry.addr.getUnderlyingAllocaOp()->getBlock() ==
+          cir::AllocaOp alloca = entry.addr.getUnderlyingAllocaOp();
+          assert(alloca &&
+                 (alloca->getBlock() ==
                   entry.addr.getPointer().getDefiningOp()->getBlock()) &&
                  "alloca and cast are in different blocks");
+
+          // A conditional cleanup can expose a temporary lifetime only when
+          // the cleanup entry owns a single, complete producer identity. In
+          // particular, multiple deferred entries using the same storage do
+          // not reveal which construction lifetime the flag protects.
+          mlir::DictionaryAttr conditionalCleanupIdentity;
+          if (entry.destroyer == destroyCXXObject)
+            conditionalCleanupIdentity =
+                alloca.getAstTemporaryObjectIdentityAttr();
+          if (conditionalCleanupIdentity) {
+            bool hasUniqueStorage = true;
+            for (const PendingCleanupEntry &other :
+                 llvm::make_range(
+                     cgf.deferredConditionalCleanupStack.begin() + oldSize,
+                     cgf.deferredConditionalCleanupStack.end())) {
+              if (&entry != &other &&
+                  other.addr.getUnderlyingAllocaOp() == alloca) {
+                hasUniqueStorage = false;
+                break;
+              }
+            }
+            if (!hasUniqueStorage ||
+                !conditionalCleanupIdentity.getAs<mlir::FlatSymbolRefAttr>(
+                    "function") ||
+                !conditionalCleanupIdentity.getAs<mlir::IntegerAttr>(
+                    "begin_raw") ||
+                !conditionalCleanupIdentity.getAs<mlir::IntegerAttr>(
+                    "end_raw") ||
+                !conditionalCleanupIdentity.getAs<mlir::StringAttr>(
+                    "instance_token") ||
+                !conditionalCleanupIdentity.getAs<mlir::StringAttr>(
+                    "destructor_symbol") ||
+                !conditionalCleanupIdentity.getAs<mlir::StringAttr>(
+                    "cleanup_kind")) {
+              conditionalCleanupIdentity = {};
+            }
+          }
+
           mlir::Value flag =
               cgf.builder.createLoad(scope.getLoc(), entry.activeFlag);
-          cir::IfOp::create(
+          cir::IfOp cleanupGuard = cir::IfOp::create(
               cgf.builder, scope.getLoc(), flag, /*withElseRegion=*/false,
               [&](mlir::OpBuilder &b, mlir::Location loc) {
                 cgf.emitDestroy(entry.addr, entry.type, entry.destroyer);
                 cgf.builder.createYield(loc);
               });
+          if (conditionalCleanupIdentity)
+            cleanupGuard.setAstConditionalCleanupIdentityAttr(
+                conditionalCleanupIdentity);
         } else {
           cgf.emitDestroy(entry.addr, entry.type, entry.destroyer);
         }

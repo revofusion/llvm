@@ -1,5 +1,6 @@
 // RUN: cir-opt %s --verify-roundtrip | FileCheck %s
 !s32i = !cir.int<s, 32>
+!u8i = !cir.int<u, 8>
 
 module  {
   cir.func @yolo(%arg0 : !s32i) {
@@ -13,7 +14,13 @@ module  {
     %0 = cir.cast bitcast %p : !cir.ptr<!s32i> -> !cir.ptr<f32>
     cir.return
   }
+
+  cir.func @bool_to_underlying_integral(%arg0: !cir.bool) -> !u8i {
+    %0 = cir.cast bool_to_int %arg0 : !cir.bool -> !u8i
+    cir.return %0 : !u8i
+  }
 }
+
 
 // CHECK: cir.func{{.*}} @yolo(%arg0: !s32i)
 // CHECK: %0 = cir.cast int_to_bool %arg0 : !s32i -> !cir.bool
@@ -21,3 +28,5 @@ module  {
 
 // CHECK: cir.func{{.*}} @bitcast
 // CHECK: %0 = cir.cast bitcast %arg0 : !cir.ptr<!s32i> -> !cir.ptr<f32>
+// CHECK: cir.func{{.*}} @bool_to_underlying_integral(%arg0: !cir.bool) -> !u8i
+// CHECK: %0 = cir.cast bool_to_int %arg0 : !cir.bool -> !u8i

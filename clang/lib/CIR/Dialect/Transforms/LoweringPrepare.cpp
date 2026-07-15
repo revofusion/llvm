@@ -117,8 +117,9 @@ struct LoweringPreparePass
                                                 mlir::Type ty,
                                                 mlir::TypedAttr constant);
 
-  /// Build the function that initializes the specified global
-  cir::FuncOp buildCXXGlobalVarDeclInitFunc(cir::GlobalOp op);
+  /// Build the function that initializes the specified global.
+  cir::FuncOp buildCXXGlobalVarDeclInitFunc(cir::GlobalOp op,
+                                            uint64_t moduleOrder);
 
   /// When looking at the 'global' op, create the wrapper function.
   void defineGlobalThreadLocalWrapper(cir::GlobalOp op, cir::FuncOp initAlias,
@@ -135,10 +136,22 @@ struct LoweringPreparePass
   // body should happen after that.
   cir::IfOp buildGlobalTlsGuardCheck(CIRBaseBuilderTy &builder,
                                      mlir::Location loc, cir::GlobalOp guard);
-  /// Handle the dtor region by registering destructor with __cxa_atexit
+  /// Handle the dtor region by registering destructor with __cxa_atexit.
   cir::FuncOp getOrCreateDtorFunc(CIRBaseBuilderTy &builder, cir::GlobalOp op,
                                   mlir::Region &dtorRegion,
-                                  cir::CallOp &dtorCall);
+                                  cir::CallOp &dtorCall,
+                                  bool &isSyntheticDtorHelper);
+  mlir::DictionaryAttr buildGlobalLifecycleIdentity(cir::GlobalOp owner,
+                                                    llvm::StringRef lifecycle,
+                                                    uint64_t moduleOrder);
+  void attachGlobalLifecycleIdentity(cir::FuncOp helper,
+                                     cir::GlobalOp owner,
+                                     llvm::StringRef lifecycle,
+                                     uint64_t moduleOrder);
+  void attachGlobalDtorRegistration(cir::FuncOp initHelper,
+                                    cir::FuncOp dtorFunc,
+                                    cir::FuncOp registrationFunc,
+                                    bool isSyntheticDtorHelper);
 
   /// Build a module init function that calls all the dynamic initializers.
   void buildCXXGlobalInitFunc();
@@ -310,6 +323,7 @@ struct LoweringPreparePass
   llvm::SmallVector<cir::FuncOp> globalThreadLocalInitializers;
   llvm::StringMap<cir::FuncOp> threadLocalWrappers;
   llvm::StringMap<cir::FuncOp> threadLocalInitAliases;
+  uint64_t nextGlobalLifecycleModuleOrder = 0;
 
   /// Tracks guard variables for static locals (keyed by global symbol name).
   llvm::StringMap<cir::GlobalOp> staticLocalDeclGuardMap;
@@ -339,7 +353,8 @@ struct LoweringPreparePass
   void emitGlobalGuardedDtorRegion(CIRBaseBuilderTy &builder,
                                    cir::GlobalOp global,
                                    mlir::Region &dtorRegion, bool tls,
-                                   mlir::Block &entryBB) {
+                                   mlir::Block &entryBB,
+                                   cir::FuncOp initHelper) {
     // Create a variable that binds the atexit to this shared object.
     builder.setInsertionPointToStart(&mlirModule.getBodyRegion().front());
     cir::GlobalOp handle = getOrCreateRuntimeVariable(
@@ -351,8 +366,9 @@ struct LoweringPreparePass
     // replacing the current dtor region body with a call to the helper
     // function.
     cir::CallOp dtorCall;
-    cir::FuncOp dtorFunc =
-        getOrCreateDtorFunc(builder, global, dtorRegion, dtorCall);
+    bool isSyntheticDtorHelper = false;
+    cir::FuncOp dtorFunc = getOrCreateDtorFunc(
+        builder, global, dtorRegion, dtorCall, isSyntheticDtorHelper);
 
     // Create a runtime helper function:
     //    extern "C" int __cxa_atexit(void (*f)(void *), void *p, void *d);
@@ -370,6 +386,9 @@ struct LoweringPreparePass
 
     cir::FuncOp fnAtExit = buildRuntimeFunction(builder, nameAtExit,
                                                 global.getLoc(), fnAtExitType);
+    if (initHelper)
+      attachGlobalDtorRegistration(initHelper, dtorFunc, fnAtExit,
+                                   isSyntheticDtorHelper);
 
     // Replace the dtor (or helper) call with a call to
     //   __cxa_atexit(&dtor, &var, &__dso_handle)
@@ -438,7 +457,7 @@ struct LoweringPreparePass
         assert(dtorRegion.hasOneBlock() && "Enforced by MaxSizedRegion<1>");
 
         emitGlobalGuardedDtorRegion(builder, globalOp, dtorRegion, !threadsafe,
-                                    *insertBlock);
+                                    *insertBlock, {});
       }
       builder.setInsertionPointToEnd(insertBlock);
       ctorRegion.getBlocks().clear();
@@ -1048,10 +1067,101 @@ void LoweringPreparePass::lowerComplexConjOp(cir::ComplexConjOp op) {
   op->erase();
 }
 
-cir::FuncOp LoweringPreparePass::getOrCreateDtorFunc(CIRBaseBuilderTy &builder,
-                                                     cir::GlobalOp op,
-                                                     mlir::Region &dtorRegion,
-                                                     cir::CallOp &dtorCall) {
+mlir::DictionaryAttr LoweringPreparePass::buildGlobalLifecycleIdentity(
+    cir::GlobalOp owner, llvm::StringRef lifecycle, uint64_t moduleOrder) {
+  mlir::DictionaryAttr source =
+      owner->getAttrOfType<mlir::DictionaryAttr>(
+          "ast_global_lifecycle_identity");
+  if (!source)
+    return {};
+
+  mlir::StringAttr declarationUSR =
+      source.getAs<mlir::StringAttr>("declaration_usr");
+  mlir::IntegerAttr priority = source.getAs<mlir::IntegerAttr>("priority");
+  if (!declarationUSR || declarationUSR.getValue().empty() || !priority ||
+      priority.getValue().getBitWidth() != 64 ||
+      priority.getValue().isNegative() || !owner.getSymNameAttr())
+    return {};
+
+  CIRBaseBuilderTy builder(getContext());
+  mlir::NamedAttrList identity;
+  identity.set("owner",
+               mlir::FlatSymbolRefAttr::get(owner.getSymNameAttr()));
+  identity.set("declaration_usr", declarationUSR);
+  identity.set("lifecycle_kind", builder.getStringAttr(lifecycle));
+  identity.set("priority", priority);
+  identity.set("module_order", builder.getI64IntegerAttr(moduleOrder));
+  return identity.getDictionary(&getContext());
+}
+
+void LoweringPreparePass::attachGlobalLifecycleIdentity(
+    cir::FuncOp helper, cir::GlobalOp owner, llvm::StringRef lifecycle,
+    uint64_t moduleOrder) {
+  if (mlir::DictionaryAttr identity =
+          buildGlobalLifecycleIdentity(owner, lifecycle, moduleOrder))
+    helper->setAttr("ast_global_lifecycle_identity", identity);
+}
+
+void LoweringPreparePass::attachGlobalDtorRegistration(
+    cir::FuncOp initHelper, cir::FuncOp dtorFunc,
+    cir::FuncOp registrationFunc, bool isSyntheticDtorHelper) {
+  mlir::DictionaryAttr initIdentity =
+      initHelper->getAttrOfType<mlir::DictionaryAttr>(
+          "ast_global_lifecycle_identity");
+  if (!initIdentity)
+    return;
+
+  mlir::FlatSymbolRefAttr owner =
+      initIdentity.getAs<mlir::FlatSymbolRefAttr>("owner");
+  mlir::StringAttr declarationUSR =
+      initIdentity.getAs<mlir::StringAttr>("declaration_usr");
+  mlir::StringAttr lifecycle =
+      initIdentity.getAs<mlir::StringAttr>("lifecycle_kind");
+  mlir::IntegerAttr priority = initIdentity.getAs<mlir::IntegerAttr>("priority");
+  mlir::IntegerAttr moduleOrder =
+      initIdentity.getAs<mlir::IntegerAttr>("module_order");
+  if (!owner || !declarationUSR || declarationUSR.getValue().empty() ||
+      !lifecycle || lifecycle.getValue() != "init" || !priority ||
+      !moduleOrder)
+    return;
+
+  mlir::NamedAttrList updatedInitIdentity;
+  for (mlir::NamedAttribute attr : initIdentity.getValue())
+    updatedInitIdentity.set(attr.getName(), attr.getValue());
+  mlir::NamedAttrList registration;
+  registration.set(
+      "destructor",
+      mlir::FlatSymbolRefAttr::get(dtorFunc.getSymNameAttr()));
+  registration.set(
+      "registration_function",
+      mlir::FlatSymbolRefAttr::get(registrationFunc.getSymNameAttr()));
+  updatedInitIdentity.set("dtor_registration",
+                          registration.getDictionary(&getContext()));
+  initHelper->setAttr("ast_global_lifecycle_identity",
+                      updatedInitIdentity.getDictionary(&getContext()));
+
+  if (!isSyntheticDtorHelper)
+    return;
+
+  mlir::NamedAttrList dtorIdentity;
+  for (mlir::NamedAttribute attr : initIdentity.getValue())
+    dtorIdentity.set(attr.getName(), attr.getValue());
+  dtorIdentity.set("lifecycle_kind",
+                   mlir::StringAttr::get(&getContext(), "dtor"));
+  dtorIdentity.set(
+      "init_helper",
+      mlir::FlatSymbolRefAttr::get(initHelper.getSymNameAttr()));
+  dtorIdentity.set(
+      "registration_function",
+      mlir::FlatSymbolRefAttr::get(registrationFunc.getSymNameAttr()));
+  dtorFunc->setAttr("ast_global_lifecycle_identity",
+                    dtorIdentity.getDictionary(&getContext()));
+}
+
+cir::FuncOp LoweringPreparePass::getOrCreateDtorFunc(
+    CIRBaseBuilderTy &builder, cir::GlobalOp op, mlir::Region &dtorRegion,
+    cir::CallOp &dtorCall, bool &isSyntheticDtorHelper) {
+  isSyntheticDtorHelper = false;
   mlir::OpBuilder::InsertionGuard guard(builder);
   assert(!cir::MissingFeatures::astVarDeclInterface());
 
@@ -1150,13 +1260,15 @@ cir::FuncOp LoweringPreparePass::getOrCreateDtorFunc(CIRBaseBuilderTy &builder,
                                   dtorBlock.end());
   dtorRegion.getBlocks().erase(std::next(dtorRegion.begin()), dtorRegion.end());
 
+  isSyntheticDtorHelper = true;
   return dtorFunc;
 }
 
 cir::FuncOp
-LoweringPreparePass::buildCXXGlobalVarDeclInitFunc(cir::GlobalOp op) {
-  // TODO(cir): Store this in the GlobalOp.
-  // This should come from the MangleContext, but for now I'm hardcoding it.
+LoweringPreparePass::buildCXXGlobalVarDeclInitFunc(cir::GlobalOp op,
+                                                    uint64_t moduleOrder) {
+  // Helper spelling is an ABI detail; lifecycle ownership is carried by the
+  // producer metadata attached below.
   SmallString<256> fnName("__cxx_global_var_init");
   // Get a unique name
   uint32_t cnt = dynamicInitializerNames[fnName]++;
@@ -1170,6 +1282,7 @@ LoweringPreparePass::buildCXXGlobalVarDeclInitFunc(cir::GlobalOp op) {
   auto fnType = cir::FuncType::get({}, voidTy);
   FuncOp f = buildRuntimeFunction(builder, fnName, op.getLoc(), fnType,
                                   cir::GlobalLinkageKind::InternalLinkage);
+  attachGlobalLifecycleIdentity(f, op, "init", moduleOrder);
 
   // Move over the initialization code of the ctor region.
   // The ctor region may have multiple blocks when exception handling
@@ -1209,7 +1322,7 @@ LoweringPreparePass::buildCXXGlobalVarDeclInitFunc(cir::GlobalOp op) {
 
     emitGlobalGuardedDtorRegion(builder, op, dtorRegion,
                                 op.getTlsModel().has_value(),
-                                *builder.getBlock());
+                                *builder.getBlock(), f);
   }
 
   // If we're actually in the 'if' above, create a yield.
@@ -1593,9 +1706,10 @@ void LoweringPreparePass::lowerGlobalOp(GlobalOp op) {
   cir::FuncOp initAlias;
 
   if (!ctorRegion.empty() || !dtorRegion.empty()) {
-    // Build a variable initialization function and move the initialzation code
-    // in the ctor region over.
-    cir::FuncOp f = buildCXXGlobalVarDeclInitFunc(op);
+    // This is the helper's stable position in the module lifecycle list. Keep
+    // it independent of generated helper spellings and region destruction.
+    uint64_t moduleOrder = nextGlobalLifecycleModuleOrder++;
+    cir::FuncOp f = buildCXXGlobalVarDeclInitFunc(op, moduleOrder);
 
     // Clear the ctor and dtor region
     ctorRegion.getBlocks().clear();

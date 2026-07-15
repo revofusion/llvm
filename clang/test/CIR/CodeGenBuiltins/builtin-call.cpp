@@ -358,6 +358,19 @@ void *test_alloca_with_align_uninitialized(unsigned long n) {
 // OGCG-LABEL: @_Z36test_alloca_with_align_uninitializedm(
 // OGCG:         alloca i8, i64 %{{.+}}, align 16
 
+void *test_alloca_with_large_align(unsigned long n) {
+  return __builtin_alloca_with_align(n, 256);
+}
+
+// CIR-LABEL: @_Z28test_alloca_with_large_alignm(
+// CIR:         %{{.+}} = cir.alloca "bi_alloca" align(32) size(%{{.+}}) : !cir.ptr<!u8i>
+
+// LLVM-LABEL: @_Z28test_alloca_with_large_alignm(
+// LLVM:         alloca i8, i64 %{{.+}}, align 32
+
+// OGCG-LABEL: @_Z28test_alloca_with_large_alignm(
+// OGCG:         alloca i8, i64 %{{.+}}, align 32
+
 bool test_multiple_allocas(unsigned long n) {
   void *a = __builtin_alloca(n);
   void *b = __builtin_alloca(n);

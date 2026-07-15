@@ -23,7 +23,7 @@
 // OGCG: @__dso_handle = external hidden global i8
 // OGCG: @needsCtorDtor = global %struct.NeedsCtorDtor zeroinitializer, align 1
 // OGCG: @arrDtor = global [16 x %struct.ArrayDtor] zeroinitializer, align 16
-// OGCG: @llvm.global_ctors = appending global [1 x { i32, ptr, ptr }] [{ i32, ptr, ptr } { i32 65535, ptr @_GLOBAL__sub_I_[[FILENAME:.*]], ptr null }]
+// OGCG: @llvm.global_ctors = appending global [3 x { i32, ptr, ptr }] [{ i32, ptr, ptr } { i32 200, ptr @_GLOBAL__I_000200, ptr null }, { i32, ptr, ptr } { i32 400, ptr @_GLOBAL__I_000400, ptr null }, { i32, ptr, ptr } { i32 65535, ptr @_GLOBAL__sub_I_[[FILENAME:.*]], ptr null }]
 
 struct NeedsCtor {
   NeedsCtor();
@@ -36,7 +36,7 @@ NeedsCtor needsCtor;
 // CIR-BEFORE-LPP:   cir.call @_ZN9NeedsCtorC1Ev(%[[THIS]]) : (!cir.ptr<!rec_NeedsCtor> {{.*}}) -> ()
 
 // CIR: cir.global external @needsCtor = #cir.zero : !rec_NeedsCtor
-// CIR: cir.func internal private @__cxx_global_var_init() {
+// CIR: cir.func internal private @__cxx_global_var_init()
 // CIR:   %0 = cir.get_global @needsCtor : !cir.ptr<!rec_NeedsCtor>
 // CIR:   cir.call @_ZN9NeedsCtorC1Ev(%0) : (!cir.ptr<!rec_NeedsCtor> {{.*}}) -> ()
 
@@ -58,7 +58,7 @@ NeedsDtor needsDtor;
 // CIR-BEFORE-LPP:   cir.call @_ZN9NeedsDtorD1Ev(%[[THIS]]) : (!cir.ptr<!rec_NeedsDtor>) -> ()
 
 // CIR: cir.global external @needsDtor = #cir.zero : !rec_NeedsDtor
-// CIR: cir.func internal private @__cxx_global_var_init.1() {
+// CIR: cir.func internal private @__cxx_global_var_init.1()
 // CIR:   %[[OBJ:.*]] = cir.get_global @needsDtor : !cir.ptr<!rec_NeedsDtor>
 // CIR:   %[[DTOR:.*]] = cir.get_global @_ZN9NeedsDtorD1Ev : !cir.ptr<!cir.func<(!cir.ptr<!rec_NeedsDtor>)>>
 // CIR:   %[[DTOR_CAST:.*]] = cir.cast bitcast %[[DTOR]] : !cir.ptr<!cir.func<(!cir.ptr<!rec_NeedsDtor>)>> -> !cir.ptr<!cir.func<(!cir.ptr<!void>)>>
@@ -87,7 +87,7 @@ NeedsCtorDtor needsCtorDtor;
 // CIR-BEFORE-LPP:   cir.call @_ZN13NeedsCtorDtorD1Ev(%[[THIS]]) : (!cir.ptr<!rec_NeedsCtorDtor>) -> ()
 
 // CIR: cir.global external @needsCtorDtor = #cir.zero : !rec_NeedsCtorDtor
-// CIR: cir.func internal private @__cxx_global_var_init.2() {
+// CIR: cir.func internal private @__cxx_global_var_init.2()
 // CIR:   %[[OBJ:.*]] = cir.get_global @needsCtorDtor : !cir.ptr<!rec_NeedsCtorDtor>
 // CIR:   cir.call @_ZN13NeedsCtorDtorC1Ev(%[[OBJ]]) : (!cir.ptr<!rec_NeedsCtorDtor> {{.*}}) -> ()
 // CIR:   %[[OBJ:.*]] = cir.get_global @needsCtorDtor : !cir.ptr<!rec_NeedsCtorDtor>
@@ -177,6 +177,17 @@ struct ArrayDtor {
 
 ArrayDtor arrDtor[16];
 
+// Helpers have conventional names, but their lifecycle identity must remain
+// attached to the exact owning GlobalOp and source declaration.
+struct LifecyclePriority {
+  LifecyclePriority();
+  ~LifecyclePriority();
+};
+
+LifecyclePriority lifecycleFirst __attribute__((init_priority(200)));
+LifecyclePriority lifecycleSecond __attribute__((init_priority(200)));
+LifecyclePriority lifecycleLater __attribute__((init_priority(400)));
+
 // CIR-BEFORE-LPP:      cir.global external @arrDtor = #cir.zero : !cir.array<!rec_ArrayDtor x 16>
 // CIR-BEFORE-LPP-SAME:   dtor {
 // CIR-BEFORE-LPP:          %[[THIS:.*]] = cir.get_global @arrDtor : !cir.ptr<!cir.array<!rec_ArrayDtor x 16>>
@@ -187,7 +198,8 @@ ArrayDtor arrDtor[16];
 // CIR-BEFORE-LPP:        }
 
 // CIR: cir.global external @arrDtor = #cir.zero : !cir.array<!rec_ArrayDtor x 16>
-// CIR: cir.func internal private @__cxx_global_array_dtor(%[[ARR_ARG:.*]]: !cir.ptr<!void> {{.*}}) {
+// CIR: cir.func internal private @__cxx_global_array_dtor(%[[ARR_ARG:.*]]: !cir.ptr<!void> {{.*}})
+// CIR-SAME: ast_global_lifecycle_identity = {{.*}}declaration_usr = "{{[^"]+}}"{{.*}}init_helper = @__cxx_global_var_init.5{{.*}}lifecycle_kind = "dtor"{{.*}}module_order = 5 : i64{{.*}}owner = @arrDtor{{.*}}priority = 65535 : i64{{.*}}registration_function = @__cxa_atexit
 // CIR:   %[[CONST16:.*]] = cir.const #cir.int<16> : !u64i
 // CIR:   %[[BEGIN:.*]] = cir.cast array_to_ptrdecay %[[ARR_ARG]] : !cir.ptr<!void> -> !cir.ptr<!rec_ArrayDtor>
 // CIR:   %[[END:.*]] = cir.ptr_stride %[[BEGIN]], %[[CONST16]] : (!cir.ptr<!rec_ArrayDtor>, !u64i) -> !cir.ptr<!rec_ArrayDtor>
@@ -208,7 +220,8 @@ ArrayDtor arrDtor[16];
 // CIR:   cir.return
 // CIR: }
 //
-// CIR: cir.func internal private @__cxx_global_var_init.5() {
+// CIR-LABEL: cir.func internal private @__cxx_global_var_init.5()
+// CIR-SAME: ast_global_lifecycle_identity = {{.*}}declaration_usr = "{{[^"]+}}"{{.*}}dtor_registration = {destructor = @__cxx_global_array_dtor, registration_function = @__cxa_atexit}{{.*}}lifecycle_kind = "init"{{.*}}module_order = 5 : i64{{.*}}owner = @arrDtor{{.*}}priority = 65535 : i64
 // CIR:   %[[ARR:.*]] = cir.get_global @arrDtor : !cir.ptr<!cir.array<!rec_ArrayDtor x 16>>
 // CIR:   %[[DTOR:.*]] = cir.get_global @__cxx_global_array_dtor : !cir.ptr<!cir.func<(!cir.ptr<!void>)>>
 // CIR:   %[[DTOR_CAST:.*]] = cir.cast bitcast %[[DTOR]] : !cir.ptr<!cir.func<(!cir.ptr<!void>)>> -> !cir.ptr<!cir.func<(!cir.ptr<!void>)>>
@@ -261,7 +274,18 @@ ArrayDtor arrDtor[16];
 // OGCG:   ret void
 // OGCG: }
 
-// Common init function for all globals with default priority
+// The order field is producer-assigned from the module lifecycle list, not
+// reconstructed from the generated helper suffix. Equal priorities preserve
+// this order; the non-default priority is an independent ordering key.
+// CIR-LABEL: cir.func internal private @__cxx_global_var_init.6()
+// CIR-SAME: ast_global_lifecycle_identity = {{.*}}declaration_usr = "{{[^"]+}}"{{.*}}dtor_registration = {destructor = @_ZN17LifecyclePriorityD1Ev, registration_function = @__cxa_atexit}{{.*}}lifecycle_kind = "init"{{.*}}module_order = 6 : i64{{.*}}owner = @lifecycleFirst{{.*}}priority = 200 : i64
+// CIR-LABEL: cir.func internal private @__cxx_global_var_init.7()
+// CIR-SAME: ast_global_lifecycle_identity = {{.*}}declaration_usr = "{{[^"]+}}"{{.*}}dtor_registration = {destructor = @_ZN17LifecyclePriorityD1Ev, registration_function = @__cxa_atexit}{{.*}}lifecycle_kind = "init"{{.*}}module_order = 7 : i64{{.*}}owner = @lifecycleSecond{{.*}}priority = 200 : i64
+// CIR-LABEL: cir.func internal private @__cxx_global_var_init.8()
+// CIR-SAME: ast_global_lifecycle_identity = {{.*}}declaration_usr = "{{[^"]+}}"{{.*}}dtor_registration = {destructor = @_ZN17LifecyclePriorityD1Ev, registration_function = @__cxa_atexit}{{.*}}lifecycle_kind = "init"{{.*}}module_order = 8 : i64{{.*}}owner = @lifecycleLater{{.*}}priority = 400 : i64
+
+// The CIR module helper retains its stable source-list sequence; lifecycle
+// consumers use each helper's attached priority and module order.
 
 // CIR: cir.func internal private @_GLOBAL__sub_I_[[FILENAME:.*]]() {
 // CIR:   cir.call @__cxx_global_var_init() : () -> ()
@@ -270,6 +294,9 @@ ArrayDtor arrDtor[16];
 // CIR:   cir.call @__cxx_global_var_init.3() : () -> ()
 // CIR:   cir.call @__cxx_global_var_init.4() : () -> ()
 // CIR:   cir.call @__cxx_global_var_init.5() : () -> ()
+// CIR:   cir.call @__cxx_global_var_init.6() : () -> ()
+// CIR:   cir.call @__cxx_global_var_init.7() : () -> ()
+// CIR:   cir.call @__cxx_global_var_init.8() : () -> ()
 
 // LLVM: define internal void @_GLOBAL__sub_I_[[FILENAME]]()
 // LLVM:   call void @__cxx_global_var_init()
@@ -278,7 +305,15 @@ ArrayDtor arrDtor[16];
 // LLVM:   call void @__cxx_global_var_init.3()
 // LLVM:   call void @__cxx_global_var_init.4()
 // LLVM:   call void @__cxx_global_var_init.5()
+// LLVM:   call void @__cxx_global_var_init.6()
+// LLVM:   call void @__cxx_global_var_init.7()
+// LLVM:   call void @__cxx_global_var_init.8()
 
+// OGCG: define internal void @_GLOBAL__I_000200() {{.*}} section ".text.startup" {
+// OGCG:   call void @__cxx_global_var_init.6()
+// OGCG:   call void @__cxx_global_var_init.7()
+// OGCG: define internal void @_GLOBAL__I_000400() {{.*}} section ".text.startup" {
+// OGCG:   call void @__cxx_global_var_init.8()
 // OGCG: define internal void @_GLOBAL__sub_I_[[FILENAME]]() {{.*}} section ".text.startup" {
 // OGCG:   call void @__cxx_global_var_init()
 // OGCG:   call void @__cxx_global_var_init.1()

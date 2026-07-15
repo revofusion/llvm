@@ -15,6 +15,7 @@
 #include "CIRGenModule.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/Mangle.h"
+#include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
 
@@ -105,7 +106,43 @@ void CIRGenModule::emitCXXGlobalVarDeclInitFunc(const VarDecl *vd,
 
   assert(!cir::MissingFeatures::deferredCXXGlobalInit());
 
-  // TODO(cir): Classic codegen calls emitCXXGuardedInit in the following case:
+  // Keep the canonical declaration USR, the stable AST declaration identity,
+  // with the source facts needed to identify a later synthetic init helper on
+  // the owning global while its ctor/dtor regions are still present. The
+  // lowering pass copies this producer-owned identity; it must not recover
+  // ownership from a helper name or its generated suffix.
+  const VarDecl *canonicalDecl = vd ? vd->getCanonicalDecl() : nullptr;
+  llvm::SmallString<256> declarationUSR;
+  if (!canonicalDecl ||
+      clang::index::generateUSRForDecl(canonicalDecl, declarationUSR)) {
+    addr->removeAttr("ast_global_lifecycle_identity");
+  } else {
+    uint64_t priority = cir::GlobalCtorAttr::getDefaultPriority();
+    if (const auto *initPriority = vd->getAttr<InitPriorityAttr>())
+      priority = initPriority->getPriority();
+
+    if (mlir::DictionaryAttr existing =
+            addr->getAttrOfType<mlir::DictionaryAttr>(
+                "ast_global_lifecycle_identity")) {
+      mlir::StringAttr existingUSR =
+          existing.getAs<mlir::StringAttr>("declaration_usr");
+      mlir::IntegerAttr existingPriority =
+          existing.getAs<mlir::IntegerAttr>("priority");
+      if (!existingUSR || !existingPriority ||
+          existingUSR.getValue() != declarationUSR ||
+          existingPriority.getInt() != static_cast<int64_t>(priority))
+        addr->removeAttr("ast_global_lifecycle_identity");
+    } else {
+      CIRGenBuilderTy &builder = getBuilder();
+      mlir::NamedAttrList identity;
+      identity.set("declaration_usr", builder.getStringAttr(declarationUSR));
+      identity.set("priority", builder.getI64IntegerAttr(priority));
+      addr->setAttr("ast_global_lifecycle_identity",
+                    identity.getDictionary(&getMLIRContext()));
+    }
+  }
+
+  // TODO: Classic codegen calls emitCXXGuardedInit in the following case:
   // template<typename T> struct Templ {
   //   static T f;
   // };

@@ -104,6 +104,20 @@ struct HasMember {
   std::strong_ordering operator<=>(const HasMember&) const = default;
 };
 
+
+struct RewrittenLhs {};
+struct RewrittenRhs {};
+
+std::strong_ordering operator<=>(const RewrittenRhs &, const RewrittenLhs &);
+
+// BOTH-LABEL: @{{.*}}rewritten_aggregate_comparison
+// BOTH: %[[REWRITTEN_CALL:.*]] = cir.call @_Zss{{.*}}(%{{.*}}, %{{.*}}) : (!cir.ptr<!rec_RewrittenRhs>{{.*}}, !cir.ptr<!rec_RewrittenLhs>{{.*}}) -> !rec_std3A3A__13A3Astrong_ordering
+// BOTH: cir.store{{.*}} %[[REWRITTEN_CALL]], %{{.*}} : !rec_std3A3A__13A3Astrong_ordering, !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
+std::strong_ordering rewritten_aggregate_comparison(RewrittenLhs lhs,
+                                                     RewrittenRhs rhs) {
+  return lhs <=> rhs;
+}
+
 void use_pseudo_ordering(HasMember m1, HasMember m2) {
   // BOTH: cir.func {{.*}}@_ZNK9HasMemberssERKS_(%{{.*}}: !cir.ptr<!rec_HasMember>{{.*}}, %{{.*}}: !cir.ptr<!rec_HasMember>{{.*}}) -> !rec_std3A3A__13A3Astrong_ordering
   // BOTH: %[[LHS_ALLOCA:.*]] = cir.alloca "this" {{.*}} init : !cir.ptr<!cir.ptr<!rec_HasMember>>

@@ -1912,6 +1912,7 @@ public:
   void setCXXBindTemporaryObjectIdentity(
       const CXXBindTemporaryExpr *binding, const CXXTemporary *temporary,
       Address address);
+  void setCXXAutomaticObjectIdentity(const VarDecl *variable, Address address);
 
   void emitCXXThrowExpr(const CXXThrowExpr *e);
 

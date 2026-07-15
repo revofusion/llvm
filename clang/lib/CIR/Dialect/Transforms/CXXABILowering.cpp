@@ -344,6 +344,8 @@ mlir::LogicalResult CIRAllocaOpABILowering::matchAndRewrite(
       op.getAstMaterializeTemporaryIdentityAttr());
   loweredOp.setAstTemporaryObjectIdentityAttr(
       op.getAstTemporaryObjectIdentityAttr());
+  loweredOp.setAstAutomaticObjectIdentityAttr(
+      op.getAstAutomaticObjectIdentityAttr());
 
   rewriter.replaceOp(op, loweredOp);
   return mlir::success();

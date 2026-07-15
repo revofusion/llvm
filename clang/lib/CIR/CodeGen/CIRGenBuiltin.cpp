@@ -21,6 +21,7 @@
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/GlobalDecl.h"
+#include "clang/AST/RecordLayout.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/DiagnosticFrontend.h"
 #include "clang/Basic/OperatorKinds.h"
@@ -28,6 +29,12 @@
 #include "clang/CIR/MissingFeatures.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/SmallVector.h"
+#include <algorithm>
+#include <functional>
+#include <tuple>
+#include <utility>
 
 using namespace clang;
 using namespace clang::CIRGen;
@@ -403,26 +410,33 @@ static RValue errorBuiltinNYI(CIRGenFunction &cgf, const CallExpr *e,
 
 static RValue emitBuiltinAlloca(CIRGenFunction &cgf, const CallExpr *e,
                                 unsigned builtinID) {
-  assert(builtinID == Builtin::BI__builtin_alloca ||
-         builtinID == Builtin::BI__builtin_alloca_uninitialized ||
-         builtinID == Builtin::BI__builtin_alloca_with_align ||
-         builtinID == Builtin::BI__builtin_alloca_with_align_uninitialized ||
-         builtinID == Builtin::BIalloca || builtinID == Builtin::BI_alloca);
-
-  // Get alloca size input.
-  mlir::Value size = cgf.emitScalarExpr(e->getArg(0));
-
   const bool hasExplicitAlignment =
       builtinID == Builtin::BI__builtin_alloca_with_align ||
       builtinID == Builtin::BI__builtin_alloca_with_align_uninitialized;
-  const CharUnits allocaAlignment =
-      hasExplicitAlignment
-          ? cgf.getContext().toCharUnitsFromBits(
-                e->getArg(1)
-                    ->EvaluateKnownConstInt(cgf.getContext())
-                    .getZExtValue())
-          : cgf.getContext().toCharUnitsFromBits(
-                cgf.getContext().getTargetInfo().getSuitableAlign());
+  assert((builtinID == Builtin::BI__builtin_alloca ||
+          builtinID == Builtin::BI__builtin_alloca_uninitialized ||
+          builtinID == Builtin::BIalloca || builtinID == Builtin::BI_alloca ||
+          hasExplicitAlignment) &&
+         "unexpected alloca builtin");
+
+  // Get alloca size input
+  mlir::Value size = cgf.emitScalarExpr(e->getArg(0));
+
+  CharUnits suitableAlignmentInBytes;
+  if (hasExplicitAlignment) {
+    std::optional<llvm::APSInt> alignmentInBits =
+        e->getArg(1)->getIntegerConstantExpr(cgf.getContext());
+    assert(alignmentInBits &&
+           "__builtin_alloca_with_align alignment must be constant");
+    suitableAlignmentInBytes =
+        cgf.getContext().toCharUnitsFromBits(alignmentInBits->getZExtValue());
+  } else {
+    // The alignment of the alloca should correspond to
+    // __BIGGEST_ALIGNMENT__.
+    const TargetInfo &ti = cgf.getContext().getTargetInfo();
+    suitableAlignmentInBytes =
+        cgf.getContext().toCharUnitsFromBits(ti.getSuitableAlign());
+  }
 
   // Emit the alloca op with type `u8 *` to match the semantics of
   // `llvm.alloca`. We later bitcast the type to `void *` to match the
@@ -433,7 +447,7 @@ static RValue emitBuiltinAlloca(CIRGenFunction &cgf, const CallExpr *e,
   CIRGenBuilderTy &builder = cgf.getBuilder();
   mlir::Value allocaAddr = builder.createAlloca(
       cgf.getLoc(e->getSourceRange()), builder.getUInt8PtrTy(),
-      builder.getUInt8Ty(), "bi_alloca", allocaAlignment, size);
+      builder.getUInt8Ty(), "bi_alloca", suitableAlignmentInBytes, size);
 
   // Initialize the allocated buffer if required.
   if (builtinID != Builtin::BI__builtin_alloca_uninitialized &&
@@ -981,6 +995,281 @@ static cir::FuncType getIntrinsicType(CIRGenFunction &cgf,
   return cir::FuncType::get(context, argTypes, resultTy, isVarArg);
 }
 
+namespace {
+
+/// Clears the padding bits in an object representation exactly as
+/// __builtin_clear_padding requires. The AST layout identifies which bits are
+/// occupied by values; CIR then clears every remaining bit with byte stores or
+/// load-mask-store sequences for partial bytes.
+class CIRPaddingClearer {
+  struct BitInterval {
+    // [first, last)
+    uint64_t first;
+    uint64_t last;
+  };
+
+  struct Data {
+    uint64_t startBitOffset;
+    QualType type;
+    bool visitVirtualBase;
+  };
+
+  CIRGenFunction &cgf;
+  const uint64_t charWidth;
+  llvm::SmallVector<Data> stack;
+  llvm::SmallVector<BitInterval> occupiedIntervals;
+
+  uint64_t getScalarOccupiedSizeInBits(QualType type) const {
+    if (const auto *bitInt = type->getAs<BitIntType>())
+      return bitInt->getNumBits();
+
+    if (const auto *builtin = type->getAs<BuiltinType>()) {
+      if (builtin->getKind() == BuiltinType::LongDouble &&
+          &cgf.getTarget().getLongDoubleFormat() ==
+              &APFloat::x87DoubleExtended())
+        return APFloat::getSizeInBits(cgf.getTarget().getLongDoubleFormat());
+    }
+
+    return cgf.getContext().getTypeSize(type);
+  }
+
+  void visit(const Data &data) {
+    if (const auto *array = dyn_cast<ConstantArrayType>(data.type)) {
+      visitArray(array, data.startBitOffset);
+      return;
+    }
+
+    if (const auto *record = data.type->getAsRecordDecl()) {
+      visitStruct(record, data.startBitOffset, data.visitVirtualBase);
+      return;
+    }
+
+    if (data.type->isAtomicType()) {
+      Data unwrapped = data;
+      unwrapped.type = data.type.getAtomicUnqualifiedType();
+      stack.push_back(unwrapped);
+      return;
+    }
+
+    if (const auto *complex = data.type->getAs<ComplexType>()) {
+      visitComplex(complex, data.startBitOffset);
+      return;
+    }
+
+    if (const auto *vector = data.type->getAs<clang::VectorType>()) {
+      visitVector(vector, data.startBitOffset);
+      return;
+    }
+
+    uint64_t sizeInBits = getScalarOccupiedSizeInBits(data.type);
+    occupiedIntervals.push_back(
+        {data.startBitOffset, data.startBitOffset + sizeInBits});
+  }
+
+  void visitArray(const ConstantArrayType *array, uint64_t startBitOffset) {
+    QualType elementType = array->getElementType();
+    CharUnits elementSize = cgf.getContext().getTypeSizeInChars(elementType);
+    CharUnits elementAlignment =
+        cgf.getContext().getTypeAlignInChars(elementType);
+    CharUnits elementOffset = elementSize.alignTo(elementAlignment);
+
+    for (uint64_t index = 0;
+         index < array->getSize().getLimitedValue(); ++index)
+      stack.push_back(
+          {startBitOffset + index * elementOffset.getQuantity() * charWidth,
+           elementType, /*visitVirtualBase=*/true});
+  }
+
+  void visitStruct(const RecordDecl *record, uint64_t startBitOffset,
+                   bool visitVirtualBase) {
+    const ASTRecordLayout &astLayout =
+        cgf.getContext().getASTRecordLayout(record);
+    const auto *cxxRecord = dyn_cast<CXXRecordDecl>(record);
+
+    if (cxxRecord) {
+      if (astLayout.hasOwnVFPtr()) {
+        uint64_t pointerWidth =
+            cgf.getContext().getTypeSize(cgf.getContext().VoidPtrTy);
+        occupiedIntervals.push_back(
+            {startBitOffset, startBitOffset + pointerWidth});
+      }
+
+      const auto visitBase = [&astLayout, startBitOffset,
+                              this](const CXXBaseSpecifier &base,
+                                    auto getOffset) {
+        const auto *baseRecord = base.getType()->getAsCXXRecordDecl();
+        if (!baseRecord)
+          return;
+
+        CharUnits baseOffset =
+            std::invoke(getOffset, astLayout, baseRecord);
+        stack.push_back({startBitOffset +
+                             baseOffset.getQuantity() * charWidth,
+                         base.getType(), /*visitVirtualBase=*/false});
+      };
+
+      for (const CXXBaseSpecifier &base : cxxRecord->bases())
+        if (!base.isVirtual())
+          visitBase(base, &ASTRecordLayout::getBaseClassOffset);
+
+      if (visitVirtualBase)
+        for (const CXXBaseSpecifier &base : cxxRecord->vbases())
+          visitBase(base, &ASTRecordLayout::getVBaseClassOffset);
+    }
+
+    for (const FieldDecl *field : record->fields()) {
+      // Unnamed bit-fields are padding.
+      if (field->isUnnamedBitField())
+        continue;
+
+      uint64_t fieldOffset =
+          astLayout.getFieldOffset(field->getFieldIndex());
+      if (field->isBitField()) {
+        occupiedIntervals.push_back(
+            {startBitOffset + fieldOffset,
+             startBitOffset + fieldOffset + field->getBitWidthValue()});
+      } else {
+        stack.push_back({startBitOffset + fieldOffset, field->getType(),
+                         /*visitVirtualBase=*/true});
+      }
+    }
+  }
+
+  void visitComplex(const ComplexType *complex, uint64_t startBitOffset) {
+    QualType elementType = complex->getElementType();
+    CharUnits elementSize = cgf.getContext().getTypeSizeInChars(elementType);
+    CharUnits elementAlignment =
+        cgf.getContext().getTypeAlignInChars(elementType);
+    CharUnits imaginaryOffset = elementSize.alignTo(elementAlignment);
+
+    stack.push_back({startBitOffset, elementType, /*visitVirtualBase=*/true});
+    stack.push_back({startBitOffset +
+                         imaginaryOffset.getQuantity() * charWidth,
+                     elementType, /*visitVirtualBase=*/true});
+  }
+
+  void visitVector(const clang::VectorType *vector,
+                   uint64_t startBitOffset) {
+    uint64_t sizeInBits = [&]() -> uint64_t {
+      if (vector->isPackedVectorBoolType(cgf.getContext()))
+        return vector->getNumElements();
+      return getScalarOccupiedSizeInBits(vector->getElementType()) *
+             vector->getNumElements();
+    }();
+    occupiedIntervals.push_back({startBitOffset, startBitOffset + sizeInBits});
+  }
+
+  void mergeOccupiedIntervals() {
+    std::sort(occupiedIntervals.begin(), occupiedIntervals.end(),
+              [](const BitInterval &lhs, const BitInterval &rhs) {
+                return std::tie(lhs.first, lhs.last) <
+                       std::tie(rhs.first, rhs.last);
+              });
+
+    llvm::SmallVector<BitInterval> merged;
+    merged.reserve(occupiedIntervals.size());
+    for (const BitInterval &next : occupiedIntervals) {
+      if (merged.empty() || next.first > merged.back().last) {
+        merged.push_back(next);
+        continue;
+      }
+      merged.back().last = std::max(merged.back().last, next.last);
+    }
+    occupiedIntervals = std::move(merged);
+  }
+
+  llvm::SmallVector<BitInterval>
+  getPaddingIntervals(uint64_t sizeInBits) const {
+    llvm::SmallVector<BitInterval> result;
+    if (occupiedIntervals.size() == 1 && occupiedIntervals.front().first == 0 &&
+        occupiedIntervals.front().last == sizeInBits)
+      return result;
+
+    result.reserve(occupiedIntervals.size() + 1);
+    uint64_t currentPosition = 0;
+    for (const BitInterval &occupied : occupiedIntervals) {
+      if (occupied.first > currentPosition)
+        result.push_back({currentPosition, occupied.first});
+      currentPosition = occupied.last;
+    }
+    if (sizeInBits > currentPosition)
+      result.push_back({currentPosition, sizeInBits});
+    return result;
+  }
+
+  void clearPadding(Address source, const BitInterval &padding,
+                    mlir::Location loc) {
+    CIRGenBuilderTy &builder = cgf.getBuilder();
+    cir::IntType byteType = builder.getUInt8Ty();
+    Address byteSource = source.withElementType(builder, byteType);
+    mlir::Type sizeType = cgf.convertType(cgf.getContext().getSizeType());
+
+    const auto getByteAddress = [&](uint64_t offset) {
+      mlir::Value index = builder.getConstInt(loc, sizeType, offset);
+      mlir::Value pointer =
+          builder.createPtrStride(loc, byteSource.getPointer(), index);
+      return Address(pointer, byteType,
+                     source.getAlignment().alignmentAtOffset(
+                         CharUnits::fromQuantity(offset)));
+    };
+    const auto clearPartialByte = [&](uint64_t offset, uint8_t bitsToKeep) {
+      Address address = getByteAddress(offset);
+      mlir::Value value = builder.createLoad(loc, address);
+      mlir::Value mask = builder.getConstInt(loc, byteType, bitsToKeep);
+      builder.createStore(loc, builder.createAnd(loc, value, mask), address);
+    };
+
+    uint64_t startByte = padding.first / charWidth;
+    uint64_t startBit = padding.first % charWidth;
+    uint64_t endByte = padding.last / charWidth;
+    uint64_t endBit = padding.last % charWidth;
+
+    if (startByte == endByte) {
+      uint8_t bitsToClear =
+          ((1u << endBit) - 1) & ~((1u << startBit) - 1);
+      clearPartialByte(startByte, ~bitsToClear);
+      return;
+    }
+
+    if (startBit != 0) {
+      uint8_t bitsToClear =
+          ((1u << (charWidth - startBit)) - 1) << startBit;
+      clearPartialByte(startByte, ~bitsToClear);
+      ++startByte;
+    }
+
+    mlir::Value zero = builder.getConstInt(loc, byteType, 0);
+    for (uint64_t offset = startByte; offset < endByte; ++offset)
+      builder.createStore(loc, zero, getByteAddress(offset));
+
+    if (endBit != 0) {
+      uint8_t bitsToClear = (1u << endBit) - 1;
+      clearPartialByte(endByte, ~bitsToClear);
+    }
+  }
+
+public:
+  explicit CIRPaddingClearer(CIRGenFunction &cgf)
+      : cgf(cgf), charWidth(cgf.getContext().getCharWidth()) {}
+
+  void run(Address source, QualType type, mlir::Location loc) {
+    occupiedIntervals.clear();
+    stack.clear();
+    stack.push_back({0, type, /*visitVirtualBase=*/true});
+    while (!stack.empty()) {
+      Data current = stack.pop_back_val();
+      visit(current);
+    }
+
+    mergeOccupiedIntervals();
+    for (const BitInterval &padding :
+         getPaddingIntervals(cgf.getContext().getTypeSize(type)))
+      clearPadding(source, padding, loc);
+  }
+};
+
+} // namespace
+
 RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
                                        const CallExpr *e,
                                        ReturnValueSlot returnValue) {
@@ -1041,6 +1330,13 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   switch (builtinIDIfNoAsmLabel) {
   default:
     break;
+
+  case Builtin::BI__builtin_clear_padding: {
+    Address source = emitPointerWithAlignment(e->getArg(0));
+    CIRPaddingClearer(*this).run(
+        source, e->getArg(0)->getType()->getPointeeType(), loc);
+    return RValue::get(nullptr);
+  }
 
   // C stdarg builtins.
   case Builtin::BI__builtin_stdarg_start:
@@ -1851,7 +2147,6 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI_alloca:
   case Builtin::BI__builtin_alloca_uninitialized:
   case Builtin::BI__builtin_alloca:
-    return emitBuiltinAlloca(*this, e, builtinID);
   case Builtin::BI__builtin_alloca_with_align_uninitialized:
   case Builtin::BI__builtin_alloca_with_align:
     return emitBuiltinAlloca(*this, e, builtinID);

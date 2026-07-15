@@ -606,6 +606,24 @@ def CIR_AllocaOp : CIR_Op<"alloca", [
     function/destructor facts and a normalized source-span conjunction; the
     raw IDs and span only filter that exact identity.
 
+    The optional `ast_automatic_object_identity` dictionary is producer
+    metadata for the storage of an automatic C++ object with a nontrivial
+    destructor. It records the concrete owning function (`function`), the
+    exact stable Clang canonical `VarDecl` USR (`declaration_usr`), cleanup kind
+    (`cleanup_kind`), and the exact ABI destructor symbol
+    (`destructor_symbol`). `begin_raw` and `end_raw` are producer provenance
+    only: they are not cross-process join keys. When direct construction
+    exists, it also records the ABI constructor symbol (`constructor_symbol`)
+    and whether that call must be observed
+    (`requires_observed_constructor_call`). The dictionary is attached to the
+    allocation actually used by the cleanup, including an NRVO return slot. It
+    is omitted rather than guessed when the producer cannot form a declaration
+    USR or when more than one automatic declaration shares the same
+    allocation. Consumers must pair automatic cleanup only through
+    `declaration_usr`, the attached function/destructor facts, and exact AST
+    facts—never through a raw location, allocation name, or source-text
+    spelling.
+
     The result type is a pointer to the input's type.
 
     Example:
@@ -628,6 +646,7 @@ def CIR_AllocaOp : CIR_Op<"alloca", [
     UnitAttr:$cleanup_dest_slot,
     OptionalAttr<DictionaryAttr>:$ast_materialize_temporary_identity,
     OptionalAttr<DictionaryAttr>:$ast_temporary_object_identity,
+    OptionalAttr<DictionaryAttr>:$ast_automatic_object_identity,
     ConfinedAttr<I64Attr, [IntMinValue<1>]>:$alignment,
     OptionalAttr<CIR_AnnotationArrayAttr>:$annotations
   );
@@ -929,8 +948,23 @@ def CIR_IfOp : CIR_Op<"if", [
     regions must be terminated. If the region has only one block, the terminator
     can be left out, and `cir.yield` terminator will be inserted implictly.
     Otherwise, the region must be explicitly terminated.
+
+    The optional `ast_conditional_cleanup_identity` dictionary is producer-owned
+    metadata for a `cir.if` that guards destruction of a conditionally
+    constructed C++ temporary. It is a verbatim copy of the
+    `ast_temporary_object_identity` attached to the alloca passed to that
+    guard's destructor, so its opaque `instance_token` structurally associates
+    the active-construction test with that exact temporary lifetime. It is
+    absent rather than inferred when the guarded address has no unique,
+    complete temporary identity. Consumers must use the attached dictionary
+    directly and must never recover the association from the condition
+    alloca's name, a source location, or an operation name.
+
   }];
-  let arguments = (ins CIR_BoolType:$condition);
+  let arguments = (ins
+    CIR_BoolType:$condition,
+    OptionalAttr<DictionaryAttr>:$ast_conditional_cleanup_identity
+  );
   let regions = (region AnyRegion:$thenRegion, AnyRegion:$elseRegion);
   let hasCustomAssemblyFormat=1;
   let skipDefaultBuilders=1;

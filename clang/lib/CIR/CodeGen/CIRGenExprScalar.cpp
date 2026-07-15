@@ -2466,9 +2466,12 @@ mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
                                 ce->getExprLoc());
   }
 
-  case CK_IntegralToBoolean:
-    return emitIntToBoolConversion(Visit(subExpr),
-                                   cgf.getLoc(ce->getSourceRange()));
+  case CK_IntegralToBoolean: {
+    mlir::Value src = Visit(subExpr);
+    if (src.getType() == cgf.convertType(destTy))
+      return src;
+    return emitIntToBoolConversion(src, cgf.getLoc(ce->getSourceRange()));
+  }
 
   case CK_PointerToBoolean:
     return emitPointerToBoolConversion(Visit(subExpr), subExpr->getType());

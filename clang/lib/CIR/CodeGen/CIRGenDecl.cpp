@@ -1312,6 +1312,8 @@ void CIRGenFunction::emitAutoVarTypeCleanup(
 
   const VarDecl *var = emission.variable;
   QualType type = var->getType();
+  if (dtorKind == QualType::DK_cxx_destructor)
+    setCXXAutomaticObjectIdentity(var, addr);
 
   CleanupKind cleanupKind = NormalAndEHCleanup;
   CIRGenFunction::Destroyer *destroyer = nullptr;
