@@ -22,6 +22,7 @@
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/Attrs.inc"
 #include "clang/AST/DeclBase.h"
+#include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclOpenACC.h"
 #include "clang/AST/GlobalDecl.h"
 #include "clang/AST/RecordLayout.h"
@@ -34,8 +35,8 @@
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "clang/CIR/Interfaces/CIROpInterfaces.h"
 #include "clang/CIR/MissingFeatures.h"
-#include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "clang/Lex/Lexer.h"
+#include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -61,8 +62,7 @@ using namespace clang::CIRGen;
 static std::optional<std::string>
 specializationPointOfInstantiationIdentity(const ASTContext &astContext,
                                            const FunctionDecl *functionDecl) {
-  SourceLocation pointOfInstantiation =
-      functionDecl->getPointOfInstantiation();
+  SourceLocation pointOfInstantiation = functionDecl->getPointOfInstantiation();
   if (pointOfInstantiation.isInvalid())
     return std::nullopt;
 
@@ -80,9 +80,8 @@ specializationPointOfInstantiationIdentity(const ASTContext &astContext,
 
   llvm::SmallString<256> normalizedFile(presumed.getFilename());
   if (!llvm::sys::path::is_absolute(normalizedFile)) {
-    llvm::StringRef workingDirectory = sourceManager.getFileManager()
-                                           .getFileSystemOpts()
-                                           .WorkingDir;
+    llvm::StringRef workingDirectory =
+        sourceManager.getFileManager().getFileSystemOpts().WorkingDir;
     if (workingDirectory.empty())
       return std::nullopt;
     llvm::SmallString<256> resolvedFile(workingDirectory);
@@ -2395,6 +2394,18 @@ void CIRGenModule::emitTopLevelDecl(Decl *decl) {
     errorNYI(decl->getBeginLoc(), "declaration of kind",
              decl->getDeclKindName());
     break;
+  case Decl::ObjCInterface: {
+    const auto *interface = cast<ObjCInterfaceDecl>(decl);
+    // A forward Objective-C interface declaration has no executable
+    // representation. It is a type-only fact, so do not make it an
+    // unsupported top-level code-generation construct. Definitions remain
+    // fail-closed until CIR owns their layout, methods, and runtime metadata.
+    if (!interface->isThisDeclarationADefinition())
+      break;
+    errorNYI(interface->getBeginLoc(), "declaration of kind",
+             "ObjCInterface definition");
+    break;
+  }
 
   case Decl::CXXConversion:
   case Decl::CXXMethod:
@@ -2743,8 +2754,7 @@ void CIRGenModule::loadSelectedDeclRoots() {
 }
 
 bool CIRGenModule::isSelectedDeclRoot(GlobalDecl gd) {
-  return selectedDeclRootMode &&
-         selectedDeclRoots.contains(getMangledName(gd));
+  return selectedDeclRootMode && selectedDeclRoots.contains(getMangledName(gd));
 }
 
 StringRef CIRGenModule::getMangledName(GlobalDecl gd) {
@@ -3113,8 +3123,7 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
   if (const auto *functionDecl = dyn_cast_or_null<FunctionDecl>(decl);
       functionDecl && functionDecl->isFunctionTemplateSpecialization()) {
     mlir::NamedAttrList identity;
-    identity.set("mangled_name",
-                 builder.getStringAttr(func.getSymName()));
+    identity.set("mangled_name", builder.getStringAttr(func.getSymName()));
     if (hasASTDeclUSR)
       identity.set("usr", builder.getStringAttr(astDeclUSR));
 
@@ -3123,26 +3132,23 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
             functionDecl->getTemplateInstantiationPattern();
         pattern && !clang::index::generateUSRForDecl(pattern, patternUSR)) {
       identity.set("template_pattern_usr", builder.getStringAttr(patternUSR));
-      if (auto poi = specializationPointOfInstantiationIdentity(
-              getASTContext(), functionDecl))
+      if (auto poi = specializationPointOfInstantiationIdentity(getASTContext(),
+                                                                functionDecl))
         identity.set("poi", builder.getStringAttr(*poi));
     }
 
     func->setAttr("ast_decl_specialization_identity",
                   identity.getDictionary(&getMLIRContext()));
   }
-  if (const auto *functionDecl =
-          dyn_cast_or_null<FunctionDecl>(decl)) {
+  if (const auto *functionDecl = dyn_cast_or_null<FunctionDecl>(decl)) {
     auto sourceTypeLayer = [&](QualType type, StringRef kind,
                                bool referenceStorage) {
       mlir::NamedAttrList layer;
       layer.set("kind", builder.getStringAttr(kind));
       const Qualifiers qualifiers = type.getQualifiers();
       layer.set("is_const", builder.getBoolAttr(qualifiers.hasConst()));
-      layer.set("is_volatile",
-                builder.getBoolAttr(qualifiers.hasVolatile()));
-      layer.set("is_restrict",
-                builder.getBoolAttr(qualifiers.hasRestrict()));
+      layer.set("is_volatile", builder.getBoolAttr(qualifiers.hasVolatile()));
+      layer.set("is_restrict", builder.getBoolAttr(qualifiers.hasRestrict()));
       layer.set("is_atomic", builder.getBoolAttr(type->isAtomicType()));
       layer.set("clang_address_space",
                 builder.getI64IntegerAttr(
@@ -3150,18 +3156,16 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
       layer.set("target_address_space",
                 builder.getI64IntegerAttr(getASTContext().getTargetAddressSpace(
                     qualifiers.getAddressSpace())));
-      QualType layoutType =
-          referenceStorage ? getASTContext().VoidPtrTy : type;
-      if (!layoutType->isIncompleteType() &&
-          !layoutType->isFunctionType() && !layoutType->isVoidType()) {
+      QualType layoutType = referenceStorage ? getASTContext().VoidPtrTy : type;
+      if (!layoutType->isIncompleteType() && !layoutType->isFunctionType() &&
+          !layoutType->isVoidType()) {
         const TypeInfo info = getASTContext().getTypeInfo(layoutType);
         layer.set("bit_width", builder.getI64IntegerAttr(info.Width));
         layer.set("align_bits", builder.getI64IntegerAttr(info.Align));
       }
       if (type->isIntegerType() || type->isEnumeralType()) {
-        layer.set("is_signed",
-                  builder.getBoolAttr(
-                      type->isSignedIntegerOrEnumerationType()));
+        layer.set("is_signed", builder.getBoolAttr(
+                                   type->isSignedIntegerOrEnumerationType()));
       }
       return layer.getDictionary(&getMLIRContext());
     };
@@ -3225,9 +3229,8 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
       haveContextUSR =
           context && !clang::index::generateUSRForDecl(context, contextUSR);
     }
-    func->setAttr(
-        "ast_lambda_index",
-        builder.getI32IntegerAttr(closure->getLambdaIndexInContext()));
+    func->setAttr("ast_lambda_index", builder.getI32IntegerAttr(
+                                          closure->getLambdaIndexInContext()));
     if (haveContextUSR) {
       func->setAttr("ast_lambda_context_usr",
                     builder.getStringAttr(contextUSR));
@@ -3235,9 +3238,8 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
     const auto *contextFunction = dyn_cast_or_null<FunctionDecl>(
         Decl::castFromDeclContext(closure->getDeclContext()));
     if (contextFunction) {
-      SourceLocation poi =
-          getASTContext().getSourceManager().getExpansionLoc(
-              contextFunction->getPointOfInstantiation());
+      SourceLocation poi = getASTContext().getSourceManager().getExpansionLoc(
+          contextFunction->getPointOfInstantiation());
       PresumedLoc presumed =
           getASTContext().getSourceManager().getPresumedLoc(poi);
       if (presumed.isValid()) {
@@ -3817,15 +3819,13 @@ void CIRGenModule::release() {
         cir::CIRDialect::getRecordLayoutsAttrName(),
         mlir::DictionaryAttr::get(&getMLIRContext(), recordLayoutEntries));
   if (!recordDeclIdentityEntries.empty())
-    theModule->setAttr(
-        "cir.record_decl_identities",
-        mlir::DictionaryAttr::get(&getMLIRContext(),
-                                  recordDeclIdentityEntries));
+    theModule->setAttr("cir.record_decl_identities",
+                       mlir::DictionaryAttr::get(&getMLIRContext(),
+                                                 recordDeclIdentityEntries));
   if (!emptyRecordSchemaEntries.empty())
     theModule->setAttr(
         "cir.empty_record_schemas",
-        mlir::DictionaryAttr::get(&getMLIRContext(),
-                                  emptyRecordSchemaEntries));
+        mlir::DictionaryAttr::get(&getMLIRContext(), emptyRecordSchemaEntries));
 
   if (getTriple().isAMDGPU() ||
       (getTriple().isSPIRV() && getTriple().getVendor() == llvm::Triple::AMD))
@@ -4084,8 +4084,7 @@ void CIRGenModule::mapBlockAddress(cir::BlockAddrInfoAttr blockInfo,
          "attempting to map a blockaddress info that is already mapped");
 }
 
-void CIRGenModule::mapConstantBlockAddress(
-    cir::BlockAddrInfoAttr blockInfo) {
+void CIRGenModule::mapConstantBlockAddress(cir::BlockAddrInfoAttr blockInfo) {
   constantBlockAddresses.insert(blockInfo);
 }
 
