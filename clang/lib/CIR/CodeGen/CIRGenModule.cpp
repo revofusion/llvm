@@ -2368,6 +2368,171 @@ mlir::Value CIRGenModule::emitMemberPointerConstant(const UnaryOperator *e) {
       builder, loc, builder.getDataMemberAttr(ty, fieldDecl->getFieldIndex()));
 }
 
+static std::optional<mlir::StringAttr> getObjCDeclUSRAttr(CIRGenModule &cgm,
+                                                          const Decl *decl) {
+  llvm::SmallString<256> usr;
+  if (clang::index::generateUSRForDecl(decl, usr))
+    return std::nullopt;
+  return cgm.getBuilder().getStringAttr(usr);
+}
+
+static mlir::DictionaryAttr getObjCSourceTypeFacts(CIRGenModule &cgm,
+                                                   QualType type,
+                                                   bool &hasCompleteIdentity) {
+  mlir::NamedAttrList facts;
+  const ASTContext &astContext = cgm.getASTContext();
+  const QualType canonicalType = astContext.getCanonicalType(type);
+  const Qualifiers qualifiers = type.getQualifiers();
+
+  facts.set("as_written", cgm.getBuilder().getStringAttr(type.getAsString()));
+  facts.set("canonical",
+            cgm.getBuilder().getStringAttr(canonicalType.getAsString()));
+  facts.set("type_class",
+            cgm.getBuilder().getStringAttr(type->getTypeClassName()));
+  facts.set("is_const", cgm.getBuilder().getBoolAttr(qualifiers.hasConst()));
+  facts.set("is_volatile",
+            cgm.getBuilder().getBoolAttr(qualifiers.hasVolatile()));
+  facts.set("is_restrict",
+            cgm.getBuilder().getBoolAttr(qualifiers.hasRestrict()));
+  facts.set("is_atomic", cgm.getBuilder().getBoolAttr(type->isAtomicType()));
+  facts.set("clang_address_space",
+            cgm.getBuilder().getI64IntegerAttr(
+                static_cast<uint64_t>(qualifiers.getAddressSpace())));
+  facts.set("target_address_space",
+            cgm.getBuilder().getI64IntegerAttr(astContext.getTargetAddressSpace(
+                qualifiers.getAddressSpace())));
+  if (!type->isIncompleteType() && !type->isFunctionType() &&
+      !type->isVoidType()) {
+    const TypeInfo info = astContext.getTypeInfo(type);
+    facts.set("bit_width", cgm.getBuilder().getI64IntegerAttr(info.Width));
+    facts.set("align_bits", cgm.getBuilder().getI64IntegerAttr(info.Align));
+  }
+  if (type->isIntegerType() || type->isEnumeralType())
+    facts.set("is_signed", cgm.getBuilder().getBoolAttr(
+                               type->isSignedIntegerOrEnumerationType()));
+
+  if (const auto *objectPointer =
+          canonicalType->getAs<ObjCObjectPointerType>()) {
+    const ObjCObjectType *objectType = objectPointer->getObjectType();
+    facts.set("objc_is_id",
+              cgm.getBuilder().getBoolAttr(objectPointer->isObjCIdType()));
+    facts.set("objc_is_class",
+              cgm.getBuilder().getBoolAttr(objectPointer->isObjCClassType()));
+    facts.set("objc_is_kindof",
+              cgm.getBuilder().getBoolAttr(objectPointer->isKindOfType()));
+
+    if (const ObjCInterfaceDecl *interface =
+            objectPointer->getInterfaceDecl()) {
+      std::optional<mlir::StringAttr> interfaceUSR =
+          getObjCDeclUSRAttr(cgm, interface);
+      if (!interfaceUSR) {
+        hasCompleteIdentity = false;
+        return {};
+      }
+      facts.set("objc_interface_usr", *interfaceUSR);
+    }
+
+    llvm::SmallVector<mlir::Attribute, 4> protocolQualifiers;
+    for (const ObjCProtocolDecl *qualifier : objectType->quals()) {
+      std::optional<mlir::StringAttr> qualifierUSR =
+          getObjCDeclUSRAttr(cgm, qualifier);
+      if (!qualifierUSR) {
+        hasCompleteIdentity = false;
+        return {};
+      }
+      protocolQualifiers.push_back(*qualifierUSR);
+    }
+    facts.set("objc_protocol_qualifiers",
+              cgm.getBuilder().getArrayAttr(protocolQualifiers));
+  }
+
+  return facts.getDictionary(&cgm.getMLIRContext());
+}
+
+void CIRGenModule::emitObjCProtocolDecl(const ObjCProtocolDecl *protocol) {
+  std::optional<mlir::StringAttr> protocolUSR =
+      getObjCDeclUSRAttr(*this, protocol);
+  if (!protocolUSR) {
+    errorNYI(protocol->getBeginLoc(),
+             "ObjCProtocol definition without a Clang USR");
+    return;
+  }
+
+  llvm::SmallVector<mlir::Attribute, 4> inheritedProtocols;
+  for (const ObjCProtocolDecl *inheritedProtocol : protocol->protocols()) {
+    std::optional<mlir::StringAttr> inheritedUSR =
+        getObjCDeclUSRAttr(*this, inheritedProtocol);
+    if (!inheritedUSR) {
+      errorNYI(inheritedProtocol->getBeginLoc(),
+               "ObjCProtocol conformance without a Clang USR");
+      return;
+    }
+    inheritedProtocols.push_back(*inheritedUSR);
+  }
+
+  llvm::SmallVector<mlir::Attribute, 8> methods;
+  for (const ObjCMethodDecl *method : protocol->methods()) {
+    std::optional<mlir::StringAttr> methodUSR =
+        getObjCDeclUSRAttr(*this, method);
+    if (!methodUSR) {
+      errorNYI(method->getBeginLoc(),
+               "ObjCProtocol method without a Clang USR");
+      return;
+    }
+
+    bool hasCompleteIdentity = true;
+    mlir::DictionaryAttr returnType = getObjCSourceTypeFacts(
+        *this, method->getReturnType(), hasCompleteIdentity);
+    llvm::SmallVector<mlir::Attribute, 4> parameterTypes;
+    for (const ParmVarDecl *parameter : method->parameters()) {
+      mlir::DictionaryAttr parameterType = getObjCSourceTypeFacts(
+          *this, parameter->getType(), hasCompleteIdentity);
+      if (!parameterType)
+        break;
+      parameterTypes.push_back(parameterType);
+    }
+    if (!hasCompleteIdentity || !returnType ||
+        parameterTypes.size() != method->param_size()) {
+      errorNYI(method->getBeginLoc(),
+               "ObjCProtocol method type without complete Clang identity");
+      return;
+    }
+
+    mlir::NamedAttrList methodFacts;
+    methodFacts.set("usr", *methodUSR);
+    methodFacts.set("selector",
+                    builder.getStringAttr(method->getSelector().getAsString()));
+    methodFacts.set("return_type", returnType);
+    methodFacts.set("parameter_types", builder.getArrayAttr(parameterTypes));
+    methodFacts.set("is_instance",
+                    builder.getBoolAttr(method->isInstanceMethod()));
+    methodFacts.set("is_optional", builder.getBoolAttr(method->isOptional()));
+    methodFacts.set("is_variadic", builder.getBoolAttr(method->isVariadic()));
+    methodFacts.set("has_related_result_type",
+                    builder.getBoolAttr(method->hasRelatedResultType()));
+    methodFacts.set("is_direct", builder.getBoolAttr(method->isDirectMethod()));
+    methodFacts.set("method_family",
+                    builder.getI64IntegerAttr(
+                        static_cast<uint64_t>(method->getMethodFamily())));
+    methodFacts.set("objc_decl_qualifier",
+                    builder.getI64IntegerAttr(
+                        static_cast<uint64_t>(method->getObjCDeclQualifier())));
+    methods.push_back(methodFacts.getDictionary(&getMLIRContext()));
+  }
+
+  mlir::NamedAttrList protocolFacts;
+  protocolFacts.set("usr", *protocolUSR);
+  protocolFacts.set(
+      "runtime_name",
+      builder.getStringAttr(protocol->getObjCRuntimeNameAsString()));
+  protocolFacts.set("is_non_runtime",
+                    builder.getBoolAttr(protocol->isNonRuntimeProtocol()));
+  protocolFacts.set("inherited_protocol_usrs",
+                    builder.getArrayAttr(inheritedProtocols));
+  protocolFacts.set("methods", builder.getArrayAttr(methods));
+  addObjCProtocol(protocolFacts.getDictionary(&getMLIRContext()));
+}
+
 void CIRGenModule::emitDeclContext(const DeclContext *dc) {
   for (Decl *decl : dc->decls()) {
     // Unlike other DeclContexts, the contents of an ObjCImplDecl at TU scope
@@ -2408,14 +2573,12 @@ void CIRGenModule::emitTopLevelDecl(Decl *decl) {
   }
   case Decl::ObjCProtocol: {
     const auto *protocol = cast<ObjCProtocolDecl>(decl);
-    // A forward Objective-C protocol declaration has no executable
-    // representation. It is a type-only fact, so do not make it an
-    // unsupported top-level code-generation construct. Definitions remain
-    // fail-closed until CIR owns their methods and runtime metadata.
-    if (!protocol->isThisDeclarationADefinition())
-      break;
-    errorNYI(protocol->getBeginLoc(), "declaration of kind",
-             "ObjCProtocol definition");
+    // Forward declarations have no executable representation. Definitions
+    // carry runtime method and conformance facts, so retain their exact Clang
+    // identities and signatures in module metadata without synthesizing
+    // Objective-C runtime operations.
+    if (protocol->isThisDeclarationADefinition())
+      emitObjCProtocolDecl(protocol);
     break;
   }
 
@@ -3838,6 +4001,9 @@ void CIRGenModule::release() {
     theModule->setAttr(
         "cir.empty_record_schemas",
         mlir::DictionaryAttr::get(&getMLIRContext(), emptyRecordSchemaEntries));
+  if (!objcProtocolEntries.empty())
+    theModule->setAttr("cir.objc_protocols",
+                       builder.getArrayAttr(objcProtocolEntries));
 
   if (getTriple().isAMDGPU() ||
       (getTriple().isSPIRV() && getTriple().getVendor() == llvm::Triple::AMD))

@@ -36,8 +36,8 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CIR/Dialect/IR/CIROpsEnums.h"
 #include "llvm/ADT/StringMap.h"
-#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/TargetParser/Triple.h"
 
 namespace clang {
@@ -45,6 +45,7 @@ class ASTContext;
 class CodeGenOptions;
 class Decl;
 class GlobalDecl;
+class ObjCProtocolDecl;
 class LangOptions;
 class TargetInfo;
 class VarDecl;
@@ -112,6 +113,10 @@ private:
 
   void loadSelectedDeclRoots();
   bool isSelectedDeclRoot(clang::GlobalDecl gd);
+  void emitObjCProtocolDecl(const clang::ObjCProtocolDecl *protocol);
+  void addObjCProtocol(mlir::DictionaryAttr attr) {
+    objcProtocolEntries.push_back(attr);
+  }
 
   /// Accumulated record layout entries, materialized in release().
   llvm::SmallVector<mlir::NamedAttribute> recordLayoutEntries;
@@ -119,6 +124,8 @@ private:
   llvm::SmallVector<mlir::NamedAttribute> recordDeclIdentityEntries;
   /// Records whose AST definition has no projected fields, bases, or vptr.
   llvm::SmallVector<mlir::NamedAttribute> emptyRecordSchemaEntries;
+  /// Typed Objective-C protocol definition facts, materialized in release().
+  llvm::SmallVector<mlir::Attribute> objcProtocolEntries;
 
   llvm::DenseSet<clang::GlobalDecl> diagnosedConflictingDefinitions;
 
