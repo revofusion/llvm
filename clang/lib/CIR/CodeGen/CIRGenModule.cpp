@@ -2449,6 +2449,53 @@ static mlir::DictionaryAttr getObjCSourceTypeFacts(CIRGenModule &cgm,
   return facts.getDictionary(&cgm.getMLIRContext());
 }
 
+static std::optional<mlir::DictionaryAttr>
+getObjCMethodFacts(CIRGenModule &cgm, const ObjCMethodDecl *method) {
+  std::optional<mlir::StringAttr> methodUSR = getObjCDeclUSRAttr(cgm, method);
+  if (!methodUSR)
+    return std::nullopt;
+
+  bool hasCompleteIdentity = true;
+  mlir::DictionaryAttr returnType =
+      getObjCSourceTypeFacts(cgm, method->getReturnType(), hasCompleteIdentity);
+  llvm::SmallVector<mlir::Attribute, 4> parameterTypes;
+  for (const ParmVarDecl *parameter : method->parameters()) {
+    mlir::DictionaryAttr parameterType =
+        getObjCSourceTypeFacts(cgm, parameter->getType(), hasCompleteIdentity);
+    if (!parameterType)
+      break;
+    parameterTypes.push_back(parameterType);
+  }
+  if (!hasCompleteIdentity || !returnType ||
+      parameterTypes.size() != method->param_size())
+    return std::nullopt;
+
+  mlir::NamedAttrList methodFacts;
+  methodFacts.set("usr", *methodUSR);
+  methodFacts.set("selector", cgm.getBuilder().getStringAttr(
+                                  method->getSelector().getAsString()));
+  methodFacts.set("return_type", returnType);
+  methodFacts.set("parameter_types",
+                  cgm.getBuilder().getArrayAttr(parameterTypes));
+  methodFacts.set("is_instance",
+                  cgm.getBuilder().getBoolAttr(method->isInstanceMethod()));
+  methodFacts.set("is_optional",
+                  cgm.getBuilder().getBoolAttr(method->isOptional()));
+  methodFacts.set("is_variadic",
+                  cgm.getBuilder().getBoolAttr(method->isVariadic()));
+  methodFacts.set("has_related_result_type",
+                  cgm.getBuilder().getBoolAttr(method->hasRelatedResultType()));
+  methodFacts.set("is_direct",
+                  cgm.getBuilder().getBoolAttr(method->isDirectMethod()));
+  methodFacts.set("method_family",
+                  cgm.getBuilder().getI64IntegerAttr(
+                      static_cast<uint64_t>(method->getMethodFamily())));
+  methodFacts.set("objc_decl_qualifier",
+                  cgm.getBuilder().getI64IntegerAttr(
+                      static_cast<uint64_t>(method->getObjCDeclQualifier())));
+  return methodFacts.getDictionary(&cgm.getMLIRContext());
+}
+
 void CIRGenModule::emitObjCProtocolDecl(const ObjCProtocolDecl *protocol) {
   std::optional<mlir::StringAttr> protocolUSR =
       getObjCDeclUSRAttr(*this, protocol);
@@ -2472,52 +2519,14 @@ void CIRGenModule::emitObjCProtocolDecl(const ObjCProtocolDecl *protocol) {
 
   llvm::SmallVector<mlir::Attribute, 8> methods;
   for (const ObjCMethodDecl *method : protocol->methods()) {
-    std::optional<mlir::StringAttr> methodUSR =
-        getObjCDeclUSRAttr(*this, method);
-    if (!methodUSR) {
+    std::optional<mlir::DictionaryAttr> methodFacts =
+        getObjCMethodFacts(*this, method);
+    if (!methodFacts) {
       errorNYI(method->getBeginLoc(),
-               "ObjCProtocol method without a Clang USR");
+               "ObjCProtocol method without complete Clang identity");
       return;
     }
-
-    bool hasCompleteIdentity = true;
-    mlir::DictionaryAttr returnType = getObjCSourceTypeFacts(
-        *this, method->getReturnType(), hasCompleteIdentity);
-    llvm::SmallVector<mlir::Attribute, 4> parameterTypes;
-    for (const ParmVarDecl *parameter : method->parameters()) {
-      mlir::DictionaryAttr parameterType = getObjCSourceTypeFacts(
-          *this, parameter->getType(), hasCompleteIdentity);
-      if (!parameterType)
-        break;
-      parameterTypes.push_back(parameterType);
-    }
-    if (!hasCompleteIdentity || !returnType ||
-        parameterTypes.size() != method->param_size()) {
-      errorNYI(method->getBeginLoc(),
-               "ObjCProtocol method type without complete Clang identity");
-      return;
-    }
-
-    mlir::NamedAttrList methodFacts;
-    methodFacts.set("usr", *methodUSR);
-    methodFacts.set("selector",
-                    builder.getStringAttr(method->getSelector().getAsString()));
-    methodFacts.set("return_type", returnType);
-    methodFacts.set("parameter_types", builder.getArrayAttr(parameterTypes));
-    methodFacts.set("is_instance",
-                    builder.getBoolAttr(method->isInstanceMethod()));
-    methodFacts.set("is_optional", builder.getBoolAttr(method->isOptional()));
-    methodFacts.set("is_variadic", builder.getBoolAttr(method->isVariadic()));
-    methodFacts.set("has_related_result_type",
-                    builder.getBoolAttr(method->hasRelatedResultType()));
-    methodFacts.set("is_direct", builder.getBoolAttr(method->isDirectMethod()));
-    methodFacts.set("method_family",
-                    builder.getI64IntegerAttr(
-                        static_cast<uint64_t>(method->getMethodFamily())));
-    methodFacts.set("objc_decl_qualifier",
-                    builder.getI64IntegerAttr(
-                        static_cast<uint64_t>(method->getObjCDeclQualifier())));
-    methods.push_back(methodFacts.getDictionary(&getMLIRContext()));
+    methods.push_back(*methodFacts);
   }
 
   mlir::NamedAttrList protocolFacts;
@@ -2531,6 +2540,189 @@ void CIRGenModule::emitObjCProtocolDecl(const ObjCProtocolDecl *protocol) {
                     builder.getArrayAttr(inheritedProtocols));
   protocolFacts.set("methods", builder.getArrayAttr(methods));
   addObjCProtocol(protocolFacts.getDictionary(&getMLIRContext()));
+}
+
+static std::optional<mlir::DictionaryAttr>
+getObjCPropertyFacts(CIRGenModule &cgm, const ObjCPropertyDecl *property) {
+  std::optional<mlir::StringAttr> propertyUSR =
+      getObjCDeclUSRAttr(cgm, property);
+  if (!propertyUSR)
+    return std::nullopt;
+
+  bool hasCompleteIdentity = true;
+  mlir::DictionaryAttr propertyType =
+      getObjCSourceTypeFacts(cgm, property->getType(), hasCompleteIdentity);
+  if (!hasCompleteIdentity || !propertyType)
+    return std::nullopt;
+
+  mlir::NamedAttrList propertyFacts;
+  propertyFacts.set("usr", *propertyUSR);
+  propertyFacts.set("type", propertyType);
+  propertyFacts.set("attributes",
+                    cgm.getBuilder().getI64IntegerAttr(static_cast<uint64_t>(
+                        property->getPropertyAttributes())));
+  propertyFacts.set("attributes_as_written",
+                    cgm.getBuilder().getI64IntegerAttr(static_cast<uint64_t>(
+                        property->getPropertyAttributesAsWritten())));
+  propertyFacts.set(
+      "getter_selector",
+      cgm.getBuilder().getStringAttr(property->getGetterName().getAsString()));
+  propertyFacts.set(
+      "setter_selector",
+      cgm.getBuilder().getStringAttr(property->getSetterName().getAsString()));
+  propertyFacts.set("is_class",
+                    cgm.getBuilder().getBoolAttr(property->isClassProperty()));
+  propertyFacts.set("is_optional",
+                    cgm.getBuilder().getBoolAttr(property->isOptional()));
+  propertyFacts.set("is_readonly",
+                    cgm.getBuilder().getBoolAttr(property->isReadOnly()));
+  propertyFacts.set("is_atomic",
+                    cgm.getBuilder().getBoolAttr(property->isAtomic()));
+  propertyFacts.set("is_direct",
+                    cgm.getBuilder().getBoolAttr(property->isDirectProperty()));
+  if (!property->isReadOnly())
+    propertyFacts.set("setter_kind",
+                      cgm.getBuilder().getI64IntegerAttr(
+                          static_cast<uint64_t>(property->getSetterKind())));
+
+  if (const ObjCIvarDecl *backingIvar = property->getPropertyIvarDecl()) {
+    std::optional<mlir::StringAttr> backingIvarUSR =
+        getObjCDeclUSRAttr(cgm, backingIvar);
+    if (!backingIvarUSR)
+      return std::nullopt;
+    propertyFacts.set("backing_ivar_usr", *backingIvarUSR);
+  }
+
+  return propertyFacts.getDictionary(&cgm.getMLIRContext());
+}
+
+static std::optional<mlir::DictionaryAttr>
+getObjCIvarFacts(CIRGenModule &cgm, const ObjCInterfaceDecl *interface,
+                 const ObjCIvarDecl *ivar) {
+  std::optional<mlir::StringAttr> ivarUSR = getObjCDeclUSRAttr(cgm, ivar);
+  if (!ivarUSR)
+    return std::nullopt;
+
+  bool hasCompleteIdentity = true;
+  mlir::DictionaryAttr ivarType =
+      getObjCSourceTypeFacts(cgm, ivar->getType(), hasCompleteIdentity);
+  if (!hasCompleteIdentity || !ivarType)
+    return std::nullopt;
+
+  mlir::NamedAttrList ivarFacts;
+  ivarFacts.set("usr", *ivarUSR);
+  ivarFacts.set("type", ivarType);
+  ivarFacts.set("offset_bits",
+                cgm.getBuilder().getI64IntegerAttr(
+                    cgm.getASTContext().lookupFieldBitOffset(interface, ivar)));
+  ivarFacts.set("access_control",
+                cgm.getBuilder().getI64IntegerAttr(
+                    static_cast<uint64_t>(ivar->getAccessControl())));
+  ivarFacts.set("canonical_access_control",
+                cgm.getBuilder().getI64IntegerAttr(
+                    static_cast<uint64_t>(ivar->getCanonicalAccessControl())));
+  ivarFacts.set("is_synthesized",
+                cgm.getBuilder().getBoolAttr(ivar->getSynthesize()));
+  ivarFacts.set("is_bitfield",
+                cgm.getBuilder().getBoolAttr(ivar->isBitField()));
+  if (ivar->isBitField())
+    ivarFacts.set("bit_width",
+                  cgm.getBuilder().getI64IntegerAttr(ivar->getBitWidthValue()));
+  return ivarFacts.getDictionary(&cgm.getMLIRContext());
+}
+
+void CIRGenModule::emitObjCInterfaceDecl(const ObjCInterfaceDecl *interface) {
+  std::optional<mlir::StringAttr> interfaceUSR =
+      getObjCDeclUSRAttr(*this, interface);
+  if (!interfaceUSR) {
+    errorNYI(interface->getBeginLoc(),
+             "ObjCInterface definition without a Clang USR");
+    return;
+  }
+
+  std::optional<mlir::StringAttr> superclassUSR;
+  if (const ObjCInterfaceDecl *superclass = interface->getSuperClass()) {
+    superclassUSR = getObjCDeclUSRAttr(*this, superclass);
+    if (!superclassUSR) {
+      errorNYI(superclass->getBeginLoc(),
+               "ObjCInterface superclass without a Clang USR");
+      return;
+    }
+  }
+
+  llvm::SmallVector<mlir::Attribute, 4> protocolUSRs;
+  for (const ObjCProtocolDecl *protocol : interface->protocols()) {
+    std::optional<mlir::StringAttr> protocolUSR =
+        getObjCDeclUSRAttr(*this, protocol);
+    if (!protocolUSR) {
+      errorNYI(protocol->getBeginLoc(),
+               "ObjCInterface conformance without a Clang USR");
+      return;
+    }
+    protocolUSRs.push_back(*protocolUSR);
+  }
+
+  llvm::SmallVector<mlir::Attribute, 8> methods;
+  for (const ObjCMethodDecl *method : interface->methods()) {
+    std::optional<mlir::DictionaryAttr> methodFacts =
+        getObjCMethodFacts(*this, method);
+    if (!methodFacts) {
+      errorNYI(method->getBeginLoc(),
+               "ObjCInterface method without complete Clang identity");
+      return;
+    }
+    methods.push_back(*methodFacts);
+  }
+
+  llvm::SmallVector<mlir::Attribute, 4> properties;
+  for (const ObjCPropertyDecl *property : interface->properties()) {
+    std::optional<mlir::DictionaryAttr> propertyFacts =
+        getObjCPropertyFacts(*this, property);
+    if (!propertyFacts) {
+      errorNYI(property->getBeginLoc(),
+               "ObjCInterface property without complete Clang identity");
+      return;
+    }
+    properties.push_back(*propertyFacts);
+  }
+
+  llvm::SmallVector<mlir::Attribute, 4> ivars;
+  for (const ObjCIvarDecl *ivar : interface->ivars()) {
+    std::optional<mlir::DictionaryAttr> ivarFacts =
+        getObjCIvarFacts(*this, interface, ivar);
+    if (!ivarFacts) {
+      errorNYI(ivar->getBeginLoc(),
+               "ObjCInterface ivar without complete Clang identity");
+      return;
+    }
+    ivars.push_back(*ivarFacts);
+  }
+
+  const ASTRecordLayout &layout =
+      getASTContext().getASTObjCInterfaceLayout(interface);
+  mlir::NamedAttrList interfaceFacts;
+  interfaceFacts.set("usr", *interfaceUSR);
+  interfaceFacts.set(
+      "runtime_name",
+      builder.getStringAttr(interface->getObjCRuntimeNameAsString()));
+  if (superclassUSR)
+    interfaceFacts.set("superclass_usr", *superclassUSR);
+  interfaceFacts.set("protocol_usrs", builder.getArrayAttr(protocolUSRs));
+  interfaceFacts.set("methods", builder.getArrayAttr(methods));
+  interfaceFacts.set("properties", builder.getArrayAttr(properties));
+  interfaceFacts.set("ivars", builder.getArrayAttr(ivars));
+  interfaceFacts.set("layout_size_bytes",
+                     builder.getI64IntegerAttr(layout.getSize().getQuantity()));
+  interfaceFacts.set(
+      "layout_data_size_bytes",
+      builder.getI64IntegerAttr(layout.getDataSize().getQuantity()));
+  interfaceFacts.set(
+      "layout_align_bytes",
+      builder.getI64IntegerAttr(layout.getAlignment().getQuantity()));
+  interfaceFacts.set(
+      "has_designated_initializers",
+      builder.getBoolAttr(interface->hasDesignatedInitializers()));
+  addObjCInterface(interfaceFacts.getDictionary(&getMLIRContext()));
 }
 
 void CIRGenModule::emitDeclContext(const DeclContext *dc) {
@@ -2561,14 +2753,12 @@ void CIRGenModule::emitTopLevelDecl(Decl *decl) {
     break;
   case Decl::ObjCInterface: {
     const auto *interface = cast<ObjCInterfaceDecl>(decl);
-    // A forward Objective-C interface declaration has no executable
-    // representation. It is a type-only fact, so do not make it an
-    // unsupported top-level code-generation construct. Definitions remain
-    // fail-closed until CIR owns their layout, methods, and runtime metadata.
-    if (!interface->isThisDeclarationADefinition())
-      break;
-    errorNYI(interface->getBeginLoc(), "declaration of kind",
-             "ObjCInterface definition");
+    // Forward declarations have no executable representation. Definitions
+    // carry runtime layout and dispatch facts, so retain their exact Clang
+    // identities and signatures in module metadata without synthesizing
+    // Objective-C runtime operations.
+    if (interface->isThisDeclarationADefinition())
+      emitObjCInterfaceDecl(interface);
     break;
   }
   case Decl::ObjCProtocol: {
@@ -4004,6 +4194,9 @@ void CIRGenModule::release() {
   if (!objcProtocolEntries.empty())
     theModule->setAttr("cir.objc_protocols",
                        builder.getArrayAttr(objcProtocolEntries));
+  if (!objcInterfaceEntries.empty())
+    theModule->setAttr("cir.objc_interfaces",
+                       builder.getArrayAttr(objcInterfaceEntries));
 
   if (getTriple().isAMDGPU() ||
       (getTriple().isSPIRV() && getTriple().getVendor() == llvm::Triple::AMD))

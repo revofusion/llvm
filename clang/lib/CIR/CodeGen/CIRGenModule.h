@@ -45,6 +45,7 @@ class ASTContext;
 class CodeGenOptions;
 class Decl;
 class GlobalDecl;
+class ObjCInterfaceDecl;
 class ObjCProtocolDecl;
 class LangOptions;
 class TargetInfo;
@@ -114,6 +115,10 @@ private:
   void loadSelectedDeclRoots();
   bool isSelectedDeclRoot(clang::GlobalDecl gd);
   void emitObjCProtocolDecl(const clang::ObjCProtocolDecl *protocol);
+  void emitObjCInterfaceDecl(const clang::ObjCInterfaceDecl *interface);
+  void addObjCInterface(mlir::DictionaryAttr attr) {
+    objcInterfaceEntries.push_back(attr);
+  }
   void addObjCProtocol(mlir::DictionaryAttr attr) {
     objcProtocolEntries.push_back(attr);
   }
@@ -126,6 +131,8 @@ private:
   llvm::SmallVector<mlir::NamedAttribute> emptyRecordSchemaEntries;
   /// Typed Objective-C protocol definition facts, materialized in release().
   llvm::SmallVector<mlir::Attribute> objcProtocolEntries;
+  /// Typed Objective-C interface definition facts, materialized in release().
+  llvm::SmallVector<mlir::Attribute> objcInterfaceEntries;
 
   llvm::DenseSet<clang::GlobalDecl> diagnosedConflictingDefinitions;
 

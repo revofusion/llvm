@@ -1,10 +1,12 @@
 // RUN: %clang_cc1 -triple arm64-apple-macosx13.0.0 -fobjc-runtime=macosx-13.0 -fclangir -emit-cir %s -o %t.cir
 // RUN: FileCheck --check-prefix=FORWARD --input-file=%t.cir %s
-// RUN: not %clang_cc1 -triple arm64-apple-macosx13.0.0 -fobjc-runtime=macosx-13.0 -fclangir -emit-cir -DTEST_INTERFACE_DEFINITION %s -o %t.definition.cir 2>&1 | FileCheck --check-prefix=DEFINITION %s
+// RUN: %clang_cc1 -triple arm64-apple-macosx13.0.0 -fobjc-runtime=macosx-13.0 -fclangir -emit-cir -DTEST_INTERFACE_DEFINITION %s -o %t.interface-definition.cir
+// RUN: FileCheck --check-prefix=INTERFACE-DEFINITION --input-file=%t.interface-definition.cir %s
 // RUN: %clang_cc1 -triple arm64-apple-macosx13.0.0 -fobjc-runtime=macosx-13.0 -fclangir -emit-cir -DTEST_PROTOCOL_DEFINITION %s -o %t.protocol-definition.cir
 // RUN: FileCheck --check-prefix=PROTOCOL-DEFINITION --input-file=%t.protocol-definition.cir %s
+// RUN: not %clang_cc1 -triple arm64-apple-macosx13.0.0 -fobjc-runtime=macosx-13.0 -fclangir -emit-cir -DTEST_IMPLEMENTATION_BODY %s -o %t.implementation.cir 2>&1 | FileCheck --check-prefix=IMPLEMENTATION %s
 
-#if !defined(TEST_INTERFACE_DEFINITION) && !defined(TEST_PROTOCOL_DEFINITION)
+#if !defined(TEST_INTERFACE_DEFINITION) && !defined(TEST_PROTOCOL_DEFINITION) && !defined(TEST_IMPLEMENTATION_BODY)
 @class NSArray;
 @protocol CIRForwardProtocol;
 
@@ -17,11 +19,41 @@ int objc_forward_protocol_is_type_only(void) { return 19; }
 // FORWARD-LABEL: cir.func{{.*}}@objc_forward_protocol_is_type_only
 // FORWARD-NOT: CIRForwardProtocol
 #elif defined(TEST_INTERFACE_DEFINITION)
-@interface CIRUnsupportedInterface
+@protocol CIRInterfaceProtocol;
+
+@interface CIRInterfaceBase
 @end
 
-// DEFINITION: error: ClangIR code gen Not Yet Implemented: declaration of kind: ObjCInterface definition
-#else
+@interface CIRDefinedInterface : CIRInterfaceBase <CIRInterfaceProtocol> {
+@public
+  int field;
+}
+@property(nonatomic, copy) id value;
+- (id)method:(id)value;
+@end
+
+int objc_interface_definition_is_metadata_only(void) { return 29; }
+
+// INTERFACE-DEFINITION: cir.objc_interfaces = [
+// INTERFACE-DEFINITION-DAG: "c:objc(cs)CIRDefinedInterface"
+// INTERFACE-DEFINITION-DAG: runtime_name = "CIRDefinedInterface"
+// INTERFACE-DEFINITION-DAG: "c:objc(cs)CIRInterfaceBase"
+// INTERFACE-DEFINITION-DAG: "c:objc(pl)CIRInterfaceProtocol"
+// INTERFACE-DEFINITION-DAG: "c:objc(cs)CIRDefinedInterface(im)method:"
+// INTERFACE-DEFINITION-DAG: "c:objc(cs)CIRDefinedInterface(py)value"
+// INTERFACE-DEFINITION-DAG: "c:objc(cs)CIRDefinedInterface@field"
+// INTERFACE-DEFINITION-DAG: properties = [
+// INTERFACE-DEFINITION-DAG: ivars = [
+// INTERFACE-DEFINITION-DAG: getter_selector = "value"
+// INTERFACE-DEFINITION-DAG: setter_selector = "setValue:"
+// INTERFACE-DEFINITION-DAG: type = {
+// INTERFACE-DEFINITION-DAG: type = {
+// INTERFACE-DEFINITION-DAG: offset_bits =
+// INTERFACE-DEFINITION-DAG: layout_size_bytes =
+// INTERFACE-DEFINITION-DAG: layout_align_bytes =
+// INTERFACE-DEFINITION-NOT: cir.global
+// INTERFACE-DEFINITION-LABEL: cir.func{{.*}}@objc_interface_definition_is_metadata_only
+#elif defined(TEST_PROTOCOL_DEFINITION)
 @protocol CIRProtocolBase;
 @protocol CIRDefinedProtocol <CIRProtocolBase>
 @required
@@ -45,4 +77,14 @@ int objc_protocol_definition_is_metadata_only(void) { return 23; }
 // PROTOCOL-DEFINITION-DAG: return_type = {
 // PROTOCOL-DEFINITION-NOT: cir.global
 // PROTOCOL-DEFINITION-LABEL: cir.func{{.*}}@objc_protocol_definition_is_metadata_only
+#else
+@interface CIRUnsupportedImplementation
+@end
+
+@implementation CIRUnsupportedImplementation
+- (void)run {
+}
+@end
+
+// IMPLEMENTATION: error: ClangIR code gen Not Yet Implemented: declaration of kind: ObjCImplementation
 #endif
