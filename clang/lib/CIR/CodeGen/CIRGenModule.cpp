@@ -2406,6 +2406,18 @@ void CIRGenModule::emitTopLevelDecl(Decl *decl) {
              "ObjCInterface definition");
     break;
   }
+  case Decl::ObjCProtocol: {
+    const auto *protocol = cast<ObjCProtocolDecl>(decl);
+    // A forward Objective-C protocol declaration has no executable
+    // representation. It is a type-only fact, so do not make it an
+    // unsupported top-level code-generation construct. Definitions remain
+    // fail-closed until CIR owns their methods and runtime metadata.
+    if (!protocol->isThisDeclarationADefinition())
+      break;
+    errorNYI(protocol->getBeginLoc(), "declaration of kind",
+             "ObjCProtocol definition");
+    break;
+  }
 
   case Decl::CXXConversion:
   case Decl::CXXMethod:
