@@ -2420,6 +2420,9 @@ static mlir::DictionaryAttr getObjCSourceTypeFacts(CIRGenModule &cgm,
               cgm.getBuilder().getBoolAttr(objectPointer->isObjCClassType()));
     facts.set("objc_is_kindof",
               cgm.getBuilder().getBoolAttr(objectPointer->isKindOfType()));
+    if (NullabilityKindOrNone nullability = type->getNullability())
+      facts.set("objc_nullability", cgm.getBuilder().getStringAttr(
+                                        getNullabilitySpelling(*nullability)));
 
     if (const ObjCInterfaceDecl *interface =
             objectPointer->getInterfaceDecl()) {
@@ -3612,7 +3615,7 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
       }
       return layer.getDictionary(&getMLIRContext());
     };
-    auto sourceType = [&](QualType type) {
+    auto sourceType = [&](QualType type) -> std::optional<mlir::ArrayAttr> {
       llvm::SmallVector<mlir::Attribute, 4> layers;
       QualType current = type;
       while (true) {
@@ -3631,22 +3634,62 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
           current = current->getPointeeType();
           continue;
         }
+        if (current->isObjCObjectPointerType()) {
+          bool hasCompleteIdentity = true;
+          mlir::DictionaryAttr objcFacts =
+              getObjCSourceTypeFacts(*this, current, hasCompleteIdentity);
+          if (!hasCompleteIdentity || !objcFacts)
+            return std::nullopt;
+
+          mlir::NamedAttrList layer;
+          const mlir::DictionaryAttr genericFacts =
+              sourceTypeLayer(current, "objc_object_pointer", false);
+          for (mlir::NamedAttribute attribute : genericFacts.getValue())
+            layer.set(attribute.getName(), attribute.getValue());
+          layer.set("objc", objcFacts);
+          layers.push_back(layer.getDictionary(&getMLIRContext()));
+          break;
+        }
         layers.push_back(sourceTypeLayer(current, "value", false));
         break;
       }
       return builder.getArrayAttr(layers);
     };
+    if (functionDecl->getReturnType()->isObjCObjectPointerType()) {
+      std::optional<mlir::ArrayAttr> returnSourceType =
+          sourceType(functionDecl->getReturnType());
+      if (!returnSourceType) {
+        errorNYI(functionDecl->getSourceRange(),
+                 "function result type without complete ObjC identity");
+        return;
+      }
+      func->setAttr("ast_return_source_type", *returnSourceType);
+    }
+
     const unsigned explicitParams = functionDecl->getNumParams();
     const unsigned cirParams = func.getNumArguments();
     llvm::SmallVector<mlir::Attribute, 8> parameterSourceTypes;
     parameterSourceTypes.reserve(explicitParams + 1);
     if (const auto *method = dyn_cast<CXXMethodDecl>(functionDecl);
         method && !method->isStatic()) {
-      parameterSourceTypes.push_back(sourceType(method->getThisType()));
+      std::optional<mlir::ArrayAttr> thisSourceType =
+          sourceType(method->getThisType());
+      if (!thisSourceType) {
+        errorNYI(method->getSourceRange(),
+                 "function object parameter without complete ObjC identity");
+        return;
+      }
+      parameterSourceTypes.push_back(*thisSourceType);
     }
     for (unsigned index = 0; index < explicitParams; ++index) {
-      parameterSourceTypes.push_back(
-          sourceType(functionDecl->getParamDecl(index)->getType()));
+      std::optional<mlir::ArrayAttr> parameterSourceType =
+          sourceType(functionDecl->getParamDecl(index)->getType());
+      if (!parameterSourceType) {
+        errorNYI(functionDecl->getParamDecl(index)->getSourceRange(),
+                 "function parameter type without complete ObjC identity");
+        return;
+      }
+      parameterSourceTypes.push_back(*parameterSourceType);
     }
     func->setAttr("ast_param_source_types",
                   builder.getArrayAttr(parameterSourceTypes));

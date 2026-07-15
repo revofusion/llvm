@@ -539,6 +539,16 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
     break;
   }
 
+  case Type::ObjCObjectPointer: {
+    // Objective-C object references have a runtime pointer representation.
+    // The object interface, protocol qualifiers, and nullability remain exact
+    // source facts on the owning declaration rather than becoming a synthetic
+    // CIR record layout.
+    resultType =
+        builder.getPointerTo(builder.getVoidTy(), type.getAddressSpace());
+    break;
+  }
+
   case Type::VariableArray: {
     const VariableArrayType *a = cast<VariableArrayType>(ty);
     if (a->getIndexTypeCVRQualifiers() != 0)

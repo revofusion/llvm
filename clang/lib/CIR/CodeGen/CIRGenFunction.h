@@ -29,6 +29,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/Stmt.h"
+#include "clang/AST/StmtObjC.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/OperatorKinds.h"
 #include "clang/Basic/TargetBuiltins.h"
@@ -1909,9 +1910,9 @@ public:
 
   void emitCXXTemporary(const CXXTemporary *temporary, QualType tempType,
                         Address ptr, const CXXBindTemporaryExpr *binding);
-  void setCXXBindTemporaryObjectIdentity(
-      const CXXBindTemporaryExpr *binding, const CXXTemporary *temporary,
-      Address address);
+  void setCXXBindTemporaryObjectIdentity(const CXXBindTemporaryExpr *binding,
+                                         const CXXTemporary *temporary,
+                                         Address address);
   void setCXXAutomaticObjectIdentity(const VarDecl *variable, Address address);
 
   void emitCXXThrowExpr(const CXXThrowExpr *e);
@@ -2038,6 +2039,8 @@ public:
 
   void emitDecl(const clang::Decl &d, bool evaluateConditionDecl = false);
   mlir::LogicalResult emitDeclStmt(const clang::DeclStmt &s);
+  mlir::LogicalResult
+  emitObjCAutoreleasePoolStmt(const clang::ObjCAutoreleasePoolStmt &s);
   LValue emitDeclRefLValue(const clang::DeclRefExpr *e);
 
   mlir::LogicalResult emitDefaultStmt(const clang::DefaultStmt &s,
@@ -2130,8 +2133,9 @@ public:
                                           llvm::StringRef fieldName);
 
   LValue emitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *e);
-  void setMaterializedTemporaryIdentity(
-      const MaterializeTemporaryExpr *temporary, Address address);
+  void
+  setMaterializedTemporaryIdentity(const MaterializeTemporaryExpr *temporary,
+                                   Address address);
 
   LValue emitMemberExpr(const MemberExpr *e);
 

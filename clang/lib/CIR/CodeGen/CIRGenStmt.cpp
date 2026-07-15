@@ -18,6 +18,7 @@
 #include "mlir/Support/LLVM.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/Stmt.h"
+#include "clang/AST/StmtObjC.h"
 #include "clang/AST/StmtOpenACC.h"
 #include "clang/AST/StmtOpenMP.h"
 #include "clang/CIR/MissingFeatures.h"
@@ -413,6 +414,8 @@ mlir::LogicalResult CIRGenFunction::emitStmt(const Stmt *s,
     return emitOMPMaskedDirective(cast<OMPMaskedDirective>(*s));
   case Stmt::OMPStripeDirectiveClass:
     return emitOMPStripeDirective(cast<OMPStripeDirective>(*s));
+  case Stmt::ObjCAutoreleasePoolStmtClass:
+    return emitObjCAutoreleasePoolStmt(cast<ObjCAutoreleasePoolStmt>(*s));
   case Stmt::LabelStmtClass:
   case Stmt::AttributedStmtClass:
   case Stmt::GotoStmtClass:
@@ -425,8 +428,6 @@ mlir::LogicalResult CIRGenFunction::emitStmt(const Stmt *s,
   case Stmt::ObjCAtThrowStmtClass:
   case Stmt::ObjCAtSynchronizedStmtClass:
   case Stmt::ObjCForCollectionStmtClass:
-  case Stmt::ObjCAutoreleasePoolStmtClass:
-  case Stmt::SEHTryStmtClass:
   case Stmt::ObjCAtCatchStmtClass:
   case Stmt::ObjCAtFinallyStmtClass:
   case Stmt::DeferStmtClass:
@@ -436,6 +437,65 @@ mlir::LogicalResult CIRGenFunction::emitStmt(const Stmt *s,
   }
 
   llvm_unreachable("Unexpected statement class");
+}
+
+namespace {
+static cir::FuncOp getObjCAutoreleasePoolPushRuntime(CIRGenFunction &cgf) {
+  cir::FuncOp push = cgf.cgm.createRuntimeFunction(
+      cir::FuncType::get({}, cgf.getBuilder().getVoidPtrTy()),
+      "objc_autoreleasePoolPush");
+  push->setAttr(cir::CIRDialect::getNoThrowAttrName(),
+                mlir::UnitAttr::get(&cgf.getMLIRContext()));
+  return push;
+}
+
+static cir::FuncOp getObjCAutoreleasePoolPopRuntime(CIRGenFunction &cgf) {
+  return cgf.cgm.createRuntimeFunction(
+      cir::FuncType::get({cgf.getBuilder().getVoidPtrTy()},
+                         cgf.getBuilder().getVoidTy()),
+      "objc_autoreleasePoolPop");
+}
+
+struct CallObjCAutoreleasePoolPop final : EHScopeStack::Cleanup {
+  CallObjCAutoreleasePoolPop(mlir::Value token, mlir::Location loc)
+      : token(token), loc(loc) {}
+
+  void emit(CIRGenFunction &cgf, Flags) override {
+    cgf.emitRuntimeCall(loc, getObjCAutoreleasePoolPopRuntime(cgf), {token});
+  }
+
+  mlir::Value token;
+  mlir::Location loc;
+};
+} // namespace
+
+mlir::LogicalResult
+CIRGenFunction::emitObjCAutoreleasePoolStmt(const ObjCAutoreleasePoolStmt &s) {
+  if (!getLangOpts().ObjCRuntime.hasNativeARC()) {
+    cgm.errorNYI(s.getSourceRange(),
+                 "emitObjCAutoreleasePoolStmt: unsupported Objective-C "
+                 "autorelease-pool runtime ABI");
+    return mlir::failure();
+  }
+
+  const auto *body = dyn_cast<CompoundStmt>(s.getSubStmt());
+  if (!body) {
+    cgm.errorNYI(s.getSourceRange(),
+                 "emitObjCAutoreleasePoolStmt: non-compound body");
+    return mlir::failure();
+  }
+
+  // Match classic CodeGen's native-ARC path: push a runtime pool token, then
+  // register one pop cleanup for both normal and exceptional scope exits.
+  // RunCleanupsScope routes early returns and exceptions through that cleanup;
+  // the pop is deliberately not marked nothrow because the runtime may throw.
+  RunCleanupsScope poolScope(*this);
+  const mlir::Location loc = getLoc(s.getSourceRange());
+  mlir::Value token =
+      emitRuntimeCall(loc, getObjCAutoreleasePoolPushRuntime(*this));
+  ehStack.pushCleanup<CallObjCAutoreleasePoolPop>(NormalAndEHCleanup, token,
+                                                  loc);
+  return emitCompoundStmt(*body);
 }
 
 mlir::LogicalResult CIRGenFunction::emitSimpleStmt(const Stmt *s,
