@@ -148,6 +148,8 @@ parseRecordBody(mlir::AsmParser &parser, bool &incomplete,
 ///   '<' ['class '] [name] ['packed '] ['padded '] body '>'
 /// where body is "incomplete" or "{members[, padding = {type}]}".
 /// RecordTy must be a mutable MLIR type (StructType or UnionType).
+static thread_local unsigned recordPrintDepth = 0;
+
 template <typename RecordTy>
 static void printRecordBody(mlir::AsmPrinter &printer, RecordTy self,
                             mlir::StringAttr name, bool hasClassPrefix,
@@ -159,13 +161,22 @@ static void printRecordBody(mlir::AsmPrinter &printer, RecordTy self,
     printer << "class ";
   if (name)
     printer << name;
-
   FailureOr<AsmPrinter::CyclicPrintReset> cyclicPrintGuard =
       printer.tryStartCyclicPrint(self);
   if (failed(cyclicPrintGuard)) {
     printer << '>';
     return;
   }
+  if (recordPrintDepth != 0 && name &&
+      !printer.isAliasDiscoveryPrinter()) {
+    printer << " incomplete>";
+    return;
+  }
+  struct RecordPrintDepthGuard {
+    explicit RecordPrintDepthGuard(unsigned &depth) : depth(depth) { ++depth; }
+    ~RecordPrintDepthGuard() { --depth; }
+    unsigned &depth;
+  } depthGuard(recordPrintDepth);
 
   if (hasClassPrefix || name)
     printer << ' ';
@@ -177,7 +188,8 @@ static void printRecordBody(mlir::AsmPrinter &printer, RecordTy self,
     printer << "incomplete";
   } else {
     printer << "{";
-    llvm::interleaveComma(members, printer);
+    llvm::interleaveComma(members, printer,
+                          [&](mlir::Type member) { printer.printType(member); });
     printer << "}";
     if (padding) {
       printer << ", padding = {";

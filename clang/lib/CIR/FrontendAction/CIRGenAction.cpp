@@ -118,6 +118,10 @@ public:
     Gen->HandleInlineFunctionDefinition(D);
   }
 
+  bool shouldSkipFunctionBody(Decl *D) override {
+    return Gen->shouldSkipFunctionBody(D);
+  }
+
   void HandleTranslationUnit(ASTContext &C) override {
     Gen->HandleTranslationUnit(C);
 

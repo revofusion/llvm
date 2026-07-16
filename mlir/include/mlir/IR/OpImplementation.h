@@ -130,6 +130,9 @@ public:
   /// Return the raw output stream used by this printer.
   virtual raw_ostream &getStream() const;
 
+  /// Return true while a dummy printer is discovering nested aliases.
+  virtual bool isAliasDiscoveryPrinter() const { return false; }
+
   /// Print a newline and indent the printer to the start of the current
   /// operation/attribute/type.
   /// Note: For attributes and types this method should only be used in

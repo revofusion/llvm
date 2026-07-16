@@ -492,6 +492,12 @@ void CIRGenModule::emitGlobalDecl(const clang::GlobalDecl &d) {
   emitGlobalDefinition(d, op);
 }
 
+void CIRGenModule::addDeferredDeclToEmit(GlobalDecl gd) {
+  if (selectedDeclRootMode && !isSelectedDeclRoot(gd))
+    return;
+  deferredDeclsToEmit.emplace_back(gd);
+}
+
 void CIRGenModule::emitDeferred() {
   // Emit code for any potentially referenced deferred decls. Since a previously
   // unused static decl may become used during the generation of code for a
@@ -578,6 +584,9 @@ void CIRGenModule::emitGlobal(clang::GlobalDecl gd) {
   }
 
   const auto *global = cast<ValueDecl>(gd.getDecl());
+
+  if (selectedDeclRootMode && !isSelectedDeclRoot(gd))
+    return;
 
   // Weak references don't produce any output by themselves.
   if (global->hasAttr<WeakRefAttr>())
@@ -3200,7 +3209,35 @@ void CIRGenModule::loadSelectedDeclRoots() {
 }
 
 bool CIRGenModule::isSelectedDeclRoot(GlobalDecl gd) {
-  return selectedDeclRootMode && selectedDeclRoots.contains(getMangledName(gd));
+  if (!selectedDeclRootMode)
+    return false;
+  const Decl *decl = gd.getDecl();
+  if (selectedDeclRoots.contains(getMangledName(gd)))
+    return true;
+  if (const auto *ctor = dyn_cast<CXXConstructorDecl>(decl))
+    return selectedDeclRoots.contains(
+               getMangledName(GlobalDecl(ctor, Ctor_Complete))) ||
+           selectedDeclRoots.contains(getMangledName(GlobalDecl(ctor, Ctor_Base)));
+  if (const auto *dtor = dyn_cast<CXXDestructorDecl>(decl))
+    return selectedDeclRoots.contains(
+               getMangledName(GlobalDecl(dtor, Dtor_Deleting))) ||
+           selectedDeclRoots.contains(
+               getMangledName(GlobalDecl(dtor, Dtor_Complete))) ||
+           selectedDeclRoots.contains(getMangledName(GlobalDecl(dtor, Dtor_Base)));
+  return false;
+}
+
+bool CIRGenModule::shouldParseSelectedDeclBody(const FunctionDecl *fd) {
+  if (!selectedDeclRootMode)
+    return true;
+  if (const auto *ctor = dyn_cast<CXXConstructorDecl>(fd))
+    return isSelectedDeclRoot(GlobalDecl(ctor, Ctor_Complete)) ||
+           isSelectedDeclRoot(GlobalDecl(ctor, Ctor_Base));
+  if (const auto *dtor = dyn_cast<CXXDestructorDecl>(fd))
+    return isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Deleting)) ||
+           isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Complete)) ||
+           isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Base));
+  return isSelectedDeclRoot(GlobalDecl(fd));
 }
 
 StringRef CIRGenModule::getMangledName(GlobalDecl gd) {

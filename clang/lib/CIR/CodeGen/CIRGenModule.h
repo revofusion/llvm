@@ -191,6 +191,10 @@ private:
 public:
   mlir::ModuleOp getModule() const { return theModule; }
   CIRGenBuilderTy &getBuilder() { return builder; }
+  bool shouldEmitSelectedDeclRoot(clang::GlobalDecl gd) {
+    return !selectedDeclRootMode || isSelectedDeclRoot(gd);
+  }
+  bool shouldParseSelectedDeclBody(const clang::FunctionDecl *fd);
 
   /// Queue a record layout entry for materialization in release().
   void addRecordLayout(mlir::StringAttr name, cir::RecordLayoutAttr attr) {
@@ -609,9 +613,7 @@ public:
   // This is a list of deferred decls which we have seen that *are* actually
   // referenced. These get code generated when the module is done.
   std::vector<clang::GlobalDecl> deferredDeclsToEmit;
-  void addDeferredDeclToEmit(clang::GlobalDecl GD) {
-    deferredDeclsToEmit.emplace_back(GD);
-  }
+  void addDeferredDeclToEmit(clang::GlobalDecl gd);
 
   void emitTopLevelDecl(clang::Decl *decl);
 

@@ -86,6 +86,7 @@ public:
                                 const clang::OpenACCRoutineDecl *RD) override;
   void CompleteTentativeDefinition(clang::VarDecl *d) override;
   void HandleVTable(clang::CXXRecordDecl *rd) override;
+  bool shouldSkipFunctionBody(clang::Decl *d) override;
 
   mlir::ModuleOp getModule() const;
   mlir::MLIRContext &getMLIRContext() { return *mlirContext; };

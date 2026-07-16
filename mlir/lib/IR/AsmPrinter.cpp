@@ -928,6 +928,8 @@ public:
     return maxAliasDepth;
   }
 
+  bool isAliasDiscoveryPrinter() const override { return true; }
+
 private:
   /// Print the given attribute/type, visiting any nested aliases that would be
   /// generated as part of printing.

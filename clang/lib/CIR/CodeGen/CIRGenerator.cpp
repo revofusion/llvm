@@ -94,6 +94,9 @@ void CIRGenerator::HandleInlineFunctionDefinition(FunctionDecl *d) {
   if (diags.hasErrorOccurred())
     return;
 
+  if (!cgm->shouldParseSelectedDeclBody(d))
+    return;
+
   assert(d->doesThisDeclarationHaveABody());
 
   // We may want to emit this definition. However, that decision might be
@@ -132,6 +135,9 @@ void CIRGenerator::emitDeferredDecls() {
 /// can be defined in declspecs).
 void CIRGenerator::HandleTagDeclDefinition(TagDecl *d) {
   if (diags.hasErrorOccurred())
+    return;
+
+  if (!codeGenOpts.ClangIRSelectedDeclsFile.empty())
     return;
 
   // Don't allow re-entrant calls to CIRGen triggered by PCH deserialization to
@@ -173,6 +179,9 @@ void CIRGenerator::HandleCXXStaticMemberVarInstantiation(VarDecl *D) {
   if (diags.hasErrorOccurred())
     return;
 
+  if (!cgm->shouldEmitSelectedDeclRoot(GlobalDecl(D)))
+    return;
+
   cgm->handleCXXStaticMemberVarInstantiation(D);
 }
 
@@ -192,6 +201,9 @@ void CIRGenerator::CompleteTentativeDefinition(VarDecl *d) {
   if (diags.hasErrorOccurred())
     return;
 
+  if (!cgm->shouldEmitSelectedDeclRoot(GlobalDecl(d)))
+    return;
+
   cgm->emitTentativeDefinition(d);
 }
 
@@ -199,5 +211,18 @@ void CIRGenerator::HandleVTable(CXXRecordDecl *rd) {
   if (diags.hasErrorOccurred())
     return;
 
+  if (!codeGenOpts.ClangIRSelectedDeclsFile.empty())
+    return;
+
   cgm->emitVTable(rd);
+}
+
+bool CIRGenerator::shouldSkipFunctionBody(Decl *d) {
+  if (codeGenOpts.ClangIRSelectedDeclsFile.empty())
+    return false;
+  const auto *fd = dyn_cast<FunctionDecl>(d);
+  if (fd && (fd->getDeclContext()->isDependentContext() ||
+             fd->getTemplatedKind() != FunctionDecl::TK_NonTemplate))
+    return false;
+  return !fd || !cgm->shouldParseSelectedDeclBody(fd);
 }
