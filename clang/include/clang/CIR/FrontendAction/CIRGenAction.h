@@ -33,6 +33,7 @@ public:
   enum class OutputType {
     EmitAssembly,
     EmitCIR,
+    EmitCIRBytecode,
     EmitLLVM,
     EmitBC,
     EmitObj,
@@ -68,6 +69,12 @@ class EmitCIRAction : public CIRGenAction {
 
 public:
   EmitCIRAction(mlir::MLIRContext *MLIRCtx = nullptr);
+};
+class EmitCIRBytecodeAction : public CIRGenAction {
+  virtual void anchor();
+
+public:
+  EmitCIRBytecodeAction(mlir::MLIRContext *MLIRCtx = nullptr);
 };
 
 class EmitLLVMAction : public CIRGenAction {

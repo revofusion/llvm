@@ -5370,7 +5370,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-rewrite-objc");
       rewriteKind = RK_Fragile;
     } else if (JA.getType() == types::TY_CIR) {
-      CmdArgs.push_back("-emit-cir");
+      CmdArgs.push_back(Args.hasArg(options::OPT_emit_cir_bytecode)
+                            ? "-emit-cir-bytecode"
+                            : "-emit-cir");
     } else if (JA.getType() == types::TY_Image && IsAMDSPIRVForHIPDevice) {
       CmdArgs.push_back("-emit-obj");
     } else {

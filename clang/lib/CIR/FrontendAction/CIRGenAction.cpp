@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/CIR/FrontendAction/CIRGenAction.h"
+#include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "clang/Basic/DiagnosticFrontend.h"
@@ -37,6 +38,8 @@ namespace cir {
 static BackendAction
 getBackendActionFromOutputType(CIRGenAction::OutputType Action) {
   switch (Action) {
+  case CIRGenAction::OutputType::EmitCIRBytecode:
+    llvm_unreachable("CIR bytecode is not an LLVM backend action");
   case CIRGenAction::OutputType::EmitCIR:
     assert(false &&
            "Unsupported output type for getBackendActionFromOutputType!");
@@ -150,6 +153,16 @@ public:
     }
 
     switch (Action) {
+    case CIRGenAction::OutputType::EmitCIRBytecode:
+      if (OutputStream && MlirModule) {
+        mlir::BytecodeWriterConfig config("clang-cir");
+        if (mlir::failed(mlir::writeBytecodeToFile(
+                MlirModule, *OutputStream, config))) {
+          CI.getDiagnostics().Report(
+              diag::err_cir_to_cir_transform_failed);
+        }
+      }
+      break;
     case CIRGenAction::OutputType::EmitCIR:
       if (OutputStream && MlirModule) {
         mlir::OpPrintingFlags Flags;
@@ -270,6 +283,8 @@ getOutputStream(CompilerInstance &CI, StringRef InFile,
     return CI.createDefaultOutputFile(false, InFile, "s");
   case CIRGenAction::OutputType::EmitCIR:
     return CI.createDefaultOutputFile(false, InFile, "cir");
+  case CIRGenAction::OutputType::EmitCIRBytecode:
+    return CI.createDefaultOutputFile(true, InFile, "cirbc");
   case CIRGenAction::OutputType::EmitLLVM:
     return CI.createDefaultOutputFile(false, InFile, "ll");
   case CIRGenAction::OutputType::EmitBC:
@@ -293,6 +308,9 @@ CIRGenAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   return Result;
 }
 
+void EmitCIRBytecodeAction::anchor() {}
+EmitCIRBytecodeAction::EmitCIRBytecodeAction(mlir::MLIRContext *MLIRCtx)
+    : CIRGenAction(OutputType::EmitCIRBytecode, MLIRCtx) {}
 void EmitAssemblyAction::anchor() {}
 EmitAssemblyAction::EmitAssemblyAction(mlir::MLIRContext *MLIRCtx)
     : CIRGenAction(OutputType::EmitAssembly, MLIRCtx) {}
