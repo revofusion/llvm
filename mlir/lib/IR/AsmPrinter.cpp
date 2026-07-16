@@ -915,7 +915,7 @@ class DummyAliasDialectAsmPrinter : public DialectAsmPrinter {
 public:
   explicit DummyAliasDialectAsmPrinter(AliasInitializer &initializer,
                                        bool canBeDeferred,
-                                       SmallVectorImpl<size_t> &childIndices)
+                                       SmallVectorImpl<size_t> *childIndices)
       : initializer(initializer), canBeDeferred(canBeDeferred),
         childIndices(childIndices) {}
 
@@ -1028,7 +1028,8 @@ private:
 
   /// Record the alias result of a child element.
   void recordAliasResult(std::pair<size_t, size_t> aliasDepthAndIndex) {
-    childIndices.push_back(aliasDepthAndIndex.second);
+    if (childIndices)
+      childIndices->push_back(aliasDepthAndIndex.second);
     if (aliasDepthAndIndex.first > maxAliasDepth)
       maxAliasDepth = aliasDepthAndIndex.first;
   }
@@ -1064,8 +1065,8 @@ private:
   /// If the aliases visited by this printer can be deferred.
   bool canBeDeferred;
 
-  /// The indices of child aliases.
-  SmallVectorImpl<size_t> &childIndices;
+  /// The indices of child aliases, retained only for deferrable aliases.
+  SmallVectorImpl<size_t> *childIndices;
 
   /// The maximum alias depth found by the printer.
   size_t maxAliasDepth = 0;
@@ -1208,17 +1209,22 @@ std::pair<size_t, size_t> AliasInitializer::visitImpl(
   it->second.isType = std::is_base_of_v<Type, T>;
   it->second.canBeDeferred = canBeDeferred;
 
-  // Print the value, capturing any nested elements that require aliases.
+  // Only aliases first reached through a deferrable location need their child
+  // edges retained: `markAliasNonDeferrable` is the sole consumer and every
+  // non-deferrable alias is already closed. Keeping these edges for every
+  // record type duplicates a template-heavy type graph alongside the IR.
   SmallVector<size_t> childAliases;
-  DummyAliasDialectAsmPrinter printer(*this, canBeDeferred, childAliases);
+  DummyAliasDialectAsmPrinter printer(
+      *this, canBeDeferred, canBeDeferred ? &childAliases : nullptr);
   size_t maxAliasDepth =
       printer.printAndVisitNestedAliases(value, printArgs...);
 
   // Make sure to recompute `it` in case the map was reallocated.
   it = std::next(aliases.begin(), aliasIndex);
 
-  // If we had sub elements, update to account for the depth.
-  it->second.childIndices = std::move(childAliases);
+  // Preserve child edges exactly where later deferral revocation needs them.
+  if (canBeDeferred)
+    it->second.childIndices = std::move(childAliases);
   if (maxAliasDepth)
     it->second.aliasDepth = maxAliasDepth + 1;
 
