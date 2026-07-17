@@ -3785,7 +3785,6 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
     }
 
     const unsigned explicitParams = functionDecl->getNumParams();
-    const unsigned cirParams = func.getNumArguments();
     llvm::SmallVector<mlir::Attribute, 8> parameterSourceTypes;
     parameterSourceTypes.reserve(explicitParams + 1);
     if (const auto *method = dyn_cast<CXXMethodDecl>(functionDecl);
@@ -3811,13 +3810,6 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
     }
     func->setAttr("ast_param_source_types",
                   builder.getArrayAttr(parameterSourceTypes));
-    if (cirParams >= parameterSourceTypes.size()) {
-      const unsigned offset = cirParams - parameterSourceTypes.size();
-      for (unsigned index = 0; index < parameterSourceTypes.size(); ++index) {
-        func.setArgAttr(offset + index, "ast_source_type",
-                        parameterSourceTypes[index]);
-      }
-    }
   }
   if (const auto *method =
           dyn_cast_or_null<CXXMethodDecl>(globalDecl.getDecl());
@@ -3879,6 +3871,36 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
     mlir::function_interface_impl::setArgAttrs(func, idx_arg_pair.index(),
                                                idx_arg_pair.value());
   });
+  // `constructAttributeList` replaces the complete per-argument attribute
+  // dictionary, so source-type facts must be attached after ABI attributes.
+  if (auto sourceTypes =
+          func->getAttrOfType<mlir::ArrayAttr>("ast_param_source_types")) {
+    const unsigned cirParams = func.getNumArguments();
+    if (cirParams >= sourceTypes.size()) {
+      const auto *functionDecl =
+          dyn_cast_or_null<FunctionDecl>(globalDecl.getDecl());
+      const bool isStructor =
+          isa_and_nonnull<CXXConstructorDecl>(functionDecl) ||
+          isa_and_nonnull<CXXDestructorDecl>(functionDecl);
+      if (isStructor && !sourceTypes.empty()) {
+        // `this` is always the first CIR structor parameter. The Itanium VTT
+        // parameter, when present, is inserted immediately after it and has no
+        // source-level parameter type.
+        func.setArgAttr(0, "cir.ast_source_type", sourceTypes[0]);
+        unsigned cirIndex =
+            getCXXABI().needsVTTParameter(globalDecl) ? 2 : 1;
+        for (unsigned sourceIndex = 1; sourceIndex < sourceTypes.size();
+             ++sourceIndex)
+          func.setArgAttr(cirIndex++, "cir.ast_source_type",
+                          sourceTypes[sourceIndex]);
+      } else {
+        const unsigned offset = cirParams - sourceTypes.size();
+        for (unsigned index = 0; index < sourceTypes.size(); ++index)
+          func.setArgAttr(offset + index, "cir.ast_source_type",
+                          sourceTypes[index]);
+      }
+    }
+  }
   if (!retAttrs.empty())
     mlir::function_interface_impl::setResultAttrs(func, 0, retAttrs);
 

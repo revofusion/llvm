@@ -1,4 +1,4 @@
-// RUN: printf '_Z8selectedv\n_Z12selectedUptrv\n_ZN4MoveC1EOS_\n_Z15cxx_identity_fnIiEN13cxx_enable_ifIXeqstT_Li4EEiE4typeES1_\n' > %t.roots
+// RUN: printf '_Z8selectedv\n_Z12selectedUptrv\n_ZN4MoveC1EOS_\n_Z15cxx_identity_fnIiEN13cxx_enable_ifIXeqstT_Li4EEiE4typeES1_\n_Z11selectedVttv\n' > %t.roots
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++17 -fclangir -emit-cir -fclangir-emit-selected-decls=%t.roots -skip-function-bodies %s -o %t.cir
 // RUN: FileCheck %s --implicit-check-not=@_Z9unrelatedv --input-file=%t.cir
 
@@ -36,6 +36,20 @@ struct Move {
   Move(Move &&) = default;
 };
 
+struct VirtualBase {};
+
+struct VirtualDerived : virtual VirtualBase {
+  VirtualDerived() = default;
+};
+
+struct FurtherDerived : VirtualDerived {
+  FurtherDerived() = default;
+};
+
+void selectedVtt() {
+  FurtherDerived value;
+}
+
 void unrelated() {}
 
 template <bool B, class T = void>
@@ -70,3 +84,6 @@ void selected() {
 // CHECK-DAG: cir.func{{.*}}@_ZN5InnerD1Ev{{.*}} {
 // CHECK-DAG: cir.func{{.*}}@_ZN4MoveC1EOS_{{.*}} {
 // CHECK-DAG: cir.func{{.*}}@_Z15cxx_identity_fnIiEN13cxx_enable_ifIXeqstT_Li4EEiE4typeES1_{{.*}} {
+// A base constructor with virtual bases has a hidden VTT argument after
+// `this`; source-type metadata must stay on arg0 rather than shifting to VTT.
+// CHECK-DAG: cir.func{{.*}} @_ZN14VirtualDerivedC2Ev(%arg0: {{.*}}cir.ast_source_type{{.*}}, %arg1: !cir.ptr<!cir.ptr<!void>>
