@@ -493,8 +493,11 @@ void CIRGenModule::emitGlobalDecl(const clang::GlobalDecl &d) {
 }
 
 void CIRGenModule::addDeferredDeclToEmit(GlobalDecl gd) {
-  if (selectedDeclRootMode && !isSelectedDeclRoot(gd))
-    return;
+  if (selectedDeclRootMode && !isSelectedDeclRoot(gd)) {
+    addSelectedDeclDependency(gd);
+    if (!emittingSelectedDeclDependency)
+      return;
+  }
   deferredDeclsToEmit.emplace_back(gd);
 }
 
@@ -521,12 +524,14 @@ void CIRGenModule::emitDeferred() {
   // work, it will not interfere with this.
   std::vector<GlobalDecl> curDeclsToEmit;
   curDeclsToEmit.swap(deferredDeclsToEmit);
-
   for (const GlobalDecl &d : curDeclsToEmit) {
+    bool wasEmittingSelectedDeclDependency = emittingSelectedDeclDependency;
+    emittingSelectedDeclDependency = true;
     emitGlobalDecl(d);
+    emittingSelectedDeclDependency = wasEmittingSelectedDeclDependency;
 
     // If we found out that we need to emit more decls, do that recursively.
-    // This has the advantage that the decls are emitted in a DFS and related
+    // This has the advantage that the decls are emitted in the DFS and related
     // ones are close together, which is convenient for testing.
     if (!deferredVTables.empty() || !deferredDeclsToEmit.empty()) {
       emitDeferred();
@@ -583,10 +588,11 @@ void CIRGenModule::emitGlobal(clang::GlobalDecl gd) {
     return;
   }
 
-  const auto *global = cast<ValueDecl>(gd.getDecl());
-
-  if (selectedDeclRootMode && !isSelectedDeclRoot(gd))
+  if (selectedDeclRootMode && !emittingSelectedDeclDependency &&
+      !isSelectedDeclRoot(gd) && !isSelectedDeclDependency(gd))
     return;
+
+  const auto *global = cast<ValueDecl>(gd.getDecl());
 
   // Weak references don't produce any output by themselves.
   if (global->hasAttr<WeakRefAttr>())
@@ -3004,6 +3010,9 @@ std::pair<cir::FuncType, cir::FuncOp> CIRGenModule::getAddrAndTypeOfCXXStructor(
     fnType = getTypes().getFunctionType(*fnInfo);
   }
 
+  if (selectedDeclRootMode && curCGF && !isSelectedDeclRoot(gd))
+    addSelectedDeclDependency(gd);
+
   auto fn = getOrCreateCIRFunction(getMangledName(gd), fnType, gd,
                                    /*ForVtable=*/false, dontDefer,
                                    /*IsThunk=*/false, isForDefinition);
@@ -3033,6 +3042,9 @@ cir::FuncOp CIRGenModule::getAddrOfFunction(clang::GlobalDecl gd,
       errorNYI(dd->getSourceRange(),
                "getAddrOfFunction: MS ABI complete destructor");
   }
+
+  if (selectedDeclRootMode && curCGF && !isSelectedDeclRoot(gd))
+    addSelectedDeclDependency(gd);
 
   StringRef mangledName = getMangledName(gd);
   cir::FuncOp func =
@@ -3232,12 +3244,69 @@ bool CIRGenModule::shouldParseSelectedDeclBody(const FunctionDecl *fd) {
     return true;
   if (const auto *ctor = dyn_cast<CXXConstructorDecl>(fd))
     return isSelectedDeclRoot(GlobalDecl(ctor, Ctor_Complete)) ||
-           isSelectedDeclRoot(GlobalDecl(ctor, Ctor_Base));
+           isSelectedDeclRoot(GlobalDecl(ctor, Ctor_Base)) ||
+           isSelectedDeclDependency(GlobalDecl(ctor, Ctor_Complete)) ||
+           isSelectedDeclDependency(GlobalDecl(ctor, Ctor_Base));
   if (const auto *dtor = dyn_cast<CXXDestructorDecl>(fd))
     return isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Deleting)) ||
            isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Complete)) ||
-           isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Base));
-  return isSelectedDeclRoot(GlobalDecl(fd));
+           isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Base)) ||
+           isSelectedDeclDependency(GlobalDecl(dtor, Dtor_Deleting)) ||
+           isSelectedDeclDependency(GlobalDecl(dtor, Dtor_Complete)) ||
+           isSelectedDeclDependency(GlobalDecl(dtor, Dtor_Base));
+  return isSelectedDeclRoot(GlobalDecl(fd)) ||
+         isSelectedDeclDependency(GlobalDecl(fd));
+}
+
+void CIRGenModule::emitSelectedMethods(const DeclContext *context) {
+  if (!selectedDeclRootMode)
+    return;
+  auto emitIfMissing = [&](GlobalDecl gd) {
+    auto global =
+        mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(
+            getGlobalValue(getMangledName(gd)));
+    if (!global || !global.isDefinition())
+      emitGlobal(gd);
+  };
+  for (Decl *decl : context->decls()) {
+    if (auto *method = dyn_cast<CXXMethodDecl>(decl);
+        method && shouldParseSelectedDeclBody(method)) {
+      if (auto *ctor = dyn_cast<CXXConstructorDecl>(method)) {
+        emitIfMissing(GlobalDecl(ctor, Ctor_Base));
+        if (!ctor->getParent()->isAbstract())
+          emitIfMissing(GlobalDecl(ctor, Ctor_Complete));
+      } else if (auto *dtor = dyn_cast<CXXDestructorDecl>(method)) {
+        emitIfMissing(GlobalDecl(dtor, Dtor_Base));
+        emitIfMissing(GlobalDecl(dtor, Dtor_Complete));
+        if (dtor->isVirtual())
+          emitIfMissing(GlobalDecl(dtor, Dtor_Deleting));
+      } else {
+        emitIfMissing(GlobalDecl(method));
+      }
+    }
+    if (auto *nested = dyn_cast<DeclContext>(decl))
+      emitSelectedMethods(nested);
+  }
+}
+
+void CIRGenModule::emitSelectedDependencies() {
+  if (!selectedDeclRootMode)
+    return;
+
+  llvm::SmallVector<GlobalDecl, 16> dependencies;
+  for (GlobalDecl gd : selectedDeclDependencies)
+    dependencies.push_back(gd);
+  bool wasEmittingSelectedDeclDependency = emittingSelectedDeclDependency;
+  emittingSelectedDeclDependency = true;
+  for (GlobalDecl gd : dependencies) {
+    auto global =
+        mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(
+            getGlobalValue(getMangledName(gd)));
+    if (!global || !global.isDefinition())
+      emitGlobal(gd);
+  }
+  emittingSelectedDeclDependency = wasEmittingSelectedDeclDependency;
+  emitDeferred();
 }
 
 StringRef CIRGenModule::getMangledName(GlobalDecl gd) {

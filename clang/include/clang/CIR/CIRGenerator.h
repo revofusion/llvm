@@ -14,8 +14,8 @@
 #ifndef LLVM_CLANG_CIR_CIRGENERATOR_H
 #define LLVM_CLANG_CIR_CIRGENERATOR_H
 
-#include "clang/AST/ASTConsumer.h"
 #include "clang/Basic/CodeGenOptions.h"
+#include "clang/Sema/SemaConsumer.h"
 
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/Support/VirtualFileSystem.h"
@@ -24,6 +24,7 @@
 
 namespace clang {
 class DeclGroupRef;
+class CXXMethodDecl;
 class DiagnosticsEngine;
 namespace CIRGen {
 class CIRGenModule;
@@ -34,10 +35,11 @@ namespace mlir {
 class MLIRContext;
 } // namespace mlir
 namespace cir {
-class CIRGenerator : public clang::ASTConsumer {
-  virtual void anchor();
+class CIRGenerator : public clang::SemaConsumer {
+  void anchor() override;
   clang::DiagnosticsEngine &diags;
   clang::ASTContext *astContext;
+  clang::Sema *sema = nullptr;
   // Only used for debug info.
   llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> fs;
 
@@ -69,12 +71,19 @@ protected:
 private:
   llvm::SmallVector<clang::FunctionDecl *, 8> deferredInlineMemberFuncDefs;
 
+  void defineSelectedDefaultedMethod(clang::CXXMethodDecl *method);
+  void defineSelectedDependencyMethods();
+
+  void defineSelectedDefaultedMethods(clang::DeclContext *context);
+
 public:
   CIRGenerator(clang::DiagnosticsEngine &diags,
                llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> fs,
                const clang::CodeGenOptions &cgo);
   ~CIRGenerator() override;
   void Initialize(clang::ASTContext &astContext) override;
+  void InitializeSema(clang::Sema &sema) override;
+  void ForgetSema() override;
   bool HandleTopLevelDecl(clang::DeclGroupRef group) override;
   void HandleTranslationUnit(clang::ASTContext &astContext) override;
   void HandleInlineFunctionDefinition(clang::FunctionDecl *d) override;

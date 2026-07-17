@@ -111,7 +111,18 @@ private:
   llvm::SmallVector<mlir::Attribute> globalScopeAsm;
 
   bool selectedDeclRootMode = false;
+  bool emittingSelectedDeclDependency = false;
   llvm::StringSet<> selectedDeclRoots;
+  llvm::DenseSet<clang::GlobalDecl> selectedDeclDependencies;
+
+  bool isSelectedDeclDependency(clang::GlobalDecl gd) const {
+    return selectedDeclDependencies.contains(gd.getCanonicalDecl());
+  }
+
+
+  void addSelectedDeclDependency(clang::GlobalDecl gd) {
+    selectedDeclDependencies.insert(gd.getCanonicalDecl());
+  }
 
   void loadSelectedDeclRoots();
   bool isSelectedDeclRoot(clang::GlobalDecl gd);
@@ -195,10 +206,20 @@ public:
     return !selectedDeclRootMode || isSelectedDeclRoot(gd);
   }
   bool shouldParseSelectedDeclBody(const clang::FunctionDecl *fd);
+  void emitSelectedMethods(const clang::DeclContext *context);
+  void emitSelectedDependencies();
 
   /// Queue a record layout entry for materialization in release().
   void addRecordLayout(mlir::StringAttr name, cir::RecordLayoutAttr attr) {
     recordLayoutEntries.push_back(mlir::NamedAttribute(name, attr));
+  }
+
+  size_t getSelectedDeclDependencyCount() const {
+    return selectedDeclDependencies.size();
+  }
+  const llvm::DenseSet<clang::GlobalDecl> &
+  getSelectedDeclDependencies() const {
+    return selectedDeclDependencies;
   }
   void addRecordDeclIdentity(mlir::StringAttr name, mlir::StringAttr identity) {
     recordDeclIdentityEntries.push_back(mlir::NamedAttribute(name, identity));

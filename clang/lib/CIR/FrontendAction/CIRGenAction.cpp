@@ -66,9 +66,9 @@ lowerFromCIRToLLVMIR(mlir::ModuleOp MLIRModule, llvm::LLVMContext &LLVMCtx,
                                               mlirSaveTempsOutFile, fs);
 }
 
-class CIRGenConsumer : public clang::ASTConsumer {
+class CIRGenConsumer : public clang::SemaConsumer {
 
-  virtual void anchor();
+  void anchor() override;
 
   CIRGenAction::OutputType Action;
 
@@ -102,6 +102,10 @@ public:
     Context = &Ctx;
     Gen->Initialize(Ctx);
   }
+
+  void InitializeSema(Sema &S) override { Gen->InitializeSema(S); }
+
+  void ForgetSema() override { Gen->ForgetSema(); }
 
   bool HandleTopLevelDecl(DeclGroupRef D) override {
     Gen->HandleTopLevelDecl(D);

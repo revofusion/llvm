@@ -21,6 +21,7 @@
 #include "clang/AST/DeclGroup.h"
 #include "clang/CIR/CIRGenerator.h"
 #include "clang/CIR/InitAllDialects.h"
+#include "clang/Sema/Sema.h"
 #include "llvm/IR/DataLayout.h"
 
 using namespace cir;
@@ -64,6 +65,56 @@ void CIRGenerator::Initialize(ASTContext &astContext) {
   setMLIRDataLayout(mod, layout);
 }
 
+void CIRGenerator::InitializeSema(Sema &sema) { this->sema = &sema; }
+
+void CIRGenerator::ForgetSema() { sema = nullptr; }
+
+void CIRGenerator::defineSelectedDefaultedMethod(CXXMethodDecl *method) {
+  assert(sema && "selected defaulted method definition requires Sema");
+  if (!method->isDefaulted() || method->isDeleted() ||
+      method->doesThisDeclarationHaveABody() ||
+      !cgm->shouldParseSelectedDeclBody(method))
+    return;
+
+  SourceLocation loc = method->getLocation();
+  if (auto *ctor = dyn_cast<CXXConstructorDecl>(method)) {
+    if (ctor->isDefaultConstructor())
+      sema->DefineImplicitDefaultConstructor(loc, ctor);
+    else if (ctor->isCopyConstructor())
+      sema->DefineImplicitCopyConstructor(loc, ctor);
+    else if (ctor->isMoveConstructor())
+      sema->DefineImplicitMoveConstructor(loc, ctor);
+  } else if (auto *dtor = dyn_cast<CXXDestructorDecl>(method)) {
+    sema->DefineImplicitDestructor(loc, dtor);
+  } else if (method->isCopyAssignmentOperator()) {
+    sema->DefineImplicitCopyAssignment(loc, method);
+  } else if (method->isMoveAssignmentOperator()) {
+    sema->DefineImplicitMoveAssignment(loc, method);
+  } else {
+    auto comparisonKind = sema->getDefaultedComparisonKind(method);
+    if (comparisonKind != Sema::DefaultedComparisonKind::None)
+      sema->DefineDefaultedComparison(loc, method, comparisonKind);
+  }
+}
+
+void CIRGenerator::defineSelectedDependencyMethods() {
+  llvm::SmallVector<CXXMethodDecl *, 16> methods;
+  for (GlobalDecl gd : cgm->getSelectedDeclDependencies())
+    if (auto *method = dyn_cast<CXXMethodDecl>(gd.getDecl()))
+      methods.push_back(const_cast<CXXMethodDecl *>(method));
+  for (CXXMethodDecl *method : methods)
+    defineSelectedDefaultedMethod(method);
+}
+
+void CIRGenerator::defineSelectedDefaultedMethods(DeclContext *context) {
+  for (Decl *decl : context->decls()) {
+    if (auto *method = dyn_cast<CXXMethodDecl>(decl))
+      defineSelectedDefaultedMethod(method);
+    if (auto *nested = dyn_cast<DeclContext>(decl))
+      defineSelectedDefaultedMethods(nested);
+  }
+}
+
 bool CIRGenerator::verifyModule() const { return cgm->verifyModule(); }
 
 mlir::ModuleOp CIRGenerator::getModule() const { return cgm->getModule(); }
@@ -81,9 +132,25 @@ bool CIRGenerator::HandleTopLevelDecl(DeclGroupRef group) {
 }
 
 void CIRGenerator::HandleTranslationUnit(ASTContext &astContext) {
-  // Release the Builder when there is no error.
-  if (!diags.hasErrorOccurred() && cgm)
+  // Selected defaulted methods can introduce further implicit destructor and
+  // constructor dependencies. Define and emit until the exact dependency set
+  // reaches a fixed point.
+  if (!diags.hasErrorOccurred() && cgm) {
+    if (sema) {
+      size_t dependencyCount = 0;
+      do {
+        dependencyCount = cgm->getSelectedDeclDependencyCount();
+        defineSelectedDefaultedMethods(astContext.getTranslationUnitDecl());
+        defineSelectedDependencyMethods();
+        cgm->emitSelectedMethods(astContext.getTranslationUnitDecl());
+        cgm->emitSelectedDependencies();
+      } while (cgm->getSelectedDeclDependencyCount() != dependencyCount);
+    } else {
+      cgm->emitSelectedMethods(astContext.getTranslationUnitDecl());
+      cgm->emitSelectedDependencies();
+    }
     cgm->release();
+  }
 
   // If there are errors before or when releasing the cgm, reset the module to
   // stop here before invoking the backend.
