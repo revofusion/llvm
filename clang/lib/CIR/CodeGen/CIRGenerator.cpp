@@ -287,7 +287,7 @@ void CIRGenerator::HandleVTable(CXXRecordDecl *rd) {
 bool CIRGenerator::shouldSkipFunctionBody(Decl *d) {
   if (codeGenOpts.ClangIRSelectedDeclsFile.empty())
     return false;
-  const auto *fd = dyn_cast<FunctionDecl>(d);
+  const auto *fd = d ? d->getAsFunction() : nullptr;
   if (fd && (fd->getDeclContext()->isDependentContext() ||
              fd->getTemplatedKind() != FunctionDecl::TK_NonTemplate))
     return false;

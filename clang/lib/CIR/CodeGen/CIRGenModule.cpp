@@ -3284,6 +3284,18 @@ void CIRGenModule::emitSelectedMethods(const DeclContext *context) {
         emitIfMissing(GlobalDecl(method));
       }
     }
+    if (auto *functionTemplate = dyn_cast<FunctionTemplateDecl>(decl)) {
+      for (FunctionDecl *specialization :
+           functionTemplate->specializations()) {
+        // Function template specializations are not children of the
+        // surrounding DeclContext. Visit only concrete definitions here;
+        // the described template pattern itself is not a selected root.
+        if (!isa<CXXMethodDecl>(specialization) &&
+            specialization->doesThisDeclarationHaveABody() &&
+            shouldParseSelectedDeclBody(specialization))
+          emitIfMissing(GlobalDecl(specialization));
+      }
+    }
     if (auto *nested = dyn_cast<DeclContext>(decl))
       emitSelectedMethods(nested);
   }

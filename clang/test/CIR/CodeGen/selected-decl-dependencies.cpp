@@ -1,4 +1,4 @@
-// RUN: printf '_Z8selectedv\n_Z12selectedUptrv\n_ZN4MoveC1EOS_\n' > %t.roots
+// RUN: printf '_Z8selectedv\n_Z12selectedUptrv\n_ZN4MoveC1EOS_\n_Z15cxx_identity_fnIiEN13cxx_enable_ifIXeqstT_Li4EEiE4typeES1_\n' > %t.roots
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++17 -fclangir -emit-cir -fclangir-emit-selected-decls=%t.roots -skip-function-bodies %s -o %t.cir
 // RUN: FileCheck %s --implicit-check-not=@_Z9unrelatedv --input-file=%t.cir
 
@@ -38,6 +38,21 @@ struct Move {
 
 void unrelated() {}
 
+template <bool B, class T = void>
+struct cxx_enable_if {};
+
+template <class T>
+struct cxx_enable_if<true, T> {
+  using type = T;
+};
+
+template <class T>
+typename cxx_enable_if<sizeof(T) == 4, int>::type cxx_identity_fn(T value) {
+  return value + 1;
+}
+
+template int cxx_identity_fn<int>(int);
+
 void selected() {
   Outer outer;
 }
@@ -54,3 +69,4 @@ void selected() {
 // CHECK-DAG: cir.func{{.*}}@_ZN8raw_uptrIi{{.*}}D1Ev{{.*}} {
 // CHECK-DAG: cir.func{{.*}}@_ZN5InnerD1Ev{{.*}} {
 // CHECK-DAG: cir.func{{.*}}@_ZN4MoveC1EOS_{{.*}} {
+// CHECK-DAG: cir.func{{.*}}@_Z15cxx_identity_fnIiEN13cxx_enable_ifIXeqstT_Li4EEiE4typeES1_{{.*}} {
