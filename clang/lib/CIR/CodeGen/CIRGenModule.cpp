@@ -3242,6 +3242,15 @@ bool CIRGenModule::isSelectedDeclRoot(GlobalDecl gd) {
 bool CIRGenModule::shouldParseSelectedDeclBody(const FunctionDecl *fd) {
   if (!selectedDeclRootMode)
     return true;
+  // A dependent friend defined inside a class template can acquire its
+  // concrete selected linkage name only after the class is specialized.
+  // Preserve that pattern body so a later exact selected-root match can emit
+  // the instantiated definition; emission remains gated by the concrete ABI
+  // symbol.
+  if (fd->getFriendObjectKind() != Decl::FOK_None &&
+      fd->getLexicalDeclContext() &&
+      fd->getLexicalDeclContext()->isDependentContext())
+    return true;
   if (const auto *ctor = dyn_cast<CXXConstructorDecl>(fd))
     return isSelectedDeclRoot(GlobalDecl(ctor, Ctor_Complete)) ||
            isSelectedDeclRoot(GlobalDecl(ctor, Ctor_Base)) ||

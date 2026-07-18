@@ -12,6 +12,8 @@ struct StringViewTemplate {
     return ptr && lhs.value == *ptr;
   }
 };
+extern template struct StringViewTemplate<char>;
+
 
 bool selected(const StringViewTemplate<char> &lhs, const char *ptr) {
   return lhs == ptr;
