@@ -60,6 +60,14 @@ void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
   cir::AllocaOp alloca = address.getUnderlyingAllocaOp();
   if (!alloca || alloca.getAstTemporaryObjectIdentityAttr())
     return;
+  // A CXXBindTemporaryExpr constructed directly into the function return
+  // value transfers destruction to the caller. The return alloca is storage,
+  // not a local cleanup owner, so it must not carry temporary-cleanup
+  // identity. NRVO declarations still carry their separate automatic-object
+  // identity on this storage.
+  if (returnValue.isValid() &&
+      alloca == returnValue.getUnderlyingAllocaOp())
+    return;
 
   auto function = alloca->getParentOfType<cir::FuncOp>();
   SourceLocation begin = binding->getBeginLoc();

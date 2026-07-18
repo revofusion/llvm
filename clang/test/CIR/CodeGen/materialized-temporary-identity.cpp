@@ -66,6 +66,14 @@ Cleanup automatic_cleanup_result() {
   return results;
 }
 
+// A prvalue constructed directly into the function return slot transfers its
+// lifetime to the caller. The `__retval` alloca is not a local cleanup owner.
+Cleanup direct_temporary_result(bool branch) {
+  if (branch)
+    return Cleanup{};
+  return Cleanup{};
+}
+
 // Automatic declarations used as unbraced control-flow bodies still own
 // alloca-attached cleanup identity. Cleanup emission is not their owner:
 // it can be deferred through branch, loop, or continue cleanup paths.
@@ -136,6 +144,10 @@ void conditional_temporary_continue(bool b) {
 // CIR: %[[CLEANUP_OWNED_TEMP:.*]] = cir.alloca{{.*}}ast_temporary_object_identity = {{.*}}cleanup_kind = "cxx_destructor"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}function = @_Z18cleanup_owned_bindv{{.*}}instance_token = "cxx.temporary.instance.0"
 // CIR-LABEL: cir.func{{.*}} @_Z24automatic_cleanup_resultv()
 // CIR: cir.alloca{{.*}}ast_automatic_object_identity = {{.*}}begin_raw = [[AUTO_BEGIN:[0-9]+]] : i64{{.*}}cleanup_kind = "cxx_destructor"{{.*}}constructor_symbol = "_ZN7CleanupC1Ev"{{.*}}declaration_usr = "{{[^"]+}}"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}end_raw = [[AUTO_END:[0-9]+]] : i64{{.*}}function = @_Z24automatic_cleanup_resultv{{.*}}requires_observed_constructor_call = true
+// CIR-LABEL: cir.func{{.*}} @_Z23direct_temporary_resultb(
+// CIR: cir.alloca "__retval"
+// CIR-NOT: ast_temporary_object_identity
+// CIR: cir.return
 // CIR-LABEL: cir.func{{.*}} @_Z20automatic_cleanup_ifb(
 // CIR: cir.alloca "guard"{{.*}}ast_automatic_object_identity = {{.*}}cleanup_kind = "cxx_destructor"{{.*}}constructor_symbol = "_ZN7CleanupC1Ev"{{.*}}declaration_usr = "{{[^"]+}}"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}function = @_Z20automatic_cleanup_ifb{{.*}}requires_observed_constructor_call = true
 // CIR-LABEL: cir.func{{.*}} @_Z23automatic_cleanup_whileb(
