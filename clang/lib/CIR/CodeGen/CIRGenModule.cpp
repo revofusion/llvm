@@ -3296,6 +3296,30 @@ void CIRGenModule::emitSelectedMethods(const DeclContext *context) {
           emitIfMissing(GlobalDecl(specialization));
       }
     }
+    if (auto *classTemplate = dyn_cast<ClassTemplateDecl>(decl)) {
+      // Instantiated class-template specializations live in the template's
+      // specialization set rather than the surrounding DeclContext. Their
+      // methods and hidden friends still carry independently mangled selected
+      // roots, so visit every concrete definition structurally.
+      for (ClassTemplateSpecializationDecl *specialization :
+           classTemplate->specializations())
+        if (!isa<ClassTemplatePartialSpecializationDecl>(specialization) &&
+            specialization->isCompleteDefinition())
+          emitSelectedMethods(specialization);
+    }
+    if (auto *friendDecl = dyn_cast<FriendDecl>(decl)) {
+      const auto *friendFunction =
+          dyn_cast_or_null<FunctionDecl>(friendDecl->getFriendDecl());
+      // An instantiated non-template friend defined in a class template is a
+      // child of FriendDecl, not a CXXMethodDecl or FunctionTemplateDecl
+      // specialization. Match only its concrete GlobalDecl: the dependent
+      // pattern cannot have the requested ABI symbol.
+      if (friendFunction && !isa<CXXMethodDecl>(friendFunction) &&
+          !friendFunction->getType()->isDependentType() &&
+          friendFunction->doesThisDeclarationHaveABody() &&
+          shouldParseSelectedDeclBody(friendFunction))
+        emitIfMissing(GlobalDecl(friendFunction));
+    }
     if (auto *nested = dyn_cast<DeclContext>(decl))
       emitSelectedMethods(nested);
   }
