@@ -439,7 +439,8 @@ static Address applyNonVirtualAndVirtualOffset(
           loc, addr, baseValueTy, nonVirtualOffset.getQuantity(),
           assumeNotNull);
       setBaseIdentityAttrs(cgf, baseAddr.getPointer(), derivedClass, baseClass,
-                           nonVirtualOffset, /*baseIsVirtual=*/false);
+                           nonVirtualOffset,
+                           /*baseIsVirtual=*/nearestVBase != nullptr);
       return baseAddr;
     }
   } else {
