@@ -20,6 +20,8 @@
 #include "clang/AST/Type.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "clang/UnifiedSymbolResolution/USRGeneration.h"
+#include "llvm/ADT/SmallString.h"
 
 using namespace clang;
 using namespace clang::CIRGen;
@@ -229,6 +231,28 @@ static bool baseInitializerUsesThis(ASTContext &c, const Expr *init) {
   return checker.usesThis;
 }
 
+static void setBaseIdentityAttrs(CIRGenFunction &cgf, mlir::Value address,
+                                 const CXXRecordDecl *derived,
+                                 const CXXRecordDecl *base, CharUnits offset,
+                                 bool baseIsVirtual) {
+  llvm::SmallString<256> derivedUSR;
+  llvm::SmallString<256> baseUSR;
+  if (!derived || !base || clang::index::generateUSRForDecl(derived, derivedUSR) ||
+      clang::index::generateUSRForDecl(base, baseUSR) || derivedUSR.empty() ||
+      baseUSR.empty())
+    return;
+  mlir::Operation *op = address.getDefiningOp();
+  if (!op)
+    return;
+  op->setAttr("ast_derived_record_usr",
+              cgf.getBuilder().getStringAttr(derivedUSR));
+  op->setAttr("ast_base_record_usr", cgf.getBuilder().getStringAttr(baseUSR));
+  op->setAttr("ast_base_offset_bytes",
+              cgf.getBuilder().getI64IntegerAttr(offset.getQuantity()));
+  op->setAttr("ast_base_is_virtual",
+              cgf.getBuilder().getBoolAttr(baseIsVirtual));
+}
+
 /// Gets the address of a direct base class within a complete object.
 /// This should only be used for (1) non-virtual bases or (2) virtual bases
 /// when the type is known to be complete (e.g. in complete destructors).
@@ -240,7 +264,6 @@ Address CIRGenFunction::getAddressOfDirectBaseInCompleteClass(
   // 'thisAddr' must be a pointer (in some address space) to Derived.
   assert(thisAddr.getElementType() == convertType(derived));
 
-  // Compute the offset of the virtual base.
   CharUnits offset;
   const ASTRecordLayout &layout = getContext().getASTRecordLayout(derived);
   if (baseIsVirtual)
@@ -248,9 +271,12 @@ Address CIRGenFunction::getAddressOfDirectBaseInCompleteClass(
   else
     offset = layout.getBaseClassOffset(base);
 
-  return builder.createBaseClassAddr(loc, thisAddr, convertType(base),
-                                     offset.getQuantity(),
-                                     /*assumeNotNull=*/true);
+  Address baseAddr = builder.createBaseClassAddr(
+      loc, thisAddr, convertType(base), offset.getQuantity(),
+      /*assumeNotNull=*/true);
+  setBaseIdentityAttrs(*this, baseAddr.getPointer(), derived, base, offset,
+                       baseIsVirtual);
+  return baseAddr;
 }
 
 void CIRGenFunction::emitBaseInitializer(mlir::Location loc,
@@ -391,7 +417,8 @@ static Address applyNonVirtualAndVirtualOffset(
     mlir::Location loc, CIRGenFunction &cgf, Address addr,
     CharUnits nonVirtualOffset, mlir::Value virtualOffset,
     const CXXRecordDecl *derivedClass, const CXXRecordDecl *nearestVBase,
-    mlir::Type baseValueTy = {}, bool assumeNotNull = true) {
+    const CXXRecordDecl *baseClass, mlir::Type baseValueTy = {},
+    bool assumeNotNull = true) {
   // Assert that we have something to do.
   assert(!nonVirtualOffset.isZero() || virtualOffset != nullptr);
 
@@ -408,11 +435,12 @@ static Address applyNonVirtualAndVirtualOffset(
                                                 nonVirtualOffset.getQuantity());
       baseOffset = cgf.getBuilder().createAdd(loc, virtualOffset, baseOffset);
     } else {
-      assert(baseValueTy && "expected base type");
-      // If no virtualOffset is present this is the final stop.
-      return cgf.getBuilder().createBaseClassAddr(
+      Address baseAddr = cgf.getBuilder().createBaseClassAddr(
           loc, addr, baseValueTy, nonVirtualOffset.getQuantity(),
           assumeNotNull);
+      setBaseIdentityAttrs(cgf, baseAddr.getPointer(), derivedClass, baseClass,
+                           nonVirtualOffset, /*baseIsVirtual=*/false);
+      return baseAddr;
     }
   } else {
     baseOffset = virtualOffset;
@@ -476,7 +504,7 @@ void CIRGenFunction::initializeVTablePointer(mlir::Location loc,
   if (!nonVirtualOffset.isZero() || virtualOffset) {
     classAddr = applyNonVirtualAndVirtualOffset(
         loc, *this, classAddr, nonVirtualOffset, virtualOffset,
-        vptr.vtableClass, vptr.nearestVBase, baseValueTy);
+        vptr.vtableClass, vptr.nearestVBase, vptr.base.getBase(), baseValueTy);
   }
 
   // Finally, store the address point. Use the same CIR types as the field.
@@ -1280,17 +1308,21 @@ Address CIRGenFunction::getAddressOfBaseClass(
     nonVirtualOffset += vBaseOffset;
     vBase = nullptr; // we no longer have a virtual step
   }
-
-  // Get the base pointer type.
+  const CXXRecordDecl *baseClass =
+      (path.end()[-1])->getType()->getAsCXXRecordDecl();
   mlir::Type baseValueTy = convertType((path.end()[-1])->getType());
+  // Get the base pointer type.
   assert(!cir::MissingFeatures::addressSpace());
 
   // If there is no virtual base, use cir.base_class_addr.  It takes care of
   // the adjustment and the null pointer check.
   if (nonVirtualOffset.isZero() && !vBase) {
     assert(!cir::MissingFeatures::sanitizers());
-    return builder.createBaseClassAddr(getLoc(loc), value, baseValueTy, 0,
-                                       /*assumeNotNull=*/true);
+    Address baseAddr = builder.createBaseClassAddr(
+        getLoc(loc), value, baseValueTy, 0, /*assumeNotNull=*/true);
+    setBaseIdentityAttrs(*this, baseAddr.getPointer(), derived, baseClass,
+                         CharUnits::Zero(), /*baseIsVirtual=*/false);
+    return baseAddr;
   }
 
   assert(!cir::MissingFeatures::sanitizers());
@@ -1305,7 +1337,7 @@ Address CIRGenFunction::getAddressOfBaseClass(
   // Apply both offsets.
   value = applyNonVirtualAndVirtualOffset(
       getLoc(loc), *this, value, nonVirtualOffset, virtualOffset, derived,
-      vBase, baseValueTy, not nullCheckValue);
+      vBase, baseClass, baseValueTy, not nullCheckValue);
 
   // Cast to the destination type.
   value = value.withElementType(builder, baseValueTy);

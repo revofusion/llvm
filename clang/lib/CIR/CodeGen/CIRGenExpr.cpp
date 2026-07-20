@@ -66,6 +66,36 @@ getFieldLocationWithIdentity(CIRGenFunction &cgf, mlir::Location loc,
                              mlir::DictionaryAttr::get(context, metadata),
                              context);
 }
+
+/// Attach source declaration identity and the AST physical offset to the
+/// operation that materializes a field address. The offset is deliberately
+/// recorded in bits, matching ASTContext::getFieldOffset, so consumers never
+/// need to infer it from CIR field indexes.
+static void setFieldIdentityAttrs(CIRGenFunction &cgf, mlir::Value address,
+                                  const FieldDecl *field) {
+  if (!field)
+    return;
+  const RecordDecl *record = field->getParent();
+  llvm::SmallString<256> memberUSR;
+  llvm::SmallString<256> declaringRecordUSR;
+  if (!record || clang::index::generateUSRForDecl(field, memberUSR) ||
+      clang::index::generateUSRForDecl(record, declaringRecordUSR) ||
+      memberUSR.empty() || declaringRecordUSR.empty())
+    return;
+  mlir::Operation *op = address.getDefiningOp();
+  if (!op)
+    return;
+  op->setAttr("ast_member_decl_usr",
+              mlir::StringAttr::get(&cgf.getMLIRContext(), memberUSR));
+  op->setAttr(
+      "ast_declaring_record_usr",
+      mlir::StringAttr::get(&cgf.getMLIRContext(), declaringRecordUSR));
+  op->setAttr(
+      "ast_member_offset_bits",
+      cgf.getBuilder().getI64IntegerAttr(
+          static_cast<int64_t>(cgf.getContext().getFieldOffset(field))));
+}
+
 /// Get the address of a zero-sized field within a record. Zero-sized fields
 /// (e.g. empty bases with [[no_unique_address]]) don't appear in the CIR
 /// record layout, so we compute their address using the ASTContext field
@@ -137,6 +167,7 @@ Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
   // CaptureStmt.
   mlir::Value addr = builder.createGetMember(loc, fieldPtr, base.getPointer(),
                                              fieldName, fieldIndex);
+  setFieldIdentityAttrs(*this, addr, field);
 
   // If the field is potentially overlapping, the record member uses the base
   // subobject type. Cast to the complete object pointer type expected by
@@ -598,6 +629,7 @@ Address CIRGenFunction::getAddrOfBitFieldStorage(LValue base,
   cir::GetMemberOp sea = getBuilder().createGetMember(
       loc, fieldPtr, base.getPointer(), field->getName(),
       mlir::isa<cir::UnionType>(rec) ? field->getFieldIndex() : index);
+  setFieldIdentityAttrs(*this, sea.getResult(), field);
   CharUnits offset = CharUnits::fromQuantity(
       rec.getElementOffset(cgm.getDataLayout().layout, index));
   return Address(sea, base.getAlignment().alignmentAtOffset(offset));

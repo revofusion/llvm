@@ -29,6 +29,10 @@ void f() {
 // CIR:   %[[D:.*]] = cir.alloca "d" {{.*}} init : !cir.ptr<!rec_Derived>
 // CIR:   cir.call @_ZN7DerivedC1Ev(%[[D]]) : (!cir.ptr<!rec_Derived> {{.*}}) -> ()
 // CIR:   %[[D_BASE:.*]] = cir.base_class_addr %[[D]] : !cir.ptr<!rec_Derived> nonnull [0] -> !cir.ptr<!rec_Base>
+// CIR-SAME: ast_base_is_virtual = false
+// CIR-SAME: ast_base_offset_bytes = 0
+// CIR-SAME: ast_base_record_usr = "c:@S@Base"
+// CIR-SAME: ast_derived_record_usr = "c:@S@Derived"
 // CIR:   cir.call @_ZN4Base1fEv(%[[D_BASE]]) : (!cir.ptr<!rec_Base> {{.*}}) -> ()
 
 // LLVM: define {{.*}}void @_Z1fv()
@@ -100,7 +104,7 @@ void test_volatile_store() {
 // CIR:   %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
 // CIR:   %[[DERIVED_OBJ:.*]] = cir.get_global @derivedObj : !cir.ptr<!rec_Derived>
 // CIR:   %[[DERIVED_OBJ_BASE:.*]] = cir.base_class_addr %[[DERIVED_OBJ]] : !cir.ptr<!rec_Derived> nonnull [0] -> !cir.ptr<!rec_Base>
-// CIR:   %[[DERIVED_OBJ_A:.*]] = cir.get_member %[[DERIVED_OBJ_BASE]][0] {name = "a"} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
+// CIR:   %[[DERIVED_OBJ_A:.*]] = cir.get_member %[[DERIVED_OBJ_BASE]][0] {ast_declaring_record_usr = "c:@S@Base", ast_member_decl_usr = "c:@S@Base@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
 // CIR:   cir.store volatile {{.*}} %[[ZERO]], %[[DERIVED_OBJ_A]] : !s32i, !cir.ptr<!s32i>
 
 // LLVM: define {{.*}} void @_Z19test_volatile_storev()
@@ -116,7 +120,7 @@ void test_volatile_load() {
 // CIR: cir.func {{.*}} @_Z18test_volatile_loadv()
 // CIR:   %[[DERIVED_OBJ:.*]] = cir.get_global @derivedObj : !cir.ptr<!rec_Derived>
 // CIR:   %[[DERIVED_OBJ_BASE:.*]] = cir.base_class_addr %[[DERIVED_OBJ]] : !cir.ptr<!rec_Derived> nonnull [0] -> !cir.ptr<!rec_Base>
-// CIR:   %[[DERIVED_OBJ_A:.*]] = cir.get_member %[[DERIVED_OBJ_BASE]][0] {name = "a"} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
+// CIR:   %[[DERIVED_OBJ_A:.*]] = cir.get_member %[[DERIVED_OBJ_BASE]][0] {ast_declaring_record_usr = "c:@S@Base", ast_member_decl_usr = "c:@S@Base@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
 // CIR:   %[[VAL:.*]] = cir.load volatile {{.*}} %[[DERIVED_OBJ_A]] : !cir.ptr<!s32i>, !s32i
 
 // LLVM: define {{.*}} void @_Z18test_volatile_loadv()

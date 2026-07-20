@@ -458,7 +458,7 @@ void test_base_dtor_call_virtual_base() {
 
 // Derived D2 (base) destructor -- does not call VirtualBase destructor
 
-// CIR:     cir.func {{.*}} @_ZN7DerivedD2Ev
+// CIR:     cir.func {{.*}} @_ZN7DerivedD2Ev{{.*}}abi_dtor_variant = "base"{{.*}}abi_has_vtt = true
 // CIR-NOT:   cir.call{{.*}} @_ZN11VirtualBaseD2Ev
 // CIR:       cir.return
 

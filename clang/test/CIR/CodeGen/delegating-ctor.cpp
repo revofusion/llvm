@@ -103,10 +103,10 @@ Derived::Derived(const void *inVoid) { squawk(); }
 // OGCG:   call void @_Z5otherv()
 // OGCG:   ret void
 
-// CIR:      cir.func {{.*}} @_ZN7DerivedC2EPKv(
-// CIR-SAME:       %[[THIS_ARG:.*]]: !cir.ptr<!rec_Derived>
-// CIR-SAME:       %[[VTT_ARG:.*]]: !cir.ptr<!cir.ptr<!void>>
-// CIR-SAME:       %[[INVOID_ARG:.*]]: !cir.ptr<!void>
+// CIR:      cir.func {{.*}} @_ZN7DerivedC2EPKv(%[[THIS_ARG:.*]]: !cir.ptr<!rec_Derived>
+// CIR-SAME: %[[VTT_ARG:.*]]: !cir.ptr<!cir.ptr<!void>>
+// CIR-SAME: %[[INVOID_ARG:.*]]: !cir.ptr<!void>
+// CIR-SAME: {{.*}}abi_ctor_variant = "base"{{.*}}abi_has_vtt = true
 // CIR:        %[[THIS_ADDR:.*]] = cir.alloca "this" {{.*}} init
 // CIR:        %[[VTT_ADDR:.*]] = cir.alloca "vtt" {{.*}} init
 // CIR:        %[[INVOID_ADDR:.*]] = cir.alloca "inVoid" {{.*}} init

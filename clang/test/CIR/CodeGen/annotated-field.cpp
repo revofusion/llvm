@@ -25,7 +25,7 @@ extern "C" EmptyField *zero_size_field_address(ZeroSizeOwner *owner) {
 }
 
 // CHECK-LABEL: cir.func {{.*}}AnnotatedFieldC2
-// CHECK: cir.get_member {{.*}}{name = "value"}
+// CHECK: cir.get_member {{.*}}{ast_declaring_record_usr = "c:@S@AnnotatedField", ast_member_decl_usr = "c:@S@AnnotatedField@FI@value", ast_member_offset_bits = 0 : i64, name = "value"}
 // CHECK: cir.store
 
 // CHECK-LABEL: cir.func {{.*}}zero_size_field_address

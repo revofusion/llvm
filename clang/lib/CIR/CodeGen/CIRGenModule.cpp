@@ -3840,6 +3840,57 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
       decl && !clang::index::generateUSRForDecl(decl, astDeclUSR);
   if (hasASTDeclUSR)
     func->setAttr("ast_decl_usr", builder.getStringAttr(astDeclUSR));
+  if (isa<CXXConstructorDecl>(decl)) {
+    llvm::StringRef variant;
+    switch (globalDecl.getCtorType()) {
+    case Ctor_Complete:
+      variant = "complete";
+      break;
+    case Ctor_Base:
+      variant = "base";
+      break;
+    case Ctor_Comdat:
+      variant = "comdat";
+      break;
+    case Ctor_CopyingClosure:
+      variant = "copying_closure";
+      break;
+    case Ctor_DefaultClosure:
+      variant = "default_closure";
+      break;
+    case Ctor_Unified:
+      variant = "unified";
+      break;
+    }
+    func->setAttr("abi_ctor_variant", builder.getStringAttr(variant));
+    func->setAttr("abi_has_vtt",
+                  builder.getBoolAttr(getCXXABI().needsVTTParameter(globalDecl)));
+  } else if (isa<CXXDestructorDecl>(decl)) {
+    llvm::StringRef variant;
+    switch (globalDecl.getDtorType()) {
+    case Dtor_Deleting:
+      variant = "deleting";
+      break;
+    case Dtor_Complete:
+      variant = "complete";
+      break;
+    case Dtor_Base:
+      variant = "base";
+      break;
+    case Dtor_Comdat:
+      variant = "comdat";
+      break;
+    case Dtor_Unified:
+      variant = "unified";
+      break;
+    case Dtor_VectorDeleting:
+      variant = "vector_deleting";
+      break;
+    }
+    func->setAttr("abi_dtor_variant", builder.getStringAttr(variant));
+    func->setAttr("abi_has_vtt",
+                  builder.getBoolAttr(getCXXABI().needsVTTParameter(globalDecl)));
+  }
   // The ABI mangling and Clang USR can both omit associated constraints.
   // Preserve the canonical declaration's stable source provenance so a
   // consumer can distinguish mutually exclusive constrained overloads.

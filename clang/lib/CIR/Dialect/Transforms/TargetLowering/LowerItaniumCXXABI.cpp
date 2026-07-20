@@ -162,6 +162,16 @@ static cir::IntType getPtrDiffCIRTy(LowerModule &lm) {
                            target.isTypeSigned(ptrdiffTy));
 }
 
+/// The first Itanium member-function-pointer component is an unsigned
+/// integer representation of a function pointer. It is not necessarily the
+/// same type as ptrdiff_t on every target.
+static cir::IntType getFunctionPointerCIRTy(LowerModule &lm) {
+  return cir::IntType::get(
+      lm.getMLIRContext(),
+      lm.getTarget().getPointerWidth(clang::LangAS::Default),
+      /*isSigned=*/false);
+}
+
 mlir::Type LowerItaniumCXXABI::lowerDataMemberType(
     cir::DataMemberType type, const mlir::TypeConverter &typeConverter) const {
   // Itanium C++ ABI 2.3.1:
@@ -182,13 +192,14 @@ mlir::Type LowerItaniumCXXABI::lowerMethodType(
   //      ptrdiff_t adj;
   //    };
 
+  cir::IntType functionPointerCIRTy = getFunctionPointerCIRTy(lm);
   cir::IntType ptrdiffCIRTy = getPtrDiffCIRTy(lm);
 
-  // Note that clang CodeGen emits struct{ptrdiff_t, ptrdiff_t} for member
-  // function pointers. Let's follow this approach.
-  return cir::StructType::get(type.getContext(), {ptrdiffCIRTy, ptrdiffCIRTy},
-                              /*packed=*/false, /*padded=*/false,
-                              /*is_class=*/false);
+  // The first component is the target's function-pointer representation;
+  // only the this-adjustment uses ptrdiff_t.
+  return cir::StructType::get(
+      type.getContext(), {functionPointerCIRTy, ptrdiffCIRTy},
+      /*packed=*/false, /*padded=*/false, /*is_class=*/false);
 }
 
 mlir::TypedAttr LowerItaniumCXXABI::lowerDataMemberConstant(
@@ -215,73 +226,48 @@ mlir::TypedAttr LowerItaniumCXXABI::lowerDataMemberConstant(
 mlir::TypedAttr LowerItaniumCXXABI::lowerMethodConstant(
     cir::MethodAttr attr, const mlir::DataLayout &layout,
     const mlir::TypeConverter &typeConverter) const {
+  cir::IntType functionPointerCIRTy = getFunctionPointerCIRTy(lm);
   cir::IntType ptrdiffCIRTy = getPtrDiffCIRTy(lm);
 
   auto loweredMethodTy = mlir::cast<cir::StructType>(
       lowerMethodType(attr.getType(), typeConverter));
 
-  auto zero = cir::IntAttr::get(ptrdiffCIRTy, 0);
-
-  // Itanium C++ ABI 2.3.2:
-  //   In all representations, the basic ABI properties of member function
-  //   pointer types are those of the following class, where fnptr_t is the
-  //   appropriate function-pointer type for a member function of this type:
-  //
-  //   struct {
-  //     fnptr_t ptr;
-  //     ptrdiff_t adj;
-  //   };
+  auto zeroPtr = cir::IntAttr::get(functionPointerCIRTy, 0);
+  auto zeroAdj = cir::IntAttr::get(ptrdiffCIRTy, 0);
 
   if (attr.isNull()) {
-    // Itanium C++ ABI 2.3.2:
-    //
-    //   In the standard representation, a null member function pointer is
-    //   represented with ptr set to a null pointer. The value of adj is
-    //   unspecified for null member function pointers.
-    //
-    // clang CodeGen emits struct{null, null} for null member function pointers.
-    // Let's do the same here.
+    // Itanium C++ ABI 2.3.2: a null member function pointer is represented
+    // with both components zero, as emitted by Clang CodeGen.
     return cir::ConstRecordAttr::get(
-        loweredMethodTy, mlir::ArrayAttr::get(attr.getContext(), {zero, zero}));
+        loweredMethodTy,
+        mlir::ArrayAttr::get(attr.getContext(), {zeroPtr, zeroAdj}));
   }
 
   if (attr.isVirtual()) {
     if (useARMMethodPtrABI) {
-      // ARM C++ ABI 3.2.1:
-      //   This ABI specifies that adj contains twice the this
-      //   adjustment, plus 1 if the member function is virtual. The
-      //   least significant bit of adj then makes exactly the same
-      //   discrimination as the least significant bit of ptr does for
-      //   Itanium.
+      // ARM C++ ABI 3.2.1: adj contains twice the this adjustment, plus one
+      // for a virtual member function.
       assert(!cir::MissingFeatures::pointerAuthentication());
       auto ptr =
-          cir::IntAttr::get(ptrdiffCIRTy, attr.getVtableOffset().value());
+          cir::IntAttr::get(functionPointerCIRTy, attr.getVtableOffset().value());
       auto one = cir::IntAttr::get(ptrdiffCIRTy, 1);
       return cir::ConstRecordAttr::get(
           loweredMethodTy, mlir::ArrayAttr::get(attr.getContext(), {ptr, one}));
     }
 
-    // Itanium C++ ABI 2.3.2:
-    //
-    //   In the standard representation, a member function pointer for a
-    //   virtual function is represented with ptr set to 1 plus the function's
-    //   v-table entry offset (in bytes), converted to a function pointer as if
-    //   by reinterpret_cast<fnptr_t>(uintfnptr_t(1 + offset)), where
-    //   uintfnptr_t is an unsigned integer of the same size as fnptr_t.
-    auto ptr =
-        cir::IntAttr::get(ptrdiffCIRTy, 1 + attr.getVtableOffset().value());
+    // Itanium C++ ABI 2.3.2: ptr is one plus the v-table entry offset,
+    // represented as an unsigned integer with function-pointer width.
+    auto ptr = cir::IntAttr::get(
+        functionPointerCIRTy, 1 + attr.getVtableOffset().value());
     return cir::ConstRecordAttr::get(
-        loweredMethodTy, mlir::ArrayAttr::get(attr.getContext(), {ptr, zero}));
+        loweredMethodTy, mlir::ArrayAttr::get(attr.getContext(), {ptr, zeroAdj}));
   }
 
-  // Itanium C++ ABI 2.3.2:
-  //
-  //   A member function pointer for a non-virtual member function is
-  //   represented with ptr set to a pointer to the function, using the base
-  //   ABI's representation of function pointers.
-  auto ptr = cir::GlobalViewAttr::get(ptrdiffCIRTy, attr.getSymbol().value());
+  // Non-virtual member functions store the function address in ptr.
+  auto ptr =
+      cir::GlobalViewAttr::get(functionPointerCIRTy, attr.getSymbol().value());
   return cir::ConstRecordAttr::get(
-      loweredMethodTy, mlir::ArrayAttr::get(attr.getContext(), {ptr, zero}));
+      loweredMethodTy, mlir::ArrayAttr::get(attr.getContext(), {ptr, zeroAdj}));
 }
 
 mlir::Operation *LowerItaniumCXXABI::lowerGetRuntimeMember(
@@ -304,9 +290,8 @@ void LowerItaniumCXXABI::lowerGetMethod(
     cir::GetMethodOp op, mlir::Value &callee, mlir::Value &thisArg,
     mlir::Value loweredMethod, mlir::Value loweredObjectPtr,
     mlir::ConversionPatternRewriter &rewriter) const {
-  // In the Itanium and ARM ABIs, method pointers have the form:
-  //   struct { ptrdiff_t ptr; ptrdiff_t adj; } memptr;
-  //
+  // The first component uses the target's function-pointer width and the
+  // second component uses ptrdiff_t.
   // In the Itanium ABI:
   //  - method pointers are virtual if (memptr.ptr & 1) is nonzero
   //  - the this-adjustment is (memptr.adj)
@@ -328,9 +313,12 @@ void LowerItaniumCXXABI::lowerGetMethod(
   mlir::ImplicitLocOpBuilder locBuilder(op.getLoc(), rewriter);
   mlir::Type calleePtrTy = op.getCallee().getType();
 
+  cir::IntType functionPointerCIRTy = getFunctionPointerCIRTy(lm);
   cir::IntType ptrdiffCIRTy = getPtrDiffCIRTy(lm);
   mlir::Value ptrdiffOne =
       cir::ConstantOp::create(locBuilder, cir::IntAttr::get(ptrdiffCIRTy, 1));
+  mlir::Value functionPointerOne = cir::ConstantOp::create(
+      locBuilder, cir::IntAttr::get(functionPointerCIRTy, 1));
 
   mlir::Value rawAdj =
       cir::ExtractMemberOp::create(locBuilder, ptrdiffCIRTy, loweredMethod, 1);
@@ -351,14 +339,18 @@ void LowerItaniumCXXABI::lowerGetMethod(
   // Load the "ptr" field of the member function pointer and determine if it
   // points to a virtual function.
   mlir::Value methodPtrField =
-      cir::ExtractMemberOp::create(locBuilder, ptrdiffCIRTy, loweredMethod, 0);
+      cir::ExtractMemberOp::create(locBuilder, functionPointerCIRTy,
+                                   loweredMethod, 0);
   mlir::Value virtualBit;
   if (useARMMethodPtrABI)
     virtualBit = cir::AndOp::create(locBuilder, rawAdj, ptrdiffOne);
   else
-    virtualBit = cir::AndOp::create(locBuilder, methodPtrField, ptrdiffOne);
+    virtualBit =
+        cir::AndOp::create(locBuilder, methodPtrField, functionPointerOne);
+  mlir::Value virtualOne =
+      useARMMethodPtrABI ? ptrdiffOne : functionPointerOne;
   mlir::Value isVirtual = cir::CmpOp::create(locBuilder, cir::CmpOpKind::eq,
-                                             virtualBit, ptrdiffOne);
+                                             virtualBit, virtualOne);
 
   assert(!cir::MissingFeatures::emitCFICheck());
   assert(!cir::MissingFeatures::emitVFEInfo());
@@ -385,9 +377,13 @@ void LowerItaniumCXXABI::lowerGetMethod(
     // On ARM64, to reserve extra space in virtual member function pointers,
     // we only pay attention to the low 32 bits of the offset.
     mlir::Value vtableOffset = methodPtrField;
-    if (!useARMMethodPtrABI)
+    if (!useARMMethodPtrABI) {
       vtableOffset = cir::SubOp::create(b, loc, vtableOffset.getType(),
-                                        vtableOffset, ptrdiffOne);
+                                        vtableOffset, functionPointerOne);
+      vtableOffset =
+          cir::CastOp::create(b, loc, ptrdiffCIRTy, cir::CastKind::integral,
+                              vtableOffset);
+    }
     if (use32BitVTableOffsetABI) {
       auto u32Ty = cir::IntType::get(b.getContext(), 32, /*isSigned=*/false);
       vtableOffset = cir::CastOp::create(b, loc, u32Ty,
@@ -550,18 +546,23 @@ mlir::Value LowerItaniumCXXABI::lowerMethodCmp(cir::CmpOp op,
          op.getKind() == cir::CmpOpKind::ne);
 
   mlir::ImplicitLocOpBuilder locBuilder(op.getLoc(), builder);
+  cir::IntType functionPointerCIRTy = getFunctionPointerCIRTy(lm);
   cir::IntType ptrdiffCIRTy = getPtrDiffCIRTy(lm);
   mlir::Value ptrdiffZero =
       cir::ConstantOp::create(locBuilder, cir::IntAttr::get(ptrdiffCIRTy, 0));
+  mlir::Value functionPointerZero = cir::ConstantOp::create(
+      locBuilder, cir::IntAttr::get(functionPointerCIRTy, 0));
 
   mlir::Value lhsPtrField =
-      cir::ExtractMemberOp::create(locBuilder, ptrdiffCIRTy, loweredLhs, 0);
+      cir::ExtractMemberOp::create(locBuilder, functionPointerCIRTy,
+                                   loweredLhs, 0);
   mlir::Value rhsPtrField =
-      cir::ExtractMemberOp::create(locBuilder, ptrdiffCIRTy, loweredRhs, 0);
+      cir::ExtractMemberOp::create(locBuilder, functionPointerCIRTy,
+                                   loweredRhs, 0);
   mlir::Value ptrCmp =
       cir::CmpOp::create(locBuilder, op.getKind(), lhsPtrField, rhsPtrField);
-  mlir::Value ptrCmpToNull =
-      cir::CmpOp::create(locBuilder, op.getKind(), lhsPtrField, ptrdiffZero);
+  mlir::Value ptrCmpToNull = cir::CmpOp::create(
+      locBuilder, op.getKind(), lhsPtrField, functionPointerZero);
 
   mlir::Value lhsAdjField =
       cir::ExtractMemberOp::create(locBuilder, ptrdiffCIRTy, loweredLhs, 1);
@@ -659,14 +660,18 @@ mlir::Value LowerItaniumCXXABI::lowerMethodToBoolCast(
   //   In the standard representation, a null member function pointer is
   //   represented with ptr set to a null pointer. The value of adj is
   //   unspecified for null member function pointers.
+  cir::IntType functionPointerCIRTy = getFunctionPointerCIRTy(lm);
   cir::IntType ptrdiffCIRTy = getPtrDiffCIRTy(lm);
   mlir::Value ptrdiffZero =
       cir::ConstantOp::create(locBuilder, cir::IntAttr::get(ptrdiffCIRTy, 0));
+  mlir::Value functionPointerZero = cir::ConstantOp::create(
+      locBuilder, cir::IntAttr::get(functionPointerCIRTy, 0));
   mlir::Value ptrField =
-      cir::ExtractMemberOp::create(locBuilder, ptrdiffCIRTy, loweredSrc, 0);
+      cir::ExtractMemberOp::create(locBuilder, functionPointerCIRTy, loweredSrc,
+                                   0);
 
-  mlir::Value result =
-      cir::CmpOp::create(locBuilder, cir::CmpOpKind::ne, ptrField, ptrdiffZero);
+  mlir::Value result = cir::CmpOp::create(
+      locBuilder, cir::CmpOpKind::ne, ptrField, functionPointerZero);
 
   // On ARM, a member function pointer is also non-null if the low bit of 'adj'
   // (the virtual bit) is set.

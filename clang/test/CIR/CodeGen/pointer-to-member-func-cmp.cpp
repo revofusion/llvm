@@ -33,11 +33,12 @@ bool cmp_eq(void (Foo::*lhs)(int), void (Foo::*rhs)(int)) {
 // CIR-AFTER:     @_Z6cmp_eqM3FooFviES1_
 // CIR-AFTER:       %[[LHS:.*]] = cir.load{{.*}} %0 : !cir.ptr<!rec_anon_struct>, !rec_anon_struct
 // CIR-AFTER:       %[[RHS:.*]] = cir.load{{.*}} %1 : !cir.ptr<!rec_anon_struct>, !rec_anon_struct
-// CIR-AFTER:       %[[NULL:.*]] = cir.const #cir.int<0> : !s64i
-// CIR-AFTER:       %[[LHS_PTR:.*]] = cir.extract_member %[[LHS]][0] : !rec_anon_struct -> !s64i
-// CIR-AFTER:       %[[RHS_PTR:.*]] = cir.extract_member %[[RHS]][0] : !rec_anon_struct -> !s64i
-// CIR-AFTER:       %[[PTR_CMP:.*]] = cir.cmp eq %[[LHS_PTR]], %[[RHS_PTR]] : !s64i
-// CIR-AFTER:       %[[PTR_NULL:.*]] = cir.cmp eq %[[LHS_PTR]], %[[NULL]] : !s64i
+// CIR-AFTER:       %[[ADJ_NULL:.*]] = cir.const #cir.int<0> : !s64i
+// CIR-AFTER:       %[[PTR_NULL_VALUE:.*]] = cir.const #cir.int<0> : !u64i
+// CIR-AFTER:       %[[LHS_PTR:.*]] = cir.extract_member %[[LHS]][0] : !rec_anon_struct -> !u64i
+// CIR-AFTER:       %[[RHS_PTR:.*]] = cir.extract_member %[[RHS]][0] : !rec_anon_struct -> !u64i
+// CIR-AFTER:       %[[PTR_CMP:.*]] = cir.cmp eq %[[LHS_PTR]], %[[RHS_PTR]] : !u64i
+// CIR-AFTER:       %[[PTR_NULL:.*]] = cir.cmp eq %[[LHS_PTR]], %[[PTR_NULL_VALUE]] : !u64i
 // CIR-AFTER:       %[[LHS_ADJ:.*]] = cir.extract_member %[[LHS]][1] : !rec_anon_struct -> !s64i
 // CIR-AFTER:       %[[RHS_ADJ:.*]] = cir.extract_member %[[RHS]][1] : !rec_anon_struct -> !s64i
 // CIR-AFTER:       %[[ADJ_CMP:.*]] = cir.cmp eq %[[LHS_ADJ]], %[[RHS_ADJ]] : !s64i
@@ -45,7 +46,7 @@ bool cmp_eq(void (Foo::*lhs)(int), void (Foo::*rhs)(int)) {
 // CIR-AFTER-ARM:   %[[ONE:.*]] = cir.const #cir.int<1>
 // CIR-AFTER-ARM:   %[[OR_ADJ:.*]] = cir.or %[[LHS_ADJ]], %[[RHS_ADJ]] : !s64i
 // CIR-AFTER-ARM:   %[[AND_ADJ:.*]] = cir.and %[[OR_ADJ]], %[[ONE]] : !s64i
-// CIR-AFTER-ARM:   %[[ADJ_CMP2:.*]] = cir.cmp eq %[[AND_ADJ]], %[[NULL]] : !s64i
+// CIR-AFTER-ARM:   %[[ADJ_CMP2:.*]] = cir.cmp eq %[[AND_ADJ]], %[[ADJ_NULL]] : !s64i
 // CIR-AFTER-ARM:   %[[AND_PTR_NULL:.*]] = cir.and %[[PTR_NULL]], %[[ADJ_CMP2]] : !cir.bool
 // CIR-AFTER-ARM:   %[[TMP:.*]] = cir.or %[[AND_PTR_NULL]], %[[ADJ_CMP]] : !cir.bool
 // CIR-AFTER:       %[[RESULT:.*]] = cir.and %[[PTR_CMP]], %[[TMP]] : !cir.bool
@@ -103,11 +104,12 @@ bool cmp_ne(void (Foo::*lhs)(int), void (Foo::*rhs)(int)) {
 // CIR-AFTER:     cir.func {{.*}} @_Z6cmp_neM3FooFviES1_
 // CIR-AFTER:       %[[LHS:.*]] = cir.load{{.*}} %0 : !cir.ptr<!rec_anon_struct>, !rec_anon_struct
 // CIR-AFTER:       %[[RHS:.*]] = cir.load{{.*}} %1 : !cir.ptr<!rec_anon_struct>, !rec_anon_struct
-// CIR-AFTER:       %[[NULL:.*]] = cir.const #cir.int<0> : !s64i
-// CIR-AFTER:       %[[LHS_PTR:.*]] = cir.extract_member %[[LHS]][0] : !rec_anon_struct -> !s64i
-// CIR-AFTER:       %[[RHS_PTR:.*]] = cir.extract_member %[[RHS]][0] : !rec_anon_struct -> !s64i
-// CIR-AFTER:       %[[PTR_CMP:.*]] = cir.cmp ne %[[LHS_PTR]], %[[RHS_PTR]] : !s64i
-// CIR-AFTER:       %[[PTR_NULL:.*]] = cir.cmp ne %[[LHS_PTR]], %[[NULL]] : !s64i
+// CIR-AFTER:       %[[ADJ_NULL:.*]] = cir.const #cir.int<0> : !s64i
+// CIR-AFTER:       %[[PTR_NULL_VALUE:.*]] = cir.const #cir.int<0> : !u64i
+// CIR-AFTER:       %[[LHS_PTR:.*]] = cir.extract_member %[[LHS]][0] : !rec_anon_struct -> !u64i
+// CIR-AFTER:       %[[RHS_PTR:.*]] = cir.extract_member %[[RHS]][0] : !rec_anon_struct -> !u64i
+// CIR-AFTER:       %[[PTR_CMP:.*]] = cir.cmp ne %[[LHS_PTR]], %[[RHS_PTR]] : !u64i
+// CIR-AFTER:       %[[PTR_NULL:.*]] = cir.cmp ne %[[LHS_PTR]], %[[PTR_NULL_VALUE]] : !u64i
 // CIR-AFTER:       %[[LHS_ADJ:.*]] = cir.extract_member %[[LHS]][1] : !rec_anon_struct -> !s64i
 // CIR-AFTER:       %[[RHS_ADJ:.*]] = cir.extract_member %[[RHS]][1] : !rec_anon_struct -> !s64i
 // CIR-AFTER:       %[[ADJ_CMP:.*]] = cir.cmp ne %[[LHS_ADJ]], %[[RHS_ADJ]] : !s64i
@@ -115,7 +117,7 @@ bool cmp_ne(void (Foo::*lhs)(int), void (Foo::*rhs)(int)) {
 // CIR-AFTER-ARM:   %[[ONE:.*]] = cir.const #cir.int<1>
 // CIR-AFTER-ARM:   %[[OR_ADJ:.*]] = cir.or %[[LHS_ADJ]], %[[RHS_ADJ]] : !s64i
 // CIR-AFTER-ARM:   %[[AND_ADJ:.*]] = cir.and %[[OR_ADJ]], %[[ONE]] : !s64i
-// CIR-AFTER-ARM:   %[[ADJ_CMP2:.*]] = cir.cmp ne %[[AND_ADJ]], %[[NULL]] : !s64i
+// CIR-AFTER-ARM:   %[[ADJ_CMP2:.*]] = cir.cmp ne %[[AND_ADJ]], %[[ADJ_NULL]] : !s64i
 // CIR-AFTER-ARM:   %[[AND_PTR_NULL:.*]] = cir.or %[[PTR_NULL]], %[[ADJ_CMP2]] : !cir.bool
 // CIR-AFTER-ARM:   %[[TMP:.*]] = cir.and %[[AND_PTR_NULL]], %[[ADJ_CMP]] : !cir.bool
 // CIR-AFTER:       %[[RESULT:.*]] = cir.or %[[PTR_CMP]], %[[TMP]] : !cir.bool
