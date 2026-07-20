@@ -3953,7 +3953,57 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
     func->setAttr("ast_decl_specialization_identity",
                   identity.getDictionary(&getMLIRContext()));
   }
+  auto memberPointerFacts = [&](QualType type) -> mlir::DictionaryAttr {
+    const auto *mpt = type.getCanonicalType()->getAs<MemberPointerType>();
+    if (!mpt || !mpt->isMemberFunctionPointer())
+      return {};
+    const CXXRecordDecl *record = mpt->getMostRecentCXXRecordDecl();
+    llvm::SmallString<256> recordUSR;
+    if (!record || clang::index::generateUSRForDecl(record, recordUSR) ||
+        recordUSR.empty())
+      return {};
+    const TypeInfo pointerInfo =
+        getASTContext().getTypeInfo(getASTContext().VoidPtrTy);
+    const TypeInfo adjustmentInfo =
+        getASTContext().getTypeInfo(getASTContext().getPointerDiffType());
+    if (!pointerInfo.Width || !pointerInfo.Align || !adjustmentInfo.Width ||
+        !adjustmentInfo.Align)
+      return {};
+    mlir::NamedAttrList facts;
+    facts.set("kind", builder.getStringAttr("function"));
+    facts.set("target_record_usr", builder.getStringAttr(recordUSR));
+    facts.set("pointee_function_type",
+              builder.getStringAttr(mpt->getPointeeType().getAsString()));
+    facts.set("pointer_bits", builder.getI64IntegerAttr(pointerInfo.Width));
+    facts.set("pointer_align_bits",
+              builder.getI64IntegerAttr(pointerInfo.Align));
+    facts.set("adjustment_bits",
+              builder.getI64IntegerAttr(adjustmentInfo.Width));
+    facts.set("adjustment_align_bits",
+              builder.getI64IntegerAttr(adjustmentInfo.Align));
+    facts.set("adjustment_signed", builder.getBoolAttr(true));
+    facts.set("null_function_value", builder.getStringAttr("0"));
+    facts.set("null_adjustment_value", builder.getStringAttr("0"));
+    return facts.getDictionary(&getMLIRContext());
+  };
   if (functionDecl) {
+    if (isa<CXXConstructorDecl>(functionDecl)) {
+      func->setAttr("abi_ctor_variant",
+                    builder.getStringAttr(globalDecl.getCtorType() == Ctor_Base
+                                              ? "base"
+                                              : "complete"));
+      func->setAttr("abi_has_vtt",
+                    builder.getBoolAttr(getCXXABI().needsVTTParameter(globalDecl)));
+    } else if (isa<CXXDestructorDecl>(functionDecl)) {
+      StringRef variant = "complete";
+      if (globalDecl.getDtorType() == Dtor_Base)
+        variant = "base";
+      else if (globalDecl.getDtorType() == Dtor_Deleting)
+        variant = "deleting";
+      func->setAttr("abi_dtor_variant", builder.getStringAttr(variant));
+      func->setAttr("abi_has_vtt",
+                    builder.getBoolAttr(getCXXABI().needsVTTParameter(globalDecl)));
+    }
     auto sourceTypeLayer = [&](QualType type, StringRef kind,
                                bool referenceStorage) {
       mlir::NamedAttrList layer;
@@ -4022,44 +4072,44 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
       }
       return builder.getArrayAttr(layers);
     };
-    if (functionDecl->getReturnType()->isObjCObjectPointerType()) {
-      std::optional<mlir::ArrayAttr> returnSourceType =
-          sourceType(functionDecl->getReturnType());
-      if (!returnSourceType) {
-        errorNYI(functionDecl->getSourceRange(),
-                 "function result type without complete ObjC identity");
-        return;
-      }
-      func->setAttr("ast_return_source_type", *returnSourceType);
-    }
+          if (functionDecl->getReturnType()->isObjCObjectPointerType()) {
+            std::optional<mlir::ArrayAttr> returnSourceType =
+                sourceType(functionDecl->getReturnType());
+            if (!returnSourceType) {
+              errorNYI(functionDecl->getSourceRange(),
+                       "function result type without complete ObjC identity");
+              return;
+            }
+            func->setAttr("ast_return_source_type", *returnSourceType);
+          }
 
     const unsigned explicitParams = functionDecl->getNumParams();
     llvm::SmallVector<mlir::Attribute, 8> parameterSourceTypes;
     parameterSourceTypes.reserve(explicitParams + 1);
     if (const auto *method = dyn_cast<CXXMethodDecl>(functionDecl);
-        method && !method->isStatic()) {
-      std::optional<mlir::ArrayAttr> thisSourceType =
-          sourceType(method->getThisType());
-      if (!thisSourceType) {
-        errorNYI(method->getSourceRange(),
-                 "function object parameter without complete ObjC identity");
-        return;
+          method && !method->isStatic()) {
+        std::optional<mlir::ArrayAttr> thisSourceType =
+            sourceType(method->getThisType());
+        if (!thisSourceType) {
+          errorNYI(method->getSourceRange(),
+                   "function object parameter without complete ObjC identity");
+          return;
+        }
+        parameterSourceTypes.push_back(*thisSourceType);
       }
-      parameterSourceTypes.push_back(*thisSourceType);
-    }
-    for (unsigned index = 0; index < explicitParams; ++index) {
-      std::optional<mlir::ArrayAttr> parameterSourceType =
-          sourceType(functionDecl->getParamDecl(index)->getType());
-      if (!parameterSourceType) {
-        errorNYI(functionDecl->getParamDecl(index)->getSourceRange(),
-                 "function parameter type without complete ObjC identity");
-        return;
+      for (unsigned index = 0; index < explicitParams; ++index) {
+        std::optional<mlir::ArrayAttr> parameterSourceType =
+            sourceType(functionDecl->getParamDecl(index)->getType());
+        if (!parameterSourceType) {
+          errorNYI(functionDecl->getParamDecl(index)->getSourceRange(),
+                   "function parameter type without complete ObjC identity");
+          return;
+        }
+        parameterSourceTypes.push_back(*parameterSourceType);
       }
-      parameterSourceTypes.push_back(*parameterSourceType);
+      func->setAttr("ast_param_source_types",
+                    builder.getArrayAttr(parameterSourceTypes));
     }
-    func->setAttr("ast_param_source_types",
-                  builder.getArrayAttr(parameterSourceTypes));
-  }
   if (const auto *method =
           dyn_cast_or_null<CXXMethodDecl>(globalDecl.getDecl());
       method && method->getParent() && method->getParent()->isLambda()) {
@@ -4152,7 +4202,38 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
   }
   if (!retAttrs.empty())
     mlir::function_interface_impl::setResultAttrs(func, 0, retAttrs);
-
+  if (auto sourceTypes =
+          func->getAttrOfType<mlir::ArrayAttr>("ast_param_source_types")) {
+    const unsigned cirParams = func.getNumArguments();
+    if (cirParams >= sourceTypes.size()) {
+      const auto *fd = dyn_cast_or_null<FunctionDecl>(globalDecl.getDecl());
+      const bool isStructor = isa_and_nonnull<CXXConstructorDecl>(fd) ||
+                              isa_and_nonnull<CXXDestructorDecl>(fd);
+      const bool hasThis = isa_and_nonnull<CXXMethodDecl>(fd) &&
+                           !cast<CXXMethodDecl>(fd)->isStatic();
+      const unsigned sourceOffset = cirParams - sourceTypes.size();
+      unsigned cirIndex =
+          isStructor ? (getCXXABI().needsVTTParameter(globalDecl) ? 2 : 1)
+                     : sourceOffset + (hasThis ? 1 : 0);
+      if (fd) {
+        for (unsigned index = 0; index < fd->getNumParams(); ++index) {
+          if (cirIndex >= cirParams)
+            break;
+          if (auto facts =
+                  memberPointerFacts(fd->getParamDecl(index)->getType()))
+            func.setArgAttr(cirIndex, "cir.ast_member_pointer", facts);
+          ++cirIndex;
+        }
+      }
+    }
+  }
+  if (functionDecl) {
+    if (auto facts = memberPointerFacts(functionDecl->getReturnType())) {
+      mlir::NamedAttrList resultAttrs = retAttrs;
+      resultAttrs.set("cir.ast_member_pointer", facts);
+      mlir::function_interface_impl::setResultAttrs(func, 0, resultAttrs);
+    }
+  }
   // TODO(cir): Check X86_VectorCall incompatibility wiht WinARM64EC
 
   // TODO(cir): Set the calling convention computed by constructAttributeList
@@ -4360,7 +4441,9 @@ cir::FuncOp CIRGenModule::getOrCreateCIRFunction(
       }
     }
 
-    if (fn && fn.getFunctionType() == funcType) {
+    if (fn.getFunctionType() == funcType) {
+      if (d && (isa<CXXConstructorDecl>(d) || isa<CXXDestructorDecl>(d)))
+        setFunctionAttributes(gd, fn, /*isIncompleteFunction=*/false, isThunk);
       return fn;
     }
 

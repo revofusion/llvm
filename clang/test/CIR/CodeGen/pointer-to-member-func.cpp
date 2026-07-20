@@ -65,14 +65,14 @@ auto make_non_virtual() -> void (Foo::*)(int) {
   return &Foo::m1;
 }
 
-// CIR-BEFORE: cir.func {{.*}} @_Z16make_non_virtualv() -> !cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>
+// CIR-BEFORE: cir.func {{.*}} @_Z16make_non_virtualv() -> (!cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo> {{.*}})
 // CIR-BEFORE:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>>
 // CIR-BEFORE:   %[[METHOD_PTR:.*]] = cir.const #cir.method<@_ZN3Foo2m1Ei> : !cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>
 // CIR-BEFORE:   cir.store %[[METHOD_PTR]], %[[RETVAL]]
 // CIR-BEFORE:   %[[RET:.*]] = cir.load %[[RETVAL]]
 // CIR-BEFORE:   cir.return %[[RET]] : !cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>
 
-// CIR-AFTER: cir.func {{.*}} @_Z16make_non_virtualv() -> !rec_anon_struct attributes {{{.*}}nothrow} {
+// CIR-AFTER: cir.func {{.*}} @_Z16make_non_virtualv() -> (!rec_anon_struct {cir.ast_member_pointer = {{.*}}}) attributes
 // CIR-AFTER:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!rec_anon_struct>
 // CIR-AFTER:   %[[METHOD_PTR:.*]] = cir.get_global @[[NONVIRT_RET]] : !cir.ptr<!rec_anon_struct>
 // CIR-AFTER:   cir.copy %[[METHOD_PTR]] to %[[RETVAL]] : !cir.ptr<!rec_anon_struct>
@@ -98,14 +98,14 @@ auto make_virtual() -> void (Foo::*)(int) {
   return &Foo::m3;
 }
 
-// CIR-BEFORE: cir.func {{.*}} @_Z12make_virtualv() -> !cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>
+// CIR-BEFORE: cir.func {{.*}} @_Z12make_virtualv() -> (!cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo> {{.*}})
 // CIR-BEFORE:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>>
 // CIR-BEFORE:   %[[METHOD_PTR:.*]] = cir.const #cir.method<vtable_offset = 8> : !cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>
 // CIR-BEFORE:   cir.store %[[METHOD_PTR]], %[[RETVAL]]
 // CIR-BEFORE:   %[[RET:.*]] = cir.load %[[RETVAL]] : !cir.ptr<!cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>>, !cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>
 // CIR-BEFORE:   cir.return %[[RET]] : !cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>
 
-// CIR-AFTER: cir.func {{.*}} @_Z12make_virtualv() -> !rec_anon_struct
+// CIR-AFTER: cir.func {{.*}} @_Z12make_virtualv() -> (!rec_anon_struct {cir.ast_member_pointer = {{.*}}}) attributes
 // CIR-AFTER:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!rec_anon_struct>
 // CIR-AFTER:   %[[METHOD_PTR:.*]] = cir.get_global @[[VIRT_RET]] : !cir.ptr<!rec_anon_struct>
 // CIR-AFTER:   cir.copy %[[METHOD_PTR]] to %[[RETVAL]] : !cir.ptr<!rec_anon_struct>
@@ -129,14 +129,14 @@ auto make_null() -> void (Foo::*)(int) {
   return nullptr;
 }
 
-// CIR-BEFORE: cir.func {{.*}} @_Z9make_nullv() -> !cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>
+// CIR-BEFORE: cir.func {{.*}} @_Z9make_nullv() -> (!cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo> {{.*}})
 // CIR-BEFORE:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>>
 // CIR-BEFORE:   %[[METHOD_PTR:.*]] = cir.const #cir.method<null> : !cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>
 // CIR-BEFORE:   cir.store %[[METHOD_PTR]], %[[RETVAL]]
 // CIR-BEFORE:   %[[RET:.*]] = cir.load %[[RETVAL]]
 // CIR-BEFORE:   cir.return %[[RET]] : !cir.method<!cir.func<(!cir.ptr<!rec_Foo>, !s32i)> in !rec_Foo>
 
-// CIR-AFTER: cir.func {{.*}} @_Z9make_nullv() -> !rec_anon_struct
+// CIR-AFTER: cir.func {{.*}} @_Z9make_nullv() -> (!rec_anon_struct {cir.ast_member_pointer = {{.*}}}) attributes
 // CIR-AFTER:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!rec_anon_struct>
 // CIR-AFTER:   %[[METHOD_PTR:.*]] = cir.get_global @[[NULL_RET]] : !cir.ptr<!rec_anon_struct>
 // CIR-AFTER:   cir.copy %[[METHOD_PTR]] to %[[RETVAL]] : !cir.ptr<!rec_anon_struct>
@@ -168,6 +168,7 @@ void call(Foo *obj, void (Foo::*func)(int), int arg) {
 // CIR-BEFORE:   cir.call %[[CALLEE]](%[[THIS]], %[[ARG]]) : (!cir.ptr<!cir.func<(!cir.ptr<!void>, !s32i)>>, !cir.ptr<!void> {{.*}}, !s32i {{.*}}) -> ()
 
 // CIR-AFTER:    cir.func {{.*}} @_Z4callP3FooMS_FviEi
+// CIR-AFTER-SAME: {{.*}}cir.ast_member_pointer = {{.*}}
 // CIR-AFTER:      %[[OBJ:.*]] = cir.load{{.*}} %{{.*}} : !cir.ptr<!cir.ptr<!rec_Foo>>, !cir.ptr<!rec_Foo>
 // CIR-AFTER:      %[[FUNC:.*]] = cir.load{{.*}} : !cir.ptr<!rec_anon_struct>, !rec_anon_struct
 // CIR-AFTER:      %[[ADJ_ONE:.*]] = cir.const #cir.int<1> : !s64i

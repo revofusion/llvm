@@ -469,6 +469,8 @@ void test_base_dtor_call_virtual_base() {
 // Derived D1 (complete) destructor -- does call VirtualBase destructor
 
 // CIR: cir.func {{.*}} @_ZN7DerivedD1Ev
+// CIR-SAME: abi_dtor_variant = "complete"
+// CIR-SAME: abi_has_vtt = false
 // CIR:   %[[THIS:.*]] = cir.load %{{.*}}
 // CIR:   %[[VTT:.*]] = cir.vtt.address_point @_ZTT7Derived, offset = 0 -> !cir.ptr<!cir.ptr<!void>>
 // CIR:   cir.call @_ZN7DerivedD2Ev(%[[THIS]], %[[VTT]])
