@@ -21,16 +21,17 @@
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/GlobalDecl.h"
+#include "clang/AST/OSLog.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/DiagnosticFrontend.h"
 #include "clang/Basic/OperatorKinds.h"
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "clang/CIR/MissingFeatures.h"
-#include "llvm/IR/Intrinsics.h"
-#include "llvm/Support/ErrorHandling.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/IR/Intrinsics.h"
+#include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
 #include <functional>
 #include <tuple>
@@ -444,6 +445,94 @@ static RValue errorBuiltinNYI(CIRGenFunction &cgf, const CallExpr *e,
   }
 
   return cgf.getUndefRValue(e->getType());
+}
+
+static RValue emitBuiltinOSLogFormat(CIRGenFunction &cgf,
+                                     const CallExpr *expr) {
+  assert(expr->getNumArgs() >= 2 &&
+         "__builtin_os_log_format takes at least 2 arguments");
+
+  analyze_os_log::OSLogBufferLayout layout;
+  if (!analyze_os_log::computeOSLogBufferLayout(cgf.getContext(), expr, layout))
+    return cgf.getUndefRValue(expr->getType());
+
+  for (const auto &item : layout.Items) {
+    const Expr *itemExpr = item.getExpr();
+    if (itemExpr && itemExpr->getType()->isObjCRetainableType() &&
+        cgf.getLangOpts().ObjCAutoRefCount) {
+      cgf.cgm.errorNYI(expr->getSourceRange(),
+                       "__builtin_os_log_format with an ARC-retained argument");
+      return cgf.getUndefRValue(expr->getType());
+    }
+  }
+
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  const mlir::Location loc = cgf.getLoc(expr->getExprLoc());
+  Address buffer = cgf.emitPointerWithAlignment(expr->getArg(0));
+  const mlir::Type byteType = builder.getUInt8Ty();
+  Address byteBuffer = buffer.withElementType(builder, byteType);
+  uint64_t offset = 0;
+
+  auto addressAt = [&](uint64_t byteOffset, mlir::Type elementType) {
+    mlir::Value index = builder.getSInt64(byteOffset, loc);
+    mlir::Value byteAddress =
+        builder.createPtrStride(loc, byteBuffer.getPointer(), index);
+    mlir::Value typedAddress =
+        builder.createBitcast(byteAddress, builder.getPointerTo(elementType));
+    return Address(typedAddress, elementType, CharUnits::One());
+  };
+  auto storeByte = [&](uint8_t value) {
+    mlir::Value constant = builder.getConstInt(loc, byteType, value);
+    builder.createStore(loc, constant, addressAt(offset++, byteType));
+  };
+
+  storeByte(layout.getSummaryByte());
+  storeByte(layout.getNumArgsByte());
+  for (const auto &item : layout.Items) {
+    storeByte(item.getDescriptorByte());
+    storeByte(item.getSizeByte());
+
+    const unsigned size = item.getSizeByte();
+    if (size == 0)
+      continue;
+
+    cir::IntType storageType = builder.getUIntNTy(size * 8);
+    mlir::Value value;
+    if (item.getKind() == analyze_os_log::OSLogBufferItem::MaskKind) {
+      uint64_t mask = 0;
+      for (const auto [index, byte] : llvm::enumerate(item.getMaskType()))
+        mask |= static_cast<uint64_t>(static_cast<uint8_t>(byte))
+                << (index * 8);
+      value = builder.getConstInt(loc, storageType, mask);
+    } else if (const Expr *itemExpr = item.getExpr()) {
+      value = cgf.emitScalarExpr(itemExpr);
+      const uint64_t valueBits =
+          cgf.cgm.getDataLayout().getTypeSizeInBits(value.getType());
+      if (mlir::isa<cir::PointerType>(value.getType())) {
+        value = builder.createPtrToInt(value, storageType);
+      } else if (value.getType() == builder.getBoolTy()) {
+        value = builder.createBoolIntToIntCast(value, storageType);
+      } else if (mlir::isa<cir::IntType>(value.getType())) {
+        value = builder.createIntCast(value, storageType);
+      } else if (valueBits == size * 8) {
+        value = builder.createBitcast(value, storageType);
+      } else {
+        cgf.cgm.errorNYI(
+            itemExpr->getSourceRange(),
+            "__builtin_os_log_format argument with unsupported scalar type");
+        return cgf.getUndefRValue(expr->getType());
+      }
+    } else {
+      value = builder.getConstInt(
+          loc, storageType,
+          static_cast<uint64_t>(item.getConstValue().getQuantity()));
+    }
+
+    builder.createStore(loc, value, addressAt(offset, storageType));
+    offset += size;
+  }
+
+  return RValue::get(buffer.emitRawPointer());
 }
 
 static RValue emitBuiltinAlloca(CIRGenFunction &cgf, const CallExpr *e,
@@ -1111,8 +1200,8 @@ class CIRPaddingClearer {
         cgf.getContext().getTypeAlignInChars(elementType);
     CharUnits elementOffset = elementSize.alignTo(elementAlignment);
 
-    for (uint64_t index = 0;
-         index < array->getSize().getLimitedValue(); ++index)
+    for (uint64_t index = 0; index < array->getSize().getLimitedValue();
+         ++index)
       stack.push_back(
           {startBitOffset + index * elementOffset.getQuantity() * charWidth,
            elementType, /*visitVirtualBase=*/true});
@@ -1132,17 +1221,14 @@ class CIRPaddingClearer {
             {startBitOffset, startBitOffset + pointerWidth});
       }
 
-      const auto visitBase = [&astLayout, startBitOffset,
-                              this](const CXXBaseSpecifier &base,
-                                    auto getOffset) {
+      const auto visitBase = [&astLayout, startBitOffset, this](
+                                 const CXXBaseSpecifier &base, auto getOffset) {
         const auto *baseRecord = base.getType()->getAsCXXRecordDecl();
         if (!baseRecord)
           return;
 
-        CharUnits baseOffset =
-            std::invoke(getOffset, astLayout, baseRecord);
-        stack.push_back({startBitOffset +
-                             baseOffset.getQuantity() * charWidth,
+        CharUnits baseOffset = std::invoke(getOffset, astLayout, baseRecord);
+        stack.push_back({startBitOffset + baseOffset.getQuantity() * charWidth,
                          base.getType(), /*visitVirtualBase=*/false});
       };
 
@@ -1160,8 +1246,7 @@ class CIRPaddingClearer {
       if (field->isUnnamedBitField())
         continue;
 
-      uint64_t fieldOffset =
-          astLayout.getFieldOffset(field->getFieldIndex());
+      uint64_t fieldOffset = astLayout.getFieldOffset(field->getFieldIndex());
       if (field->isBitField()) {
         occupiedIntervals.push_back(
             {startBitOffset + fieldOffset,
@@ -1181,13 +1266,11 @@ class CIRPaddingClearer {
     CharUnits imaginaryOffset = elementSize.alignTo(elementAlignment);
 
     stack.push_back({startBitOffset, elementType, /*visitVirtualBase=*/true});
-    stack.push_back({startBitOffset +
-                         imaginaryOffset.getQuantity() * charWidth,
+    stack.push_back({startBitOffset + imaginaryOffset.getQuantity() * charWidth,
                      elementType, /*visitVirtualBase=*/true});
   }
 
-  void visitVector(const clang::VectorType *vector,
-                   uint64_t startBitOffset) {
+  void visitVector(const clang::VectorType *vector, uint64_t startBitOffset) {
     uint64_t sizeInBits = [&]() -> uint64_t {
       if (vector->isPackedVectorBoolType(cgf.getContext()))
         return vector->getNumElements();
@@ -1263,15 +1346,13 @@ class CIRPaddingClearer {
     uint64_t endBit = padding.last % charWidth;
 
     if (startByte == endByte) {
-      uint8_t bitsToClear =
-          ((1u << endBit) - 1) & ~((1u << startBit) - 1);
+      uint8_t bitsToClear = ((1u << endBit) - 1) & ~((1u << startBit) - 1);
       clearPartialByte(startByte, ~bitsToClear);
       return;
     }
 
     if (startBit != 0) {
-      uint8_t bitsToClear =
-          ((1u << (charWidth - startBit)) - 1) << startBit;
+      uint8_t bitsToClear = ((1u << (charWidth - startBit)) - 1) << startBit;
       clearPartialByte(startByte, ~bitsToClear);
       ++startByte;
     }
@@ -2827,12 +2908,13 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
         return errorBuiltinNYI(*this, e, builtinID);
     }
     break;
+  case Builtin::BI__builtin_os_log_format:
+    return emitBuiltinOSLogFormat(*this, e);
   case Builtin::BI__builtin_canonicalize:
   case Builtin::BI__builtin_canonicalizef:
   case Builtin::BI__builtin_canonicalizef16:
   case Builtin::BI__builtin_canonicalizel:
   case Builtin::BI__builtin_thread_pointer:
-  case Builtin::BI__builtin_os_log_format:
   case Builtin::BI__xray_customevent:
   case Builtin::BI__xray_typedevent:
   case Builtin::BI__builtin_ms_va_start:
