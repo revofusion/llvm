@@ -1,4 +1,6 @@
 // RUN: %clang_cc1 -std=c++11 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-cir %s -o %t.cir
+// RUN: cir-opt %t.cir --verify-roundtrip -o %t-roundtrip.cir
+// RUN: FileCheck --input-file=%t-roundtrip.cir %s -check-prefix=CIR-ROUNDTRIP
 // RUN: FileCheck --input-file=%t.cir %s -check-prefix=CIR
 // RUN: %clang_cc1 -std=c++11 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-llvm %s -o %t-cir.ll
 // RUN: FileCheck --input-file=%t-cir.ll %s -check-prefix=LLVM
@@ -143,6 +145,111 @@ void *assume_aligned_misalignment(void *ptr, unsigned misalignment) {
 // OGCG: @_Z27assume_aligned_misalignmentPvj
 // OGCG:   call void @llvm.assume(i1 true) [ "align"(ptr %{{.+}}, i64 16, i64 %{{.+}}) ]
 // OGCG: }
+
+bool is_aligned_pointer(void *pointer, unsigned long alignment) {
+  return __builtin_is_aligned(pointer, alignment);
+}
+
+// CIR: cir.func{{.*}} @_Z18is_aligned_pointerPvm
+// CIR: %[[POINTER:.*]] = cir.load{{.*}} : !cir.ptr<!cir.ptr<!void>>, !cir.ptr<!void>
+// CIR: %[[ADDRESS:.*]] = cir.cast ptr_to_int %[[POINTER]] : !cir.ptr<!void> -> !u64i
+// CIR: %[[ALIGNMENT:.*]] = cir.load{{.*}} : !cir.ptr<!u64i>, !u64i
+// CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !u64i
+// CIR: %[[MASK:.*]] = cir.sub %[[ALIGNMENT]], %[[ONE]] : !u64i
+// CIR: %[[SET_BITS:.*]] = cir.and %[[ADDRESS]], %[[MASK]] : !u64i
+// CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !u64i
+// CIR: %[[ALIGNED:.*]] = cir.cmp eq %[[SET_BITS]], %[[ZERO]] : !u64i
+
+// LLVM: define {{.*}}i1 @_Z18is_aligned_pointerPvm
+// LLVM: %[[ADDRESS:.*]] = ptrtoint ptr %{{.*}} to i64
+// LLVM: %[[MASK:.*]] = sub i64 %{{.*}}, 1
+// LLVM: %[[SET_BITS:.*]] = and i64 %[[ADDRESS]], %[[MASK]]
+// LLVM: %[[ALIGNED:.*]] = icmp eq i64 %[[SET_BITS]], 0
+
+// OGCG-LABEL: define {{.*}}i1 @_Z18is_aligned_pointerPvm
+// OGCG-DAG: %[[ADDRESS:.*]] = ptrtoint ptr %{{.*}} to i64
+// OGCG-DAG: %[[MASK:.*]] = sub i64 %{{.*}}, 1
+// OGCG: %[[SET_BITS:.*]] = and i64 %[[ADDRESS]], %[[MASK]]
+// OGCG: %[[ALIGNED:.*]] = icmp eq i64 %[[SET_BITS]], 0
+bool is_aligned_array(unsigned long alignment) {
+  int values[4];
+  return __builtin_is_aligned(values, alignment);
+}
+
+// CIR: cir.func{{.*}}is_aligned_array
+// CIR: cir.cast array_to_ptrdecay %{{.*}} : !cir.ptr<!cir.array<!s32i x 4>> -> !cir.ptr<!s32i>
+// CIR: cir.cast ptr_to_int %{{.*}} : !cir.ptr<!s32i> -> !u64i
+// CIR: cir.sub %{{.*}}, %{{.*}} : !u64i
+// CIR: cir.and %{{.*}}, %{{.*}} : !u64i
+// CIR: cir.cmp eq %{{.*}}, %{{.*}} : !u64i
+// LLVM: define{{.*}}i1 @{{.*}}is_aligned_array
+// LLVM: getelementptr i32
+// LLVM: ptrtoint ptr %{{.*}} to i64
+// LLVM: icmp eq i64
+// OGCG: define{{.*}}i1 @{{.*}}is_aligned_array
+// OGCG: ptrtoint ptr %{{.*}} to i64
+// OGCG: icmp eq i64
+
+bool is_aligned_integer(unsigned long value, unsigned long alignment) {
+  return __builtin_is_aligned(value, alignment);
+}
+
+// CIR: cir.func{{.*}} @_Z18is_aligned_integermm
+// CIR: %[[VALUE:.*]] = cir.load{{.*}} : !cir.ptr<!u64i>, !u64i
+// CIR: %[[INT_ALIGNMENT:.*]] = cir.load{{.*}} : !cir.ptr<!u64i>, !u64i
+// CIR: %[[INT_ONE:.*]] = cir.const #cir.int<1> : !u64i
+// CIR: %[[INT_MASK:.*]] = cir.sub %[[INT_ALIGNMENT]], %[[INT_ONE]] : !u64i
+// CIR: %[[INT_SET_BITS:.*]] = cir.and %[[VALUE]], %[[INT_MASK]] : !u64i
+// CIR: %[[INT_ZERO:.*]] = cir.const #cir.int<0> : !u64i
+// CIR: %[[INT_ALIGNED:.*]] = cir.cmp eq %[[INT_SET_BITS]], %[[INT_ZERO]] : !u64i
+
+// LLVM: define {{.*}}i1 @_Z18is_aligned_integermm
+// LLVM: %[[INT_MASK:.*]] = sub i64 %{{.*}}, 1
+// LLVM: %[[INT_SET_BITS:.*]] = and i64 %{{.*}}, %[[INT_MASK]]
+// LLVM: %[[INT_ALIGNED:.*]] = icmp eq i64 %[[INT_SET_BITS]], 0
+
+// OGCG: define {{.*}}i1 @_Z18is_aligned_integermm
+// OGCG: %[[INT_MASK:.*]] = sub i64 %{{.*}}, 1
+// OGCG: %[[INT_SET_BITS:.*]] = and i64 %{{.*}}, %[[INT_MASK]]
+// OGCG: %[[INT_ALIGNED:.*]] = icmp eq i64 %[[INT_SET_BITS]], 0
+bool is_aligned_cross_width(void *pointer, unsigned long long alignment) {
+  return __builtin_is_aligned(pointer, alignment);
+}
+
+// CIR-I386-LABEL: cir.func{{.*}}is_aligned_cross_width
+// CIR-I386: %[[CROSS_ADDRESS:.*]] = cir.cast ptr_to_int %{{.*}} : !cir.ptr<!void> -> !u32i
+// CIR-I386: %[[CROSS_ALIGNMENT:.*]] = cir.load{{.*}} : !cir.ptr<!u64i>, !u64i
+// CIR-I386: %[[CROSS_CAST:.*]] = cir.cast integral %[[CROSS_ALIGNMENT]] : !u64i -> !u32i
+// CIR-I386: cir.sub %[[CROSS_CAST]], %{{.*}} : !u32i
+// CIR-I386: cir.and %{{.*}}, %{{.*}} : !u32i
+// CIR-I386: cir.cmp eq %{{.*}}, %{{.*}} : !u32i
+// LLVM-I386-LABEL: define{{.*}}i1 @{{.*}}is_aligned_cross_width
+// LLVM-I386: %[[CROSS_ADDRESS:.*]] = ptrtoint ptr %{{.*}} to i32
+// LLVM-I386: %[[CROSS_CAST:.*]] = trunc i64 %{{.*}} to i32
+// LLVM-I386: %[[CROSS_MASK:.*]] = sub i32 %[[CROSS_CAST]], 1
+// LLVM-I386: %[[CROSS_BITS:.*]] = and i32 %[[CROSS_ADDRESS]], %[[CROSS_MASK]]
+// LLVM-I386: icmp eq i32 %[[CROSS_BITS]], 0
+// OGCG-I386-LABEL: define{{.*}}i1 @{{.*}}is_aligned_cross_width
+// OGCG-I386: %[[CROSS_ADDRESS:.*]] = ptrtoint ptr %{{.*}} to i32
+// OGCG-I386: %[[CROSS_CAST:.*]] = trunc i64 %{{.*}} to i32
+// OGCG-I386: %[[CROSS_MASK:.*]] = sub i32 %[[CROSS_CAST]], 1
+// OGCG-I386: %[[CROSS_BITS:.*]] = and i32 %[[CROSS_ADDRESS]], %[[CROSS_MASK]]
+// OGCG-I386: icmp eq i32 %[[CROSS_BITS]], 0
+
+using AS1VoidPtr = void __attribute__((address_space(1))) *;
+bool is_aligned_address_space(AS1VoidPtr pointer, unsigned alignment) {
+  return __builtin_is_aligned(pointer, alignment);
+}
+
+// CIR-I386-LABEL: cir.func{{.*}}is_aligned_address_space
+// CIR-I386: cir.cast ptr_to_int %{{.*}} : !cir.ptr<!void, 1> -> !u32i
+// CIR-I386: cir.sub %{{.*}}, %{{.*}} : !u32i
+// CIR-I386: cir.and %{{.*}}, %{{.*}} : !u32i
+// CIR-I386: cir.cmp eq %{{.*}}, %{{.*}} : !u32i
+// CIR-ROUNDTRIP: cir.cast ptr_to_int
+// CIR-ROUNDTRIP: cir.sub
+// CIR-ROUNDTRIP: cir.and
+// CIR-ROUNDTRIP: cir.cmp eq
 
 void assume_separate_storage(void *p1, void *p2) {
   __builtin_assume_separate_storage(p1, p2);

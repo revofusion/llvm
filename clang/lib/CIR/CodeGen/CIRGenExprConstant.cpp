@@ -2076,7 +2076,14 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
     auto cirTy = mlir::cast<cir::DataMemberType>(cgm.convertType(destType));
 
     const auto *fieldDecl = cast<FieldDecl>(memberDecl);
-    return builder.getDataMemberAttr(cirTy, fieldDecl->getFieldIndex());
+    const RecordDecl *parent = fieldDecl->getParent();
+    const unsigned memberIndex =
+        parent->isUnion()
+            ? fieldDecl->getFieldIndex()
+            : cgm.getTypes()
+                  .getCIRGenRecordLayout(parent)
+                  .getCIRFieldNo(fieldDecl);
+    return builder.getDataMemberAttr(cirTy, memberIndex);
   }
   case APValue::LValue:
     return ConstantLValueEmitter(*this, value, destType).tryEmit();

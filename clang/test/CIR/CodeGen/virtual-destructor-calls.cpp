@@ -110,6 +110,17 @@ C::~C() { }
 // OGCG:   call void @_ZN1CD1Ev(ptr{{.*}} %[[THIS:.*]])
 // OGCG:   call void @_ZdlPvm(ptr{{.*}} %[[THIS]], i64{{.*}} 16)
 
+void explicit_virtual_destructor_call(A *value) {
+  value->~A();
+}
+
+// The indirect call must retain a source call-site location. A declaration
+// location on the call loses the exact explicit-destruction event identity.
+// CIR-LABEL: cir.func{{.*}} @_Z32explicit_virtual_destructor_callP1A
+// CIR: %[[VTABLE_SLOT:.*]] = cir.vtable.get_virtual_fn_addr{{.*}}loc(#[[LOOKUP_LOC:loc[0-9]+]])
+// CIR: %[[VIRTUAL_DESTRUCTOR:.*]] = cir.load{{.*}}%[[VTABLE_SLOT]]
+// CIR: cir.call %[[VIRTUAL_DESTRUCTOR]]({{.*}}){{.*}}loc(#[[DESTRUCTOR_CALL_LOC:loc[0-9]+]])
+
 namespace PR12798 {
   // A qualified call to a base class destructor should not undergo virtual
   // dispatch. Template instantiation used to lose the qualifier.
@@ -173,3 +184,5 @@ D::~D() = default;
 // OGCG:  %[[THIS1:.*]] = load ptr, ptr %[[THIS_ADDR]], align 8
 // OGCG:  call void @llvm.trap()
 // OGCG:  unreachable
+// CIR: #[[LOOKUP_LOC]] = loc("{{.*}}virtual-destructor-calls.cpp":[[CALL_LINE:[0-9]+]]:3)
+// CIR-NEXT: #[[DESTRUCTOR_CALL_LOC]] = loc("{{.*}}virtual-destructor-calls.cpp":[[CALL_LINE]]:10)

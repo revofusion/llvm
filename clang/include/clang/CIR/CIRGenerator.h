@@ -17,7 +17,9 @@
 #include "clang/Basic/CodeGenOptions.h"
 #include "clang/Sema/SemaConsumer.h"
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/VirtualFileSystem.h"
 
 #include <memory>
@@ -26,6 +28,7 @@ namespace clang {
 class DeclGroupRef;
 class CXXMethodDecl;
 class DiagnosticsEngine;
+class GlobalDecl;
 namespace CIRGen {
 class CIRGenModule;
 } // namespace CIRGen
@@ -72,9 +75,8 @@ private:
   llvm::SmallVector<clang::FunctionDecl *, 8> deferredInlineMemberFuncDefs;
 
   void defineSelectedDefaultedMethod(clang::CXXMethodDecl *method);
-  void defineSelectedDependencyMethods();
-
-  void defineSelectedDefaultedMethods(clang::DeclContext *context);
+  void defineSelectedDefaultedMethods(
+      llvm::ArrayRef<clang::GlobalDecl> methods);
 
 public:
   CIRGenerator(clang::DiagnosticsEngine &diags,

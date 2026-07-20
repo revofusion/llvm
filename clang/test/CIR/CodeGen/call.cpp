@@ -130,6 +130,21 @@ void f16() {
 // LLVM-NEXT:    %{{.+}} = call{{.*}} i32 @_Z3f15v()
 // LLVM:       }
 
+struct TrivialDtor {
+  int value;
+};
+
+void destroy_trivial(TrivialDtor *value) {
+  value->~TrivialDtor();
+}
+
+// CIR-LABEL: @_Z15destroy_trivialP11TrivialDtor
+// CIR:         cir.call @_ZN11TrivialDtorD1Ev
+
+// LLVM-LABEL: define{{.+}} void @_Z15destroy_trivialP11TrivialDtor
+// LLVM-NOT:     call
+// LLVM:         ret void
+
 template<typename Func>
 inline decltype(auto) TakesFunc(const Func &f) {
   return f();

@@ -45,6 +45,7 @@ module attributes {cir.triple = "x86_64-unknown-linux-gnu"} {
   cir.global external @fp = #cir.ptr<null> : !cir.ptr<!cir.func<()>>
   cir.global external @fpii = #cir.ptr<null> : !cir.ptr<!cir.func<(!s32i) -> !s32i>>
   cir.global external @fpvar = #cir.ptr<null> : !cir.ptr<!cir.func<(!s32i, ...)>>
+  cir.global external @darwin_oslog_section = #cir.int<1> : !s32i {section = "__TEXT,__oslogstring,cstring_literals"}
 }
 
 // CHECK: cir.global external @c = #cir.int<0> : !s8i
@@ -79,3 +80,4 @@ module attributes {cir.triple = "x86_64-unknown-linux-gnu"} {
 // CHECK: cir.global external @fp = #cir.ptr<null> : !cir.ptr<!cir.func<()>>
 // CHECK: cir.global external @fpii = #cir.ptr<null> : !cir.ptr<!cir.func<(!s32i) -> !s32i>>
 // CHECK: cir.global external @fpvar = #cir.ptr<null> : !cir.ptr<!cir.func<(!s32i, ...)>>
+// CHECK: cir.global external @darwin_oslog_section = #cir.int<1> : !s32i {section = "__TEXT,__oslogstring,cstring_literals"}

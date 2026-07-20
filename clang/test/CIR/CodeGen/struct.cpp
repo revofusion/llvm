@@ -1,4 +1,6 @@
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir %s -o %t.cir
+// RUN: cir-opt %t.cir --verify-roundtrip -o %t-roundtrip.cir
+// RUN: FileCheck --check-prefix=CIR-ROUNDTRIP --input-file=%t-roundtrip.cir %s
 // RUN: FileCheck --check-prefix=CIR --input-file=%t.cir %s
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -fclangir -emit-llvm %s -o %t-cir.ll
 // RUN: FileCheck --check-prefix=LLVM --input-file=%t-cir.ll %s
@@ -244,6 +246,72 @@ void atomic_init() {
 // OGCG:   store i32 0, ptr %[[ELEM_0_PTR]], align 8
 // OGCG:   %[[ELEM_1_PTR:.*]] = getelementptr inbounds nuw %struct.CompleteS, ptr %[[A_ADDR]], i32 0, i32 1
 // OGCG:   store i8 0, ptr %[[ELEM_1_PTR]], align 4
+
+struct AtomicS1 {
+  short x, y, z;
+};
+
+struct PaddedAtomic {
+  _Atomic(AtomicS1) value;
+  PaddedAtomic(AtomicS1 input);
+};
+
+PaddedAtomic::PaddedAtomic(AtomicS1 input) : value(input) {}
+
+// CIR-LABEL: cir.func{{.*}} @_ZN12PaddedAtomicC2E8AtomicS1
+// CIR: %[[ATOMIC_FIELD:.*]] = cir.get_member %{{.*}}[0] {name = "value"} : !cir.ptr<!rec_PaddedAtomic> -> !cir.ptr<!rec_anon_struct>
+// CIR: %[[ATOMIC_ZERO:.*]] = cir.const #cir.zero : !rec_anon_struct
+// CIR: cir.store align(8) %[[ATOMIC_ZERO]], %[[ATOMIC_FIELD]] : !rec_anon_struct, !cir.ptr<!rec_anon_struct>
+// CIR: %[[ATOMIC_VALUE:.*]] = cir.get_member %[[ATOMIC_FIELD]][0] {name = ""} : !cir.ptr<!rec_anon_struct> -> !cir.ptr<!rec_AtomicS1>
+// CIR: cir.copy %{{.*}} to %[[ATOMIC_VALUE]] : !cir.ptr<!rec_AtomicS1>
+
+// LLVM-LABEL: define{{.*}} void @_ZN12PaddedAtomicC2E8AtomicS1
+// LLVM: %[[LLVM_ATOMIC_FIELD:.*]] = getelementptr inbounds nuw %struct.PaddedAtomic, ptr %{{.*}}, i32 0, i32 0
+// LLVM: store { %struct.AtomicS1, [2 x i8] } zeroinitializer, ptr %[[LLVM_ATOMIC_FIELD]], align 8
+// LLVM: %[[LLVM_ATOMIC_VALUE:.*]] = getelementptr inbounds nuw { %struct.AtomicS1, [2 x i8] }, ptr %[[LLVM_ATOMIC_FIELD]], i32 0, i32 0
+// LLVM: call void @llvm.memcpy{{.*}}(ptr %[[LLVM_ATOMIC_VALUE]], ptr %{{.*}}, i64 6, i1 false)
+
+// OGCG-LABEL: define{{.*}} void @_ZN12PaddedAtomicC2E8AtomicS1
+// OGCG: %[[OGCG_ATOMIC_FIELD:.*]] = getelementptr inbounds nuw %struct.PaddedAtomic, ptr %{{.*}}, i32 0, i32 0
+// OGCG: call void @llvm.memset{{.*}}(ptr align 8 %[[OGCG_ATOMIC_FIELD]], i8 0, i64 8, i1 false)
+// OGCG: %[[OGCG_ATOMIC_VALUE:.*]] = getelementptr inbounds nuw { %struct.AtomicS1, [2 x i8] }, ptr %[[OGCG_ATOMIC_FIELD]], i32 0, i32 0
+// OGCG: call void @llvm.memcpy{{.*}}(ptr align 8 %[[OGCG_ATOMIC_VALUE]], ptr align 2 %{{.*}}, i64 6, i1 false)
+struct SameSizeAtomic {
+  int value;
+};
+
+struct SameSizeWrapper {
+  _Atomic(SameSizeAtomic) value;
+  SameSizeWrapper(SameSizeAtomic input);
+};
+
+SameSizeWrapper::SameSizeWrapper(SameSizeAtomic input) : value(input) {}
+
+// CIR-LABEL: cir.func{{.*}}SameSizeWrapperC2
+// CIR: cir.copy
+// CIR-ROUNDTRIP-LABEL: cir.func{{.*}}SameSizeWrapperC2
+// CIR-ROUNDTRIP-NOT: cir.atomic.
+// CIR-ROUNDTRIP: cir.copy
+// LLVM-LABEL: define{{.*}}SameSizeWrapperC2
+// LLVM-NOT: atomicrmw
+// LLVM: ret void
+// OGCG-LABEL: define{{.*}}SameSizeWrapperC2
+// OGCG-NOT: atomicrmw
+// OGCG: ret void
+
+AtomicS1 make_atomic_source() {
+  return {1, 2, 3};
+}
+
+void discard_atomic_conversion() {
+  (void)(_Atomic(AtomicS1))make_atomic_source();
+}
+
+
+// CIR-LABEL: cir.func{{.*}}discard_atomic_conversion
+// CIR: cir.call{{.*}}make_atomic_source
+// CIR-NOT: cir.atomic.
+// CIR: cir.return
 
 void unary_extension() {
   CompleteS a = __extension__ CompleteS();

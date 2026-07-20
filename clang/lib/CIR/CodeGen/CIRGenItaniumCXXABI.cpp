@@ -555,7 +555,7 @@ mlir::Value CIRGenItaniumCXXABI::emitVirtualDestructorCall(
       callExpr ? callExpr->getObjectType() : delExpr->getDestroyedType();
 
   cgf.emitCXXDestructorCall(globalDecl, callee, thisAddr.emitRawPointer(),
-                            thisTy, nullptr, QualType(), nullptr);
+                            thisTy, nullptr, QualType(), callExpr);
   return nullptr;
 }
 

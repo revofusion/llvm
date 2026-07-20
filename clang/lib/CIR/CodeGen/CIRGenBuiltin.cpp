@@ -141,6 +141,44 @@ static mlir::Value emitFromInt(CIRGenFunction &cgf, mlir::Value v, QualType t,
   return v;
 }
 
+/// Generate (value & (alignment - 1)) == 0.
+static RValue emitBuiltinIsAligned(CIRGenFunction &cgf, const CallExpr *e) {
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
+  const Expr *sourceExpr = e->getArg(0);
+  mlir::Value source =
+      sourceExpr->getType()->isArrayType()
+          ? cgf.emitArrayToPointerDecay(sourceExpr).getPointer()
+          : cgf.emitScalarExpr(sourceExpr);
+  cir::IntType intType;
+  if (mlir::isa<cir::PointerType>(source.getType())) {
+    QualType sourceType = sourceExpr->getType();
+    if (sourceType->isArrayType())
+      sourceType = cgf.getContext().getArrayDecayedType(sourceType);
+    assert(sourceType->isPointerType() &&
+           "array decay or pointer expression must emit a pointer");
+    LangAS addressSpace = sourceType->getPointeeType().getAddressSpace();
+    unsigned pointerWidth =
+        cgf.getContext().getTargetInfo().getPointerWidth(addressSpace);
+    intType = mlir::cast<cir::IntType>(cgf.convertType(
+        cgf.getContext().getIntTypeForBitwidth(pointerWidth, false)));
+  } else {
+    intType = mlir::cast<cir::IntType>(source.getType());
+  }
+  if (mlir::isa<cir::PointerType>(source.getType()))
+    source = builder.createPtrToInt(source, intType);
+
+  mlir::Value alignment = cgf.emitScalarExpr(e->getArg(1));
+  if (alignment.getType() != intType)
+    alignment = builder.createIntCast(alignment, intType);
+  mlir::Value one = builder.getConstInt(loc, intType, 1);
+  mlir::Value mask = builder.createSub(loc, alignment, one);
+  mlir::Value setBits = builder.createAnd(loc, source, mask);
+  mlir::Value zero = builder.getNullValue(intType, loc);
+  return RValue::get(
+      builder.createCompare(loc, cir::CmpOpKind::eq, setBits, zero));
+}
+
 static mlir::Value emitSignBit(mlir::Location loc, CIRGenFunction &cgf,
                                mlir::Value val) {
   assert(!::cir::MissingFeatures::isPPC_FP128Ty());
@@ -2228,7 +2266,10 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     return RValue::get(
         builder.createCast(loc, cir::CastKind::bitcast, addr, voidPtrTy));
   }
-  case Builtin::BI__builtin_extract_return_addr:
+  case Builtin::BI__builtin_extract_return_addr: {
+    mlir::Value address = emitScalarExpr(e->getArg(0));
+    return RValue::get(getTargetHooks().decodeReturnAddress(*this, address));
+  }
   case Builtin::BI__builtin_frob_return_addr:
   case Builtin::BI__builtin_dwarf_sp_column:
   case Builtin::BI__builtin_init_dwarf_reg_size_table:
@@ -2646,6 +2687,7 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
         e->getCallee()->getType()->castAs<FunctionProtoType>(), e, OO_Delete);
     return RValue::get(nullptr);
   case Builtin::BI__builtin_is_aligned:
+    return emitBuiltinIsAligned(*this, e);
   case Builtin::BI__builtin_align_up:
   case Builtin::BI__builtin_align_down:
   case Builtin::BI__noop:

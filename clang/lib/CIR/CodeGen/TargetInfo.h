@@ -124,6 +124,13 @@ public:
     return false;
   }
 
+  /// Convert a return address as stored by the target into the address of the
+  /// next instruction. Used by __builtin_extract_return_addr().
+  virtual mlir::Value decodeReturnAddress(CIRGenFunction &cgf,
+                                          mlir::Value address) const {
+    return address;
+  }
+
   /// Corrects the MLIR type for a given constraint and "usual"
   /// type.
   ///

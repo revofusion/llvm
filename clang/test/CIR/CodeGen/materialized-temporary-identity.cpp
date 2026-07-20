@@ -3,6 +3,7 @@
 
 struct Cleanup {
   Cleanup();
+  explicit Cleanup(int);
   Cleanup(const Cleanup &);
   ~Cleanup();
   int value();
@@ -55,6 +56,16 @@ void logging_style_materialized_temporary() {
 // Metadata must still attach to the actual alloca.
 void cleanup_owned_bind() {
   consume_by_value(Cleanup{});
+}
+
+// Structured-operation builders emit their regions before attaching the
+// enclosing operation to the function. Temporary identity must still use the
+// concrete function being emitted rather than an incomplete parent chain.
+void detached_region_temporaries(bool b) {
+  if (b)
+    consume(Cleanup{});
+  else
+    (Cleanup)0;
 }
 
 // NRVO reuses the function return slot for this automatic declaration. The
@@ -142,6 +153,13 @@ void conditional_temporary_continue(bool b) {
 // CIR: cir.call
 // CIR-LABEL: cir.func{{.*}} @_Z18cleanup_owned_bindv()
 // CIR: %[[CLEANUP_OWNED_TEMP:.*]] = cir.alloca{{.*}}ast_temporary_object_identity = {{.*}}cleanup_kind = "cxx_destructor"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}function = @_Z18cleanup_owned_bindv{{.*}}instance_token = "cxx.temporary.instance.0"
+// Both temporary allocas are emitted while the enclosing cir.if is detached.
+// The reference-bound temporary carries both AST identities, while the
+// standalone C-style cast carries its CXXBindTemporaryExpr identity.
+// CIR-LABEL: cir.func{{.*}} @_Z27detached_region_temporariesb(
+// CIR: cir.if
+// CIR: cir.alloca{{.*}}ast_materialize_temporary_identity = {{.*}}function = @_Z27detached_region_temporariesb{{.*}}ast_temporary_object_identity = {{.*}}function = @_Z27detached_region_temporariesb
+// CIR: cir.alloca{{.*}}ast_temporary_object_identity = {{.*}}function = @_Z27detached_region_temporariesb
 // CIR-LABEL: cir.func{{.*}} @_Z24automatic_cleanup_resultv()
 // CIR: cir.alloca{{.*}}ast_automatic_object_identity = {{.*}}begin_raw = [[AUTO_BEGIN:[0-9]+]] : i64{{.*}}cleanup_kind = "cxx_destructor"{{.*}}constructor_symbol = "_ZN7CleanupC1Ev"{{.*}}declaration_usr = "{{[^"]+}}"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}end_raw = [[AUTO_END:[0-9]+]] : i64{{.*}}function = @_Z24automatic_cleanup_resultv{{.*}}requires_observed_constructor_call = true
 // CIR-LABEL: cir.func{{.*}} @_Z23direct_temporary_resultb(

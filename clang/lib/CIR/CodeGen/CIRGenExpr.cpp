@@ -24,18 +24,48 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
+#include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "clang/Basic/AddressSpaces.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "llvm/ADT/SmallString.h"
 #include <optional>
 
 using namespace clang;
 using namespace clang::CIRGen;
 using namespace cir;
 
+/// Attach exact Clang identities to a source-derived field location when both
+/// the member and its declaring record have representable USRs.
+static mlir::Location
+getFieldLocationWithIdentity(CIRGenFunction &cgf, mlir::Location loc,
+                             const FieldDecl *field) {
+  if (!field)
+    return loc;
+
+  const RecordDecl *record = field->getParent();
+  llvm::SmallString<256> memberUSR;
+  llvm::SmallString<256> declaringRecordUSR;
+  if (!record || clang::index::generateUSRForDecl(field, memberUSR) ||
+      clang::index::generateUSRForDecl(record, declaringRecordUSR) ||
+      memberUSR.empty() || declaringRecordUSR.empty())
+    return loc;
+
+  mlir::MLIRContext *context = &cgf.getMLIRContext();
+  llvm::SmallVector<mlir::NamedAttribute, 2> metadata;
+  metadata.emplace_back(
+      "ast_member_decl_usr",
+      mlir::StringAttr::get(context, memberUSR));
+  metadata.emplace_back(
+      "ast_declaring_record_usr",
+      mlir::StringAttr::get(context, declaringRecordUSR));
+  return mlir::FusedLoc::get({loc},
+                             mlir::DictionaryAttr::get(context, metadata),
+                             context);
+}
 /// Get the address of a zero-sized field within a record. Zero-sized fields
 /// (e.g. empty bases with [[no_unique_address]]) don't appear in the CIR
 /// record layout, so we compute their address using the ASTContext field
@@ -46,16 +76,22 @@ static Address emitAddrOfZeroSizeField(CIRGenFunction &cgf, Address base,
   CharUnits offset = cgf.getContext().toCharUnitsFromBits(
       cgf.getContext().getFieldOffset(field));
   mlir::Type fieldType = cgf.convertType(field->getType());
+  mlir::Location loc = getFieldLocationWithIdentity(
+      cgf, cgf.getLoc(field->getLocation()), field);
 
   if (offset.isZero()) {
-    return Address(builder.createPtrBitcast(base.getPointer(), fieldType),
-                   base.getAlignment());
+    auto basePtrType =
+        mlir::cast<cir::PointerType>(base.getPointer().getType());
+    mlir::Type fieldPtrType =
+        builder.getPointerTo(fieldType, basePtrType.getAddrSpace());
+    return Address(
+        builder.createBitcast(loc, base.getPointer(), fieldPtrType),
+        base.getAlignment());
   }
 
   // Cast to byte pointer, stride by the field offset, then cast to the
   // field pointer type (CIR pointers are typed, so we need explicit casts
   // unlike OG's opaque-pointer GEP).
-  mlir::Location loc = cgf.getLoc(field->getLocation());
   mlir::Value addr =
       builder.createPtrBitcast(base.getPointer(), builder.getUInt8Ty());
   addr = builder.createPtrStride(loc, addr,
@@ -71,7 +107,8 @@ Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
   if (isEmptyFieldForLayout(getContext(), field))
     return emitAddrOfZeroSizeField(*this, base, field);
 
-  mlir::Location loc = getLoc(field->getLocation());
+  mlir::Location loc =
+      getFieldLocationWithIdentity(*this, getLoc(field->getLocation()), field);
 
   // Retrieve layout information for both type resolution and alignment.
   const RecordDecl *rec = field->getParent();
@@ -554,7 +591,8 @@ Address CIRGenFunction::getAddrOfBitFieldStorage(LValue base,
                                                  const FieldDecl *field,
                                                  mlir::Type fieldType,
                                                  unsigned index) {
-  mlir::Location loc = getLoc(field->getLocation());
+  mlir::Location loc =
+      getFieldLocationWithIdentity(*this, getLoc(field->getLocation()), field);
   cir::PointerType fieldPtr = cir::PointerType::get(fieldType);
   auto rec = cast<cir::RecordType>(base.getAddress().getElementType());
   cir::GetMemberOp sea = getBuilder().createGetMember(
@@ -1859,7 +1897,9 @@ void CIRGenFunction::setMaterializedTemporaryIdentity(
   if (!alloca || alloca.getAstMaterializeTemporaryIdentityAttr() ||
       alloca.getAstTemporaryObjectIdentityAttr())
     return;
-  auto function = alloca->getParentOfType<cir::FuncOp>();
+  // Region builders may emit this alloca while their enclosing structured
+  // operation is still detached. curFn remains the authoritative owner.
+  auto function = mlir::dyn_cast_or_null<cir::FuncOp>(curFn);
   SourceLocation begin = temporary->getBeginLoc();
   SourceLocation end = temporary->getEndLoc();
   if (!function || begin.isInvalid() || end.isInvalid())

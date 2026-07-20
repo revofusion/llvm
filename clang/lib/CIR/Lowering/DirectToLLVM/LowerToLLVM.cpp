@@ -1720,6 +1720,13 @@ rewriteCallOrInvoke(mlir::Operation *op, mlir::ValueRange callOperands,
   if (calleeAttr) { // direct call
     mlir::Operation *callee =
         symbolTables.lookupNearestSymbolFrom(op, calleeAttr);
+    if (auto fn = mlir::dyn_cast<cir::FuncOp>(callee);
+        fn && fn.isCxxDestructor() && fn.isCxxTrivialMemberFunction()) {
+      assert(cirResults.empty() && !landingPadBlock &&
+             "trivial destructor call must be a non-throwing void call");
+      rewriter.eraseOp(op);
+      return mlir::success();
+    }
     if (auto fn = mlir::dyn_cast<mlir::FunctionOpInterface>(callee)) {
       llvmFnTy = converter->convertType<mlir::LLVM::LLVMFunctionType>(
           fn.getFunctionType());

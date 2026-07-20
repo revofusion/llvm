@@ -14,6 +14,20 @@ struct Wrapper {
 
 template struct Wrapper<int>;
 
+struct EmptyField {};
+
+struct ZeroSizeOwner {
+  [[no_unique_address]] EmptyField empty;
+};
+
+extern "C" EmptyField *zero_size_field_address(ZeroSizeOwner *owner) {
+  return &owner->empty;
+}
+
 // CHECK-LABEL: cir.func {{.*}}AnnotatedFieldC2
 // CHECK: cir.get_member {{.*}}{name = "value"}
 // CHECK: cir.store
+
+// CHECK-LABEL: cir.func {{.*}}zero_size_field_address
+// CHECK: cir.cast bitcast {{.*}} loc(#[[FIELD_LOC:loc[0-9]+]])
+// CHECK: #[[FIELD_LOC]] = loc(fused<{{.*}}ast_declaring_record_usr = "c:@S@ZeroSizeOwner"{{.*}}ast_member_decl_usr = "c:@S@ZeroSizeOwner@FI@empty"{{.*}})

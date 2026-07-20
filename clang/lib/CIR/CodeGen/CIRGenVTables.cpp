@@ -915,7 +915,7 @@ cir::FuncOp CIRGenVTables::maybeEmitThunk(GlobalDecl gd,
         cir::FuncOp::create(cgm.getBuilder(), thunk->getLoc(), name.str(),
                             thunkFnTy, cir::GlobalLinkageKind::ExternalLinkage);
     cgm.insertGlobalSymbol(thunkFn);
-    cgm.setCIRFunctionAttributes(md, fnInfo, thunkFn, /*isThunk=*/false);
+    cgm.setCIRFunctionAttributes(gd, fnInfo, thunkFn, /*isThunk=*/true);
 
     if (!oldThunkFn->use_empty())
       oldThunkFn->replaceAllUsesWith(thunkFn);

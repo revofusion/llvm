@@ -389,8 +389,10 @@ localMacroRecordSourceIdentity(CIRGenModule &cgm, const RecordDecl *record) {
   return identity;
 }
 
+} // namespace
+
 std::optional<std::string>
-recordDeclIdentity(CIRGenModule &cgm, const RecordDecl *decl) {
+clang::CIRGen::recordDeclIdentity(CIRGenModule &cgm, const RecordDecl *decl) {
   if (!decl)
     return std::nullopt;
   const RecordDecl *definition = decl->getDefinition();
@@ -429,8 +431,6 @@ recordDeclIdentity(CIRGenModule &cgm, const RecordDecl *decl) {
     return std::nullopt;
   return "cxx-rtti-name:" + rttiName;
 }
-
-} // namespace
 
 CIRRecordLowering::CIRRecordLowering(CIRGenTypes &cirGenTypes,
                                      const RecordDecl *recordDecl, bool packed)
@@ -933,9 +933,10 @@ CIRGenTypes::computeRecordLayout(const RecordDecl *rd, cir::RecordType *ty) {
     const auto &astLayout = astContext.getASTRecordLayout(rd);
     uint64_t recordAlignInBytes = astLayout.getAlignment().getQuantity();
 
-    if (auto identity = recordDeclIdentity(cgm, rd); identity.has_value())
-      cgm.addRecordDeclIdentity(
-          ty->getName(), mlir::StringAttr::get(mlirCtx, *identity));
+    // The record's exact Clang identity is recorded once, when the named CIR
+    // record type is created (CIRGenTypes::convertRecordDeclType), so records
+    // that only ever appear as incomplete pointees still carry it; only the
+    // layout-derived facts are queued here.
     bool hasEmptyProjectedSchema = rd->field_empty();
     if (const auto *cxx = dyn_cast<CXXRecordDecl>(rd)) {
       hasEmptyProjectedSchema =

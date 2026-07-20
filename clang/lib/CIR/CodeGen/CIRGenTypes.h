@@ -25,6 +25,9 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
+#include <optional>
+#include <string>
+
 namespace clang {
 class ASTContext;
 class FunctionType;
@@ -44,6 +47,13 @@ class CallArgList;
 class CIRGenBuilderTy;
 class CIRGenCXXABI;
 class CIRGenModule;
+
+/// Compute the exact Clang record identity string recorded in the module's
+/// `cir.record_decl_identities` dictionary (USR, local source provenance, or
+/// mangled RTTI name, in that order; std::nullopt when no exact identity
+/// exists). Defined in CIRGenRecordLayoutBuilder.cpp.
+std::optional<std::string> recordDeclIdentity(CIRGenModule &cgm,
+                                              const clang::RecordDecl *decl);
 
 /// This class organizes the cross-module state that is used while lowering
 /// AST types to CIR types.

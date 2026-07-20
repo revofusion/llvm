@@ -206,9 +206,6 @@ RValue CIRGenFunction::emitCXXMemberOrOperatorMemberCallExpr(
     return RValue::get(nullptr);
   }
 
-  if ((md->isTrivial() || (md->isDefaulted() && md->getParent()->isUnion())) &&
-      isa<CXXDestructorDecl>(md))
-    return RValue::get(nullptr);
 
   // Compute the function type we're calling
   const CXXMethodDecl *calleeDecl =

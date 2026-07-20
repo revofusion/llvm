@@ -240,6 +240,17 @@ mlir::Type CIRGenTypes::convertRecordDeclType(const clang::RecordDecl *rd) {
     auto name = getRecordTypeName(rd, "");
     entry = builder.getIncompleteRecordTy(name, rd);
     recordDeclTypes[key] = entry;
+    // Record the exact Clang record identity for the producer-owned name as
+    // soon as the name exists. Recording only at layout time would omit
+    // records that are referenced solely through incomplete pointee types
+    // (forward declarations behind pointers), leaving the consumer with no
+    // owner fact for those CIR record names.
+    if (mlir::StringAttr entryName = entry.getName()) {
+      if (auto identity = recordDeclIdentity(cgm, rd); identity.has_value())
+        cgm.addRecordDeclIdentity(
+            entryName,
+            mlir::StringAttr::get(&cgm.getMLIRContext(), *identity));
+    }
   }
 
   rd = rd->getDefinition();

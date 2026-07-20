@@ -77,42 +77,40 @@ void CIRGenerator::defineSelectedDefaultedMethod(CXXMethodDecl *method) {
     return;
 
   SourceLocation loc = method->getLocation();
-  if (auto *ctor = dyn_cast<CXXConstructorDecl>(method)) {
-    if (ctor->isDefaultConstructor())
-      sema->DefineImplicitDefaultConstructor(loc, ctor);
-    else if (ctor->isCopyConstructor())
-      sema->DefineImplicitCopyConstructor(loc, ctor);
-    else if (ctor->isMoveConstructor())
-      sema->DefineImplicitMoveConstructor(loc, ctor);
-  } else if (auto *dtor = dyn_cast<CXXDestructorDecl>(method)) {
-    sema->DefineImplicitDestructor(loc, dtor);
-  } else if (method->isCopyAssignmentOperator()) {
-    sema->DefineImplicitCopyAssignment(loc, method);
-  } else if (method->isMoveAssignmentOperator()) {
-    sema->DefineImplicitMoveAssignment(loc, method);
-  } else {
-    auto comparisonKind = sema->getDefaultedComparisonKind(method);
-    if (comparisonKind != Sema::DefaultedComparisonKind::None)
-      sema->DefineDefaultedComparison(loc, method, comparisonKind);
-  }
+  sema->runWithSufficientStackSpace(loc, [&] {
+    if (auto *ctor = dyn_cast<CXXConstructorDecl>(method)) {
+      if (ctor->isDefaultConstructor())
+        sema->DefineImplicitDefaultConstructor(loc, ctor);
+      else if (ctor->isCopyConstructor())
+        sema->DefineImplicitCopyConstructor(loc, ctor);
+      else if (ctor->isMoveConstructor())
+        sema->DefineImplicitMoveConstructor(loc, ctor);
+    } else if (auto *dtor = dyn_cast<CXXDestructorDecl>(method)) {
+      sema->DefineImplicitDestructor(loc, dtor);
+    } else if (method->isCopyAssignmentOperator()) {
+      sema->DefineImplicitCopyAssignment(loc, method);
+    } else if (method->isMoveAssignmentOperator()) {
+      sema->DefineImplicitMoveAssignment(loc, method);
+    } else {
+      auto comparisonKind = sema->getDefaultedComparisonKind(method);
+      if (comparisonKind != Sema::DefaultedComparisonKind::None)
+        sema->DefineDefaultedComparison(loc, method, comparisonKind);
+    }
+  });
 }
 
-void CIRGenerator::defineSelectedDependencyMethods() {
+void CIRGenerator::defineSelectedDefaultedMethods(
+    llvm::ArrayRef<GlobalDecl> globals) {
   llvm::SmallVector<CXXMethodDecl *, 16> methods;
-  for (GlobalDecl gd : cgm->getSelectedDeclDependencies())
-    if (auto *method = dyn_cast<CXXMethodDecl>(gd.getDecl()))
-      methods.push_back(const_cast<CXXMethodDecl *>(method));
+  llvm::DenseSet<CXXMethodDecl *> visited;
+  for (GlobalDecl gd : globals)
+    if (auto *method = dyn_cast<CXXMethodDecl>(gd.getDecl())) {
+      auto *mutableMethod = const_cast<CXXMethodDecl *>(method);
+      if (visited.insert(mutableMethod).second)
+        methods.push_back(mutableMethod);
+    }
   for (CXXMethodDecl *method : methods)
     defineSelectedDefaultedMethod(method);
-}
-
-void CIRGenerator::defineSelectedDefaultedMethods(DeclContext *context) {
-  for (Decl *decl : context->decls()) {
-    if (auto *method = dyn_cast<CXXMethodDecl>(decl))
-      defineSelectedDefaultedMethod(method);
-    if (auto *nested = dyn_cast<DeclContext>(decl))
-      defineSelectedDefaultedMethods(nested);
-  }
 }
 
 bool CIRGenerator::verifyModule() const { return cgm->verifyModule(); }
@@ -132,23 +130,16 @@ bool CIRGenerator::HandleTopLevelDecl(DeclGroupRef group) {
 }
 
 void CIRGenerator::HandleTranslationUnit(ASTContext &astContext) {
-  // Selected defaulted methods can introduce further implicit destructor and
-  // constructor dependencies. Define and emit until the exact dependency set
-  // reaches a fixed point.
   if (!diags.hasErrorOccurred() && cgm) {
-    if (sema) {
-      size_t dependencyCount = 0;
-      do {
-        dependencyCount = cgm->getSelectedDeclDependencyCount();
-        defineSelectedDefaultedMethods(astContext.getTranslationUnitDecl());
-        defineSelectedDependencyMethods();
-        cgm->emitSelectedMethods(astContext.getTranslationUnitDecl());
-        cgm->emitSelectedDependencies();
-      } while (cgm->getSelectedDeclDependencyCount() != dependencyCount);
-    } else {
-      cgm->emitSelectedMethods(astContext.getTranslationUnitDecl());
-      cgm->emitSelectedDependencies();
-    }
+    // Discover selected roots once. Defining or emitting a root can instantiate
+    // another specialization, so each stable root or exact dependency frontier
+    // is prepared before emission without another translation-unit walk.
+    cgm->emitSelectedMethods(
+        astContext.getTranslationUnitDecl(),
+        [&](llvm::ArrayRef<GlobalDecl> methods) {
+          if (sema)
+            defineSelectedDefaultedMethods(methods);
+        });
     cgm->release();
   }
 

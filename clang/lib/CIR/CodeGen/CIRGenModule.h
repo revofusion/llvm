@@ -35,10 +35,15 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CIR/Dialect/IR/CIROpsEnums.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/TargetParser/Triple.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace clang {
 class ASTContext;
@@ -90,6 +95,26 @@ private:
   clang::DiagnosticsEngine &diags;
 
   const clang::TargetInfo &target;
+  mutable std::unique_ptr<llvm::raw_fd_ostream> diagnosticCensus;
+  const clang::Decl *currentDiagnosticDecl = nullptr;
+
+  void recordNYI(SourceRange, std::optional<mlir::Location>,
+                 llvm::StringRef shape, llvm::StringRef message) const;
+
+  template <typename T>
+  std::string formatNYIShape(llvm::StringRef feature, const T &name) const {
+    std::string shape;
+    llvm::raw_string_ostream stream(shape);
+    stream << feature << ": " << name;
+    stream.flush();
+    return shape;
+  }
+
+  template <typename T>
+  std::string formatNYIMessage(llvm::StringRef feature, const T &name) const {
+    return "ClangIR code gen Not Yet Implemented: " +
+           formatNYIShape(feature, name);
+  }
 
   std::unique_ptr<CIRGenCXXABI> abi;
 
@@ -114,15 +139,31 @@ private:
   bool emittingSelectedDeclDependency = false;
   llvm::StringSet<> selectedDeclRoots;
   llvm::DenseSet<clang::GlobalDecl> selectedDeclDependencies;
+  llvm::SmallVector<clang::GlobalDecl, 16> selectedDeclDependencyWorklist;
+  size_t selectedDeclDependencyCursor = 0;
 
   bool isSelectedDeclDependency(clang::GlobalDecl gd) const {
     return selectedDeclDependencies.contains(gd.getCanonicalDecl());
   }
 
-
   void addSelectedDeclDependency(clang::GlobalDecl gd) {
-    selectedDeclDependencies.insert(gd.getCanonicalDecl());
+    gd = gd.getCanonicalDecl();
+    if (selectedDeclDependencies.insert(gd).second)
+      selectedDeclDependencyWorklist.push_back(gd);
   }
+
+  llvm::SmallVector<clang::GlobalDecl, 16>
+  takeSelectedDeclDependencyFrontier() {
+    llvm::SmallVector<clang::GlobalDecl, 16> frontier;
+    frontier.append(selectedDeclDependencyWorklist.begin() +
+                        selectedDeclDependencyCursor,
+                    selectedDeclDependencyWorklist.end());
+    selectedDeclDependencyCursor = selectedDeclDependencyWorklist.size();
+    return frontier;
+  }
+
+  void emitSelectedDependencies(
+      llvm::ArrayRef<clang::GlobalDecl> dependencies);
 
   void loadSelectedDeclRoots();
   bool isSelectedDeclRoot(clang::GlobalDecl gd);
@@ -206,20 +247,13 @@ public:
     return !selectedDeclRootMode || isSelectedDeclRoot(gd);
   }
   bool shouldParseSelectedDeclBody(const clang::FunctionDecl *fd);
-  void emitSelectedMethods(const clang::DeclContext *context);
-  void emitSelectedDependencies();
-
+  void emitSelectedMethods(
+      const clang::DeclContext *context,
+      llvm::function_ref<void(llvm::ArrayRef<clang::GlobalDecl>)>
+          prepareForEmission);
   /// Queue a record layout entry for materialization in release().
   void addRecordLayout(mlir::StringAttr name, cir::RecordLayoutAttr attr) {
     recordLayoutEntries.push_back(mlir::NamedAttribute(name, attr));
-  }
-
-  size_t getSelectedDeclDependencyCount() const {
-    return selectedDeclDependencies.size();
-  }
-  const llvm::DenseSet<clang::GlobalDecl> &
-  getSelectedDeclDependencies() const {
-    return selectedDeclDependencies;
   }
   void addRecordDeclIdentity(mlir::StringAttr name, mlir::StringAttr identity) {
     recordDeclIdentityEntries.push_back(mlir::NamedAttribute(name, identity));
@@ -948,6 +982,11 @@ public:
   template <typename T>
   DiagnosticBuilder errorNYI(SourceLocation loc, llvm::StringRef feature,
                              const T &name) {
+    if (diagnosticCensus) {
+      std::string shape = formatNYIShape(feature, name);
+      recordNYI(SourceRange(loc), std::nullopt, shape,
+                "ClangIR code gen Not Yet Implemented: " + shape);
+    }
     unsigned diagID =
         diags.getCustomDiagID(DiagnosticsEngine::Error,
                               "ClangIR code gen Not Yet Implemented: %0: %1");
@@ -955,14 +994,18 @@ public:
   }
 
   DiagnosticBuilder errorNYI(mlir::Location loc, llvm::StringRef feature) {
-    // TODO: Convert the location to a SourceLocation
+    if (diagnosticCensus)
+      recordNYI(SourceRange(), loc, feature,
+                ("ClangIR code gen Not Yet Implemented: " + feature).str());
     unsigned diagID = diags.getCustomDiagID(
         DiagnosticsEngine::Error, "ClangIR code gen Not Yet Implemented: %0");
     return diags.Report(diagID) << feature;
   }
 
   DiagnosticBuilder errorNYI(llvm::StringRef feature) const {
-    // TODO: Make a default location? currSrcLoc?
+    if (diagnosticCensus)
+      recordNYI(SourceRange(), std::nullopt, feature,
+                ("ClangIR code gen Not Yet Implemented: " + feature).str());
     unsigned diagID = diags.getCustomDiagID(
         DiagnosticsEngine::Error, "ClangIR code gen Not Yet Implemented: %0");
     return diags.Report(diagID) << feature;
@@ -973,7 +1016,15 @@ public:
   template <typename T>
   DiagnosticBuilder errorNYI(SourceRange loc, llvm::StringRef feature,
                              const T &name) {
-    return errorNYI(loc.getBegin(), feature, name) << loc;
+    if (diagnosticCensus) {
+      std::string shape = formatNYIShape(feature, name);
+      recordNYI(loc, std::nullopt, shape,
+                "ClangIR code gen Not Yet Implemented: " + shape);
+    }
+    unsigned diagID =
+        diags.getCustomDiagID(DiagnosticsEngine::Error,
+                              "ClangIR code gen Not Yet Implemented: %0: %1");
+    return diags.Report(loc.getBegin(), diagID) << feature << name << loc;
   }
 
   /// Emit a general error that something can't be done.

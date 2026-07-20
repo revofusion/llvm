@@ -279,6 +279,50 @@ public:
              "Implicit cast types must be compatible");
       Visit(e->getSubExpr());
       break;
+    case CK_NonAtomicToAtomic:
+    case CK_AtomicToNonAtomic: {
+      bool isToAtomic = e->getCastKind() == CK_NonAtomicToAtomic;
+      QualType atomicType = e->getSubExpr()->getType();
+      QualType valueType = e->getType();
+      if (isToAtomic)
+        std::swap(atomicType, valueType);
+
+      assert(atomicType->isAtomicType());
+      assert(cgf.getContext().hasSameUnqualifiedType(
+          valueType, atomicType->castAs<AtomicType>()->getValueType()));
+
+      bool isPadded =
+          cgf.getContext().getTypeSize(atomicType) !=
+          cgf.getContext().getTypeSize(valueType);
+      if (dest.isIgnored() || !isPadded) {
+        Visit(e->getSubExpr());
+        break;
+      }
+
+      mlir::Location loc = cgf.getLoc(e->getExprLoc());
+      if (isToAtomic) {
+        if (!dest.isZeroed())
+          cgf.emitNullInitialization(loc, dest.getAddress(), atomicType);
+        Address valueAddress =
+            cgf.getBuilder().createGetMember(loc, dest.getAddress(), "", 0);
+        AggValueSlot valueDest = AggValueSlot::forAddr(
+            valueAddress, dest.getQualifiers(),
+            dest.isExternallyDestructed(), dest.isPotentiallyAliased(),
+            AggValueSlot::DoesNotOverlap, AggValueSlot::IsZeroed);
+        cgf.emitAggExpr(e->getSubExpr(), valueDest);
+        break;
+      }
+
+      AggValueSlot atomicSlot =
+          cgf.createAggTemp(atomicType, loc, "atomic-to-nonatomic.temp");
+      cgf.emitAggExpr(e->getSubExpr(), atomicSlot);
+      Address valueAddress =
+          cgf.getBuilder().createGetMember(loc, atomicSlot.getAddress(), "", 0);
+      emitFinalDestCopy(
+          valueType,
+          RValue::getAggregate(valueAddress, atomicSlot.isVolatile()));
+      break;
+    }
     case CK_ToUnion: {
       if (dest.isIgnored()) {
         cgf.emitAnyExpr(e->getSubExpr(), AggValueSlot::ignored(),

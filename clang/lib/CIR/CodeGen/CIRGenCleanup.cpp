@@ -69,7 +69,10 @@ void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
       alloca == returnValue.getUnderlyingAllocaOp())
     return;
 
-  auto function = alloca->getParentOfType<cir::FuncOp>();
+  // Structured-op region builders run before the enclosing operation is
+  // attached to the function, so the alloca's parent chain is not always
+  // complete yet. curFn is the producer-owned concrete function.
+  auto function = mlir::dyn_cast_or_null<cir::FuncOp>(curFn);
   SourceLocation begin = binding->getBeginLoc();
   SourceLocation end = binding->getEndLoc();
   const CXXDestructorDecl *destructor = temporary->getDestructor();
@@ -128,6 +131,17 @@ void CIRGenFunction::setCXXAutomaticObjectIdentity(
   cir::AllocaOp alloca = address.getUnderlyingAllocaOp();
   if (!alloca)
     return;
+  // Only an actual NRVO declaration may own automatic cleanup identity on
+  // the function return storage. Match the exact VarDecl classification used
+  // when that declaration is assigned the return allocation.
+  if (returnValue.isValid() &&
+      alloca == returnValue.getUnderlyingAllocaOp() &&
+      !(getContext().getLangOpts().ElideConstructors &&
+        variable->isNRVOVariable())) {
+    cgm.errorNYI(variable->getSourceRange(),
+                 "non-NRVO automatic cleanup uses function return storage");
+    return;
+  }
 
   const VarDecl *canonicalVariable = variable->getCanonicalDecl();
   if (!canonicalVariable)

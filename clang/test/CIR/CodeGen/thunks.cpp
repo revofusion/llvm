@@ -184,6 +184,8 @@ void C::f(int x, ...) {}
 
 // The thunk adjusts 'this' by -8 bytes and calls C::f().
 // CIR: cir.func {{.*}} @_ZThn8_N5Test11C1fEv(%arg0: !cir.ptr<
+// CIR-SAME: ast_decl_discriminator = "[[T1_DECL:v1:[0-9]+:[^"]*thunks.cpp:[0-9]+:[0-9]+:[0-9]+]]"
+// CIR-SAME: ast_thunk_target_identity = {{.*}}discriminator = "[[T1_DECL]]"{{.*}}mangled_name = "_ZN5Test11C1fEv"{{.*}}usr = "[[T1_USR:[^"]+]]"
 // CIR:   %[[T1_THIS_ADDR:.*]] = cir.alloca "this" {{.*}} init
 // CIR:   cir.store %arg0, %[[T1_THIS_ADDR]]
 // CIR:   %[[T1_THIS:.*]] = cir.load %[[T1_THIS_ADDR]]
@@ -223,6 +225,8 @@ void C::f(int x, ...) {}
 
 // Deleting destructor thunk: adjusts 'this' and calls D0.
 // CIR: cir.func {{.*}} @_ZThn8_N5Test31DD0Ev(%arg0: !cir.ptr<
+// CIR-SAME: ast_decl_discriminator = "[[T3_DECL:v1:[0-9]+:[^"]*thunks.cpp:[0-9]+:[0-9]+:[0-9]+]]"
+// CIR-SAME: ast_thunk_target_identity = {{.*}}discriminator = "[[T3_DECL]]"{{.*}}mangled_name = "_ZN5Test31DD0Ev"{{.*}}usr = "[[T3_USR:[^"]+]]"
 // CIR:   %[[T3B_THIS:.*]] = cir.load
 // CIR:   %[[T3B_CAST:.*]] = cir.cast bitcast %[[T3B_THIS]] : !cir.ptr<{{.*}}> -> !cir.ptr<!u8i>
 // CIR:   %[[T3B_OFFSET:.*]] = cir.const #cir.int<-8> : !s64i
