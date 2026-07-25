@@ -3455,6 +3455,13 @@ bool CIRGenModule::isSelectedDeclRoot(GlobalDecl gd) {
   if (!selectedDeclRootMode)
     return false;
   const Decl *decl = gd.getDecl();
+  // emitSelectedMethods() walks every member of a DeclContext, including
+  // declarations that are never code generated. A deduction guide exists only
+  // for class template argument deduction: it has no definition and no linkage
+  // name, so asking the Itanium mangler for one is unreachable. It can never
+  // name a selected root, so answer before any mangling is attempted.
+  if (isa<CXXDeductionGuideDecl>(decl))
+    return false;
   llvm::SmallString<256> usr;
   if (!clang::index::generateUSRForDecl(decl, usr) &&
       selectedDeclRootUSRs.contains(usr))
