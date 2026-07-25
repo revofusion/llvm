@@ -12,6 +12,14 @@
 
 #include "llvm/ADT/DepthFirstIterator.h"
 
+void cir::copyDiscardableAttrs(mlir::Operation *source,
+                               mlir::Operation *destination) {
+  if (!destination)
+    return;
+  for (mlir::NamedAttribute attr : source->getDiscardableAttrs())
+    destination->setDiscardableAttr(attr.getName(), attr.getValue());
+}
+
 void cir::collectUnreachable(mlir::Operation *parent,
                              llvm::SmallVectorImpl<mlir::Operation *> &ops) {
   // For every region under `parent`, find the blocks unreachable from the

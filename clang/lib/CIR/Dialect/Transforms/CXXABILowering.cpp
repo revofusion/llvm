@@ -342,10 +342,11 @@ mlir::LogicalResult CIRAllocaOpABILowering::matchAndRewrite(
   loweredOp.setAnnotationsAttr(op.getAnnotationsAttr());
   loweredOp.setAstMaterializeTemporaryIdentityAttr(
       op.getAstMaterializeTemporaryIdentityAttr());
-  loweredOp.setAstTemporaryObjectIdentityAttr(
-      op.getAstTemporaryObjectIdentityAttr());
+  loweredOp.setAstTemporaryObjectIdentitiesAttr(
+      op.getAstTemporaryObjectIdentitiesAttr());
   loweredOp.setAstAutomaticObjectIdentityAttr(
       op.getAstAutomaticObjectIdentityAttr());
+  cir::copyDiscardableAttrs(op.getOperation(), loweredOp.getOperation());
 
   rewriter.replaceOp(op, loweredOp);
   return mlir::success();
@@ -367,6 +368,8 @@ mlir::LogicalResult CIRCastOpABILowering::matchAndRewrite(
       else
         loweredResult = lowerModule->getCXXABI().lowerMethodBitcast(
             op, destTy, adaptor.getSrc(), rewriter);
+      cir::copyDiscardableAttrs(op.getOperation(),
+                                loweredResult.getDefiningOp());
       rewriter.replaceOp(op, loweredResult);
       return mlir::success();
     }
@@ -378,6 +381,8 @@ mlir::LogicalResult CIRCastOpABILowering::matchAndRewrite(
       else
         loweredResult = lowerModule->getCXXABI().lowerMethodToBoolCast(
             op, adaptor.getSrc(), rewriter);
+      cir::copyDiscardableAttrs(op.getOperation(),
+                                loweredResult.getDefiningOp());
       rewriter.replaceOp(op, loweredResult);
       return mlir::success();
     }
@@ -386,10 +391,11 @@ mlir::LogicalResult CIRCastOpABILowering::matchAndRewrite(
     }
   }
 
-  mlir::Value loweredResult = cir::CastOp::create(
+  cir::CastOp loweredOp = cir::CastOp::create(
       rewriter, op.getLoc(), getTypeConverter()->convertType(op.getType()),
       adaptor.getKind(), adaptor.getSrc());
-  rewriter.replaceOp(op, loweredResult);
+  cir::copyDiscardableAttrs(op.getOperation(), loweredOp.getOperation());
+  rewriter.replaceOp(op, loweredOp);
   return mlir::success();
 }
 
@@ -511,7 +517,10 @@ mlir::LogicalResult CIRConstantOpABILowering::matchAndRewrite(
   mlir::DataLayout layout(op->getParentOfType<mlir::ModuleOp>());
   mlir::TypedAttr newValue = lowerInitialValue(
       lowerModule, layout, *getTypeConverter(), op.getType(), op.getValue());
-  rewriter.replaceOpWithNewOp<ConstantOp>(op, newValue);
+  cir::ConstantOp loweredOp =
+      cir::ConstantOp::create(rewriter, op.getLoc(), newValue);
+  cir::copyDiscardableAttrs(op.getOperation(), loweredOp.getOperation());
+  rewriter.replaceOp(op, loweredOp);
   return mlir::success();
 }
 

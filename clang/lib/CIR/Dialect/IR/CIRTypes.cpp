@@ -650,12 +650,13 @@ UnionType::getABIAlignment(const ::mlir::DataLayout &dataLayout,
   return dataLayout.getTypeABIAlignment(storage);
 }
 
-unsigned
+uint64_t
 StructType::computeStructSize(const mlir::DataLayout &dataLayout) const {
   assert(isComplete() && "Cannot get layout of incomplete records");
 
-  // This is a similar algorithm to LLVM's StructLayout.
-  unsigned recordSize = 0;
+  // This is a similar algorithm to LLVM's StructLayout. Use 64-bit
+  // accumulation: valid C records can exceed 4 GiB (large fixed arrays).
+  uint64_t recordSize = 0;
   uint64_t recordAlignment = 1;
 
   for (mlir::Type ty : getMembers()) {
@@ -680,19 +681,18 @@ StructType::computeStructSize(const mlir::DataLayout &dataLayout) const {
   return recordSize;
 }
 
-unsigned
+uint64_t
 StructType::computeStructDataSize(const mlir::DataLayout &dataLayout) const {
   assert(isComplete() && "Cannot get layout of incomplete records");
 
   // Compute the data size (excluding tail padding) for this record type. For
   // padded records, the last member is the tail padding array added by
-  // CIRGenRecordLayoutBuilder::appendPaddingBytes, so we exclude it. For
-  // non-padded records, data size equals the full struct size without
-  // alignment.
+  // CIRGenRecordLayoutBuilder::appendPaddingBytes, so we exclude it. Use
+  // 64-bit accumulation for records containing large fixed arrays.
   auto members = getMembers();
-  unsigned numMembers =
+  uint64_t numMembers =
       getPadded() && members.size() > 1 ? members.size() - 1 : members.size();
-  unsigned recordSize = 0;
+  uint64_t recordSize = 0;
   for (unsigned i = 0; i < numMembers; ++i) {
     mlir::Type ty = members[i];
     const uint64_t tyAlign =

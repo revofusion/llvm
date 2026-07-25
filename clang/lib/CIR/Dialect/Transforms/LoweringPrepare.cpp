@@ -27,6 +27,7 @@
 #include "clang/CIR/Dialect/IR/CIROpsEnums.h"
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "clang/CIR/Dialect/Passes.h"
+#include "clang/CIR/Dialect/Transforms/CIRTransformUtils.h"
 #include "clang/CIR/Interfaces/ASTAttrInterfaces.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "llvm/ADT/StringRef.h"
@@ -639,6 +640,8 @@ void LoweringPreparePass::lowerCastOp(cir::CastOp op) {
   }();
 
   if (loweredValue) {
+    cir::copyDiscardableAttrs(op.getOperation(),
+                              loweredValue.getDefiningOp());
     op.replaceAllUsesWith(loweredValue);
     op.erase();
   }
@@ -2345,6 +2348,7 @@ void LoweringPreparePass::lowerStoreOfConstAggregate(cir::StoreOp op) {
   // if no match is found.
   cir::GlobalOp gv = getOrCreateConstAggregateGlobal(builder, op.getLoc(),
                                                      baseName, ty, constant);
+  cir::copyDiscardableAttrs(constOp.getOperation(), gv.getOperation());
 
   // Now replace the store with get_global + copy.
   builder.setInsertionPoint(op);

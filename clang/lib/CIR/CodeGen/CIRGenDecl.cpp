@@ -198,6 +198,11 @@ CIRGenFunction::emitAutoVarAlloca(const VarDecl &d,
     assert(!cir::MissingFeatures::generateDebugInfo());
   }
 
+  if (cir::AllocaOp alloca = address.getUnderlyingAllocaOp())
+    cgm.setMemberPointerTargetMetadata(alloca.getOperation(), ty);
+  else
+    cgm.setMemberPointerTargetMetadata(address.getPointer().getDefiningOp(), ty);
+
   emission.addr = address;
   setAddrOfLocalVar(&d, address);
 

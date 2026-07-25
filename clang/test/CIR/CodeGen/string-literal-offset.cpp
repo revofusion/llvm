@@ -25,7 +25,7 @@ const char *static_local_offset() {
 }
 
 // CIR: cir.global "private" internal dso_local @_ZZ19static_local_offsetvE1s = #cir.global_view<@{{.+}}, [30 : i32]> : !cir.ptr<!s8i>
-// CIR: cir.global "private" constant cir_private dso_local @[[STR:.+]] = #cir.const_array<"0123456789abcdefghij\00" : !cir.array<!s8i x 21>> : !cir.array<!s8i x 21>
+// CIR: cir.global "private" constant cir_private dso_local @[[STR:.+]] = #cir.const_array<"0123456789abcdefghij" : !cir.array<!s8i x 20>, trailing_zeros> : !cir.array<!s8i x 21>
 // CIR: cir.global external @ptr_into_literal = #cir.global_view<@[[STR]], [7 : i32]> : !cir.ptr<!s8i>
 
 // LLVM: @_ZZ19static_local_offsetvE1s = internal global ptr getelementptr inbounds nuw (i8, ptr @{{.+}}, i64 30)

@@ -291,6 +291,47 @@ static RValue emitBinaryAtomicPost(CIRGenFunction &cgf,
   return RValue::get(result);
 }
 
+/// Utility to insert an atomic cmpxchg instruction for the legacy __sync
+/// builtins.
+static mlir::Value makeAtomicCmpXchgValue(
+    CIRGenFunction &cgf, const CallExpr *e, bool returnBool,
+    cir::MemOrder successOrdering, cir::MemOrder failureOrdering) {
+  QualType type = returnBool ? e->getArg(1)->getType() : e->getType();
+  Address destAddr = checkAtomicAlignment(cgf, e);
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
+
+  cir::IntType intType =
+      type->isUnsignedIntegerType()
+          ? builder.getUIntNTy(cgf.getContext().getTypeSize(type))
+          : builder.getSIntNTy(cgf.getContext().getTypeSize(type));
+
+  mlir::Value cmp = cgf.emitScalarExpr(e->getArg(1));
+  mlir::Type valueType = cmp.getType();
+  cmp = emitToInt(cgf, cmp, type, intType);
+  mlir::Value newValue =
+      emitToInt(cgf, cgf.emitScalarExpr(e->getArg(2)), type, intType);
+
+  mlir::Value dest = destAddr.emitRawPointer();
+  if (destAddr.getElementType() != intType)
+    dest = builder.createBitcast(dest, builder.getPointerTo(intType));
+
+  auto cmpxchg = cir::AtomicCmpXchgOp::create(
+      builder, loc, intType, builder.getBoolTy(), dest, cmp, newValue,
+      cir::MemOrderAttr::get(&cgf.getMLIRContext(), successOrdering),
+      cir::MemOrderAttr::get(&cgf.getMLIRContext(), failureOrdering),
+      cir::SyncScopeKindAttr::get(&cgf.getMLIRContext(),
+                                  cir::SyncScopeKind::System),
+      builder.getI64IntegerAttr(
+          destAddr.getAlignment().getAsAlign().value()));
+
+  if (returnBool)
+    return builder.createBoolToInt(cmpxchg.getSuccess(),
+                                   cgf.convertType(e->getType()));
+
+  return emitFromInt(cgf, cmpxchg.getOld(), type, valueType);
+}
+
 static void emitAtomicFenceOp(CIRGenFunction &cgf, const CallExpr *expr,
                               cir::SyncScopeKind syncScope) {
   CIRGenBuilderTy &builder = cgf.getBuilder();
@@ -2518,11 +2559,19 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__sync_val_compare_and_swap_4:
   case Builtin::BI__sync_val_compare_and_swap_8:
   case Builtin::BI__sync_val_compare_and_swap_16:
+    return RValue::get(makeAtomicCmpXchgValue(
+        *this, e, /*returnBool=*/false,
+        cir::MemOrder::SequentiallyConsistent,
+        cir::MemOrder::SequentiallyConsistent));
   case Builtin::BI__sync_bool_compare_and_swap_1:
   case Builtin::BI__sync_bool_compare_and_swap_2:
   case Builtin::BI__sync_bool_compare_and_swap_4:
   case Builtin::BI__sync_bool_compare_and_swap_8:
   case Builtin::BI__sync_bool_compare_and_swap_16:
+    return RValue::get(makeAtomicCmpXchgValue(
+        *this, e, /*returnBool=*/true,
+        cir::MemOrder::SequentiallyConsistent,
+        cir::MemOrder::SequentiallyConsistent));
   case Builtin::BI__sync_swap_1:
   case Builtin::BI__sync_swap_2:
   case Builtin::BI__sync_swap_4:

@@ -37,13 +37,13 @@
 #include "clang/CIR/Dialect/IR/CIROpsEnums.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
-#include "llvm/TargetParser/Triple.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/TargetParser/Triple.h"
 
 namespace clang {
 class ASTContext;
@@ -138,8 +138,12 @@ private:
   bool selectedDeclRootMode = false;
   bool emittingSelectedDeclDependency = false;
   llvm::StringSet<> selectedDeclRoots;
+  llvm::StringSet<> selectedDeclRootUSRs;
+  llvm::StringSet<> emittedSelectedDeclRootUSRs;
   llvm::DenseSet<clang::GlobalDecl> selectedDeclDependencies;
   llvm::SmallVector<clang::GlobalDecl, 16> selectedDeclDependencyWorklist;
+  llvm::DenseSet<const clang::CXXDestructorDecl *> selectedDestructorFamilies;
+  llvm::StringSet<> emittedFunctionBodySymbols;
   size_t selectedDeclDependencyCursor = 0;
 
   bool isSelectedDeclDependency(clang::GlobalDecl gd) const {
@@ -162,11 +166,12 @@ private:
     return frontier;
   }
 
-  void emitSelectedDependencies(
-      llvm::ArrayRef<clang::GlobalDecl> dependencies);
+  void emitSelectedDependencies(llvm::ArrayRef<clang::GlobalDecl> dependencies);
 
   void loadSelectedDeclRoots();
   bool isSelectedDeclRoot(clang::GlobalDecl gd);
+  void noteSelectedDeclRootDefinition(clang::GlobalDecl gd);
+  void diagnoseUnemittedSelectedDeclRoots();
   void emitObjCProtocolDecl(const clang::ObjCProtocolDecl *protocol);
   void emitObjCInterfaceDecl(const clang::ObjCInterfaceDecl *interface);
   void emitObjCCategoryDecl(const clang::ObjCCategoryDecl *category);
@@ -251,6 +256,13 @@ public:
       const clang::DeclContext *context,
       llvm::function_ref<void(llvm::ArrayRef<clang::GlobalDecl>)>
           prepareForEmission);
+  void emitSelectedVariables(const clang::DeclContext *context);
+  /// Record that the ABI producer is emitting a complete selected destructor
+  /// family, before it schedules any individual ABI variants.
+  void noteSelectedDestructorFamily(const clang::CXXDestructorDecl *dtor) {
+    if (selectedDeclRootMode && dtor)
+      selectedDestructorFamilies.insert(dtor->getCanonicalDecl());
+  }
   /// Queue a record layout entry for materialization in release().
   void addRecordLayout(mlir::StringAttr name, cir::RecordLayoutAttr attr) {
     recordLayoutEntries.push_back(mlir::NamedAttribute(name, attr));
@@ -707,6 +719,16 @@ public:
   /// type. Also emit proper debug info for cast types.
   void emitExplicitCastExprType(const ExplicitCastExpr *e,
                                 CIRGenFunction *cgf = nullptr);
+  /// Preserve exact AST-owned endpoint and syntax facts on the CIR operation
+  /// that implements a CastExpr.
+  void setCastExprMetadata(mlir::Operation *op, const CastExpr *e);
+  /// Preserve the exact AST result endpoint on a CIR conditional operation.
+  void setConditionalExprMetadata(mlir::Operation *op,
+                                  const AbstractConditionalOperator *e);
+
+  /// Preserve the owning class identity of a data- or function-member pointer
+  /// on storage and constant producers.
+  void setMemberPointerTargetMetadata(mlir::Operation *op, QualType type);
 
   void addDeferredVTable(const CXXRecordDecl *rd) {
     deferredVTables.push_back(rd);

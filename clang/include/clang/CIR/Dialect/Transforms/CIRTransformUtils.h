@@ -17,6 +17,11 @@
 
 namespace cir {
 
+/// Copy every discardable attribute from \p source to \p destination without
+/// disturbing attributes already present only on \p destination.
+void copyDiscardableAttrs(mlir::Operation *source,
+                          mlir::Operation *destination);
+
 /// Replace a `cir::CallOp` with a `cir::TryCallOp` whose unwind destination
 /// is \p unwindDest. The call's parent block is split immediately after the
 /// call; the resulting suffix block becomes the try_call's normal

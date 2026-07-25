@@ -24,13 +24,13 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
-#include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "clang/Basic/AddressSpaces.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "llvm/ADT/SmallString.h"
 #include <optional>
 
@@ -40,9 +40,9 @@ using namespace cir;
 
 /// Attach exact Clang identities to a source-derived field location when both
 /// the member and its declaring record have representable USRs.
-static mlir::Location
-getFieldLocationWithIdentity(CIRGenFunction &cgf, mlir::Location loc,
-                             const FieldDecl *field) {
+static mlir::Location getFieldLocationWithIdentity(CIRGenFunction &cgf,
+                                                   mlir::Location loc,
+                                                   const FieldDecl *field) {
   if (!field)
     return loc;
 
@@ -56,15 +56,12 @@ getFieldLocationWithIdentity(CIRGenFunction &cgf, mlir::Location loc,
 
   mlir::MLIRContext *context = &cgf.getMLIRContext();
   llvm::SmallVector<mlir::NamedAttribute, 2> metadata;
-  metadata.emplace_back(
-      "ast_member_decl_usr",
-      mlir::StringAttr::get(context, memberUSR));
-  metadata.emplace_back(
-      "ast_declaring_record_usr",
-      mlir::StringAttr::get(context, declaringRecordUSR));
-  return mlir::FusedLoc::get({loc},
-                             mlir::DictionaryAttr::get(context, metadata),
-                             context);
+  metadata.emplace_back("ast_member_decl_usr",
+                        mlir::StringAttr::get(context, memberUSR));
+  metadata.emplace_back("ast_declaring_record_usr",
+                        mlir::StringAttr::get(context, declaringRecordUSR));
+  return mlir::FusedLoc::get(
+      {loc}, mlir::DictionaryAttr::get(context, metadata), context);
 }
 
 /// Attach source declaration identity and the AST physical offset to the
@@ -87,13 +84,11 @@ static void setFieldIdentityAttrs(CIRGenFunction &cgf, mlir::Value address,
     return;
   op->setAttr("ast_member_decl_usr",
               mlir::StringAttr::get(&cgf.getMLIRContext(), memberUSR));
-  op->setAttr(
-      "ast_declaring_record_usr",
-      mlir::StringAttr::get(&cgf.getMLIRContext(), declaringRecordUSR));
-  op->setAttr(
-      "ast_member_offset_bits",
-      cgf.getBuilder().getI64IntegerAttr(
-          static_cast<int64_t>(cgf.getContext().getFieldOffset(field))));
+  op->setAttr("ast_declaring_record_usr",
+              mlir::StringAttr::get(&cgf.getMLIRContext(), declaringRecordUSR));
+  op->setAttr("ast_member_offset_bits",
+              cgf.getBuilder().getI64IntegerAttr(static_cast<int64_t>(
+                  cgf.getContext().getFieldOffset(field))));
 }
 
 /// Get the address of a zero-sized field within a record. Zero-sized fields
@@ -114,9 +109,8 @@ static Address emitAddrOfZeroSizeField(CIRGenFunction &cgf, Address base,
         mlir::cast<cir::PointerType>(base.getPointer().getType());
     mlir::Type fieldPtrType =
         builder.getPointerTo(fieldType, basePtrType.getAddrSpace());
-    return Address(
-        builder.createBitcast(loc, base.getPointer(), fieldPtrType),
-        base.getAlignment());
+    return Address(builder.createBitcast(loc, base.getPointer(), fieldPtrType),
+                   base.getAlignment());
   }
 
   // Cast to byte pointer, stride by the field offset, then cast to the
@@ -231,8 +225,11 @@ Address CIRGenFunction::emitPointerWithAlignment(const Expr *expr,
 
         const mlir::Type eltTy =
             convertTypeForMem(expr->getType()->getPointeeType());
+        mlir::Value sourcePointer = addr.getPointer();
         addr = getBuilder().createElementBitCast(getLoc(expr->getSourceRange()),
                                                  addr, eltTy);
+        if (addr.getPointer() != sourcePointer)
+          cgm.setCastExprMetadata(addr.getPointer().getDefiningOp(), ce);
         assert(!cir::MissingFeatures::addressSpace());
 
         return addr;
@@ -251,9 +248,11 @@ Address CIRGenFunction::emitPointerWithAlignment(const Expr *expr,
       Address addr = emitPointerWithAlignment(ce->getSubExpr(), baseInfo);
       const CXXRecordDecl *derived =
           ce->getSubExpr()->getType()->getPointeeCXXRecordDecl();
-      return getAddressOfBaseClass(addr, derived, ce->path(),
-                                   shouldNullCheckClassCastValue(ce),
-                                   ce->getExprLoc());
+      Address base = getAddressOfBaseClass(addr, derived, ce->path(),
+                                           shouldNullCheckClassCastValue(ce),
+                                           ce->getExprLoc());
+      cgm.setCastExprMetadata(base.getPointer().getDefiningOp(), ce);
+      return base;
     }
 
     case CK_AnyPointerToBlockPointerCast:
@@ -720,7 +719,6 @@ LValue CIRGenFunction::emitLValueForField(LValue base, const FieldDecl *field) {
     recordCVR = 0;
     fieldType = fieldType->getPointeeType();
   }
-
 
   LValue lv = makeAddrLValue(addr, fieldType, fieldBaseInfo);
   lv.getQuals().addCVRQualifiers(recordCVR);
@@ -1758,6 +1756,8 @@ LValue CIRGenFunction::emitCastLValue(const CastExpr *e) {
     LValue LV = emitLValue(e->getSubExpr());
     Address V = LV.getAddress().withElementType(
         builder, convertTypeForMem(ce->getTypeAsWritten()->getPointeeType()));
+    if (V.getPointer() != LV.getPointer())
+      cgm.setCastExprMetadata(V.getPointer().getDefiningOp(), e);
 
     return makeAddrLValue(V, e->getType(), LV.getBaseInfo());
   }
@@ -1804,6 +1804,7 @@ LValue CIRGenFunction::emitCastLValue(const CastExpr *e) {
     Address baseAddr =
         getAddressOfBaseClass(thisAddr, derivedClassDecl, e->path(),
                               /*NullCheckValue=*/false, e->getExprLoc());
+    cgm.setCastExprMetadata(baseAddr.getPointer().getDefiningOp(), e);
 
     // TODO: Support accesses to members of base classes in TBAA. For now, we
     // conservatively pretend that the complete object is of the base class
@@ -1926,8 +1927,7 @@ void CIRGenFunction::setMaterializedTemporaryIdentity(
   // declaration. The opaque instance token distinguishes distinct evaluations
   // of the same AST node, such as two uses of one default argument.
   cir::AllocaOp alloca = address.getUnderlyingAllocaOp();
-  if (!alloca || alloca.getAstMaterializeTemporaryIdentityAttr() ||
-      alloca.getAstTemporaryObjectIdentityAttr())
+  if (!alloca || alloca.getAstMaterializeTemporaryIdentityAttr())
     return;
   // Region builders may emit this alloca while their enclosing structured
   // operation is still detached. curFn remains the authoritative owner.
@@ -1941,12 +1941,26 @@ void CIRGenFunction::setMaterializedTemporaryIdentity(
   mlir::NamedAttrList identity;
   identity.set("function",
                mlir::FlatSymbolRefAttr::get(function.getSymNameAttr()));
-  identity.set("begin_raw",
-               builder.getI64IntegerAttr(begin.getRawEncoding()));
+  identity.set("begin_raw", builder.getI64IntegerAttr(begin.getRawEncoding()));
   identity.set("end_raw", builder.getI64IntegerAttr(end.getRawEncoding()));
-  identity.set(
-      "instance_token",
-      builder.getStringAttr(getMaterializedTemporaryInstanceToken()));
+  std::optional<uint64_t> declarationOrdinal =
+      getTemporaryDeclarationOrdinal(temporary);
+  if (!declarationOrdinal)
+    return;
+  identity.set("declaration_ordinal",
+               builder.getI64IntegerAttr(*declarationOrdinal));
+  mlir::StringAttr instanceToken;
+  if (mlir::ArrayAttr identities = alloca.getAstTemporaryObjectIdentitiesAttr();
+      identities && !identities.empty()) {
+    if (mlir::DictionaryAttr temporaryIdentity =
+            mlir::dyn_cast<mlir::DictionaryAttr>(*identities.begin()))
+      instanceToken =
+          temporaryIdentity.getAs<mlir::StringAttr>("instance_token");
+  }
+  if (!instanceToken)
+    instanceToken =
+        builder.getStringAttr(getMaterializedTemporaryInstanceToken());
+  identity.set("instance_token", instanceToken);
   alloca.setAstMaterializeTemporaryIdentityAttr(
       identity.getDictionary(&getMLIRContext()));
 }
@@ -2948,6 +2962,8 @@ Address CIRGenFunction::createMemTemp(QualType ty, CharUnits align,
   Address result =
       createTempAlloca(convertTypeForMem(ty), /*destAddrSpace=*/{}, align, loc,
                        name, /*arraySize=*/nullptr, alloca, ip);
+  if (cir::AllocaOp tempAlloca = result.getUnderlyingAllocaOp())
+    cgm.setMemberPointerTargetMetadata(tempAlloca.getOperation(), ty);
   if (ty->isConstantMatrixType()) {
     assert(!cir::MissingFeatures::matrixType());
     cgm.errorNYI(loc, "temporary matrix value");

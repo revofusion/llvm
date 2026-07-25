@@ -264,12 +264,58 @@ public:
 
       break;
     }
+    case CK_NonAtomicToAtomic: {
+      // Aggregate initialization of an atomic object is represented as a
+      // non-atomic-to-atomic cast.  The value type is initialized directly in
+      // the destination, while any atomic padding is initialized separately.
+      QualType atomicType = e->getType();
+      assert(atomicType->isAtomicType());
+      assert(cgf.getContext().hasSameUnqualifiedType(
+          e->getSubExpr()->getType(),
+          atomicType->castAs<AtomicType>()->getValueType()));
+
+      if (dest.isIgnored())
+        return Visit(e->getSubExpr());
+
+      const auto *atomicTy = atomicType->castAs<AtomicType>();
+      if (cgf.getContext().getTypeSize(atomicType) ==
+          cgf.getContext().getTypeSize(atomicTy->getValueType()))
+        return Visit(e->getSubExpr());
+
+      mlir::Location loc = cgf.getLoc(e->getSourceRange());
+      if (!dest.isZeroed())
+        cgf.emitNullInitialization(loc, dest.getAddress(), atomicType);
+
+      Address valueAddress = cgf.getBuilder().createGetMember(
+          loc, dest.getAddress(), /*name=*/"value", /*index=*/0);
+      AggValueSlot valueDest = AggValueSlot::forAddr(
+          valueAddress, dest.getQualifiers(), dest.isExternallyDestructed(),
+          dest.isPotentiallyAliased(), AggValueSlot::DoesNotOverlap,
+          AggValueSlot::IsZeroed);
+      cgf.emitAggExpr(e->getSubExpr(), valueDest);
+      return;
+    }
     case CK_LValueToRValue:
-      // If we're loading from a volatile type, force the destination
-      // into existence.
-      if (e->getSubExpr()->getType().isVolatileQualified())
-        cgf.cgm.errorNYI(e->getSourceRange(),
-                         "AggExprEmitter: volatile lvalue-to-rvalue cast");
+      // Volatile aggregate loads are observable even when their result is
+      // discarded, so force a destination in that case. Keep ownership of a
+      // non-trivial C temporary with this expression while emitting the
+      // ordinary aggregate copy; the source lvalue then makes that copy
+      // volatile.
+      if (e->getSubExpr()->getType().isVolatileQualified()) {
+        bool destruct =
+            !dest.isExternallyDestructed() &&
+            e->getType().isDestructedType() ==
+                QualType::DK_nontrivial_c_struct;
+        if (destruct)
+          dest.setExternallyDestructed();
+        ensureDest(cgf.getLoc(e->getSourceRange()), e->getType());
+        Visit(e->getSubExpr());
+
+        if (destruct)
+          cgf.pushDestroy(QualType::DK_nontrivial_c_struct, dest.getAddress(),
+                          e->getType());
+        return;
+      }
       [[fallthrough]];
     case CK_NoOp:
     case CK_UserDefinedConversion:
@@ -279,7 +325,6 @@ public:
              "Implicit cast types must be compatible");
       Visit(e->getSubExpr());
       break;
-    case CK_NonAtomicToAtomic:
     case CK_AtomicToNonAtomic: {
       bool isToAtomic = e->getCastKind() == CK_NonAtomicToAtomic;
       QualType atomicType = e->getSubExpr()->getType();

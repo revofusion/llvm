@@ -99,18 +99,30 @@ void CIRGenerator::defineSelectedDefaultedMethod(CXXMethodDecl *method) {
   });
 }
 
-void CIRGenerator::defineSelectedDefaultedMethods(
-    llvm::ArrayRef<GlobalDecl> globals) {
-  llvm::SmallVector<CXXMethodDecl *, 16> methods;
-  llvm::DenseSet<CXXMethodDecl *> visited;
+void CIRGenerator::prepareSelectedMethods(llvm::ArrayRef<GlobalDecl> globals) {
+  llvm::SmallVector<FunctionDecl *, 16> functions;
+  llvm::DenseSet<FunctionDecl *> visited;
   for (GlobalDecl gd : globals)
-    if (auto *method = dyn_cast<CXXMethodDecl>(gd.getDecl())) {
-      auto *mutableMethod = const_cast<CXXMethodDecl *>(method);
-      if (visited.insert(mutableMethod).second)
-        methods.push_back(mutableMethod);
+    if (auto *function =
+            const_cast<FunctionDecl *>(dyn_cast<FunctionDecl>(gd.getDecl())))
+      if (visited.insert(function).second)
+        functions.push_back(function);
+
+  for (FunctionDecl *function : functions) {
+    const FunctionDecl *pattern = function->getTemplateInstantiationPattern();
+    if (!function->doesThisDeclarationHaveABody() && !function->isDefaulted() &&
+        cgm->shouldParseSelectedDeclBody(function) && pattern &&
+        pattern->getDefinition()) {
+      SourceLocation loc = function->getLocation();
+      sema->runWithSufficientStackSpace(loc, [&] {
+        sema->InstantiateFunctionDefinition(loc, function, /*Recursive=*/true,
+                                            /*DefinitionRequired=*/true,
+                                            /*AtEndOfTU=*/true);
+      });
     }
-  for (CXXMethodDecl *method : methods)
-    defineSelectedDefaultedMethod(method);
+    if (auto *method = dyn_cast<CXXMethodDecl>(function))
+      defineSelectedDefaultedMethod(method);
+  }
 }
 
 bool CIRGenerator::verifyModule() const { return cgm->verifyModule(); }
@@ -131,15 +143,18 @@ bool CIRGenerator::HandleTopLevelDecl(DeclGroupRef group) {
 
 void CIRGenerator::HandleTranslationUnit(ASTContext &astContext) {
   if (!diags.hasErrorOccurred() && cgm) {
+    // Materialize declarations discovered by ordinary AST callbacks before
+    // selected-root closure scans specialization and destructor families.
+    cgm->emitDeferred();
     // Discover selected roots once. Defining or emitting a root can instantiate
     // another specialization, so each stable root or exact dependency frontier
     // is prepared before emission without another translation-unit walk.
-    cgm->emitSelectedMethods(
-        astContext.getTranslationUnitDecl(),
-        [&](llvm::ArrayRef<GlobalDecl> methods) {
-          if (sema)
-            defineSelectedDefaultedMethods(methods);
-        });
+    cgm->emitSelectedMethods(astContext.getTranslationUnitDecl(),
+                             [&](llvm::ArrayRef<GlobalDecl> methods) {
+                               if (sema)
+                                 prepareSelectedMethods(methods);
+                             });
+    cgm->emitSelectedVariables(astContext.getTranslationUnitDecl());
     cgm->release();
   }
 

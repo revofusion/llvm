@@ -75,8 +75,7 @@ private:
   llvm::SmallVector<clang::FunctionDecl *, 8> deferredInlineMemberFuncDefs;
 
   void defineSelectedDefaultedMethod(clang::CXXMethodDecl *method);
-  void defineSelectedDefaultedMethods(
-      llvm::ArrayRef<clang::GlobalDecl> methods);
+  void prepareSelectedMethods(llvm::ArrayRef<clang::GlobalDecl> methods);
 
 public:
   CIRGenerator(clang::DiagnosticsEngine &diags,

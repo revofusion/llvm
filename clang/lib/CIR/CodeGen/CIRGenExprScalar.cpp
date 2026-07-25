@@ -333,6 +333,7 @@ public:
   }
 
   mlir::Value VisitCastExpr(CastExpr *e);
+  mlir::Value VisitCastExprImpl(CastExpr *e);
   mlir::Value VisitCallExpr(const CallExpr *e);
 
   mlir::Value VisitStmtExpr(StmtExpr *e) {
@@ -762,8 +763,12 @@ public:
   }
 
   mlir::Value VisitUnaryAddrOf(const UnaryOperator *e) {
-    if (llvm::isa<MemberPointerType>(e->getType()))
-      return cgf.cgm.emitMemberPointerConstant(e);
+    if (llvm::isa<MemberPointerType>(e->getType())) {
+      mlir::Value result = cgf.cgm.emitMemberPointerConstant(e);
+      cgf.cgm.setMemberPointerTargetMetadata(result.getDefiningOp(),
+                                             e->getType());
+      return result;
+    }
 
     return cgf.emitLValue(e->getSubExpr()).getPointer();
   }
@@ -2205,7 +2210,7 @@ mlir::Value ScalarExprEmitter::emitOr(const BinOpInfo &ops) {
 // casts have to handle a more broad range of conversions than explicit
 // casts, as they handle things like function to ptr-to-function decay
 // etc.
-mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
+mlir::Value ScalarExprEmitter::VisitCastExprImpl(CastExpr *ce) {
   Expr *subExpr = ce->getSubExpr();
   QualType destTy = ce->getType();
   CastKind kind = ce->getCastKind();
@@ -2226,6 +2231,8 @@ mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
 
     mlir::Type destElemTy = cgf.convertTypeForMem(destTy);
     Address destAddr = sourceAddr.withElementType(cgf.getBuilder(), destElemTy);
+    if (destAddr.getPointer() != sourceAddr.getPointer())
+      cgf.cgm.setCastExprMetadata(destAddr.getPointer().getDefiningOp(), ce);
     LValue destLVal = cgf.makeAddrLValue(destAddr, destTy);
     assert(!cir::MissingFeatures::opTBAA());
     return emitLoadOfLValue(destLVal, ce->getExprLoc());
@@ -2269,8 +2276,10 @@ mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
     //       out a better way of doing these casts.
     assert(!cir::MissingFeatures::scalableVectors());
 
-    return cgf.getBuilder().createBitcast(cgf.getLoc(subExpr->getSourceRange()),
-                                          src, dstTy);
+    mlir::Value result = cgf.getBuilder().createBitcast(
+        cgf.getLoc(subExpr->getSourceRange()), src, dstTy);
+    cgf.cgm.setCastExprMetadata(result.getDefiningOp(), ce);
+    return result;
   }
   case CK_AddressSpaceConversion: {
     Expr::EvalResult result;
@@ -2364,8 +2373,11 @@ mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
 
     const MemberPointerType *mpt = ce->getType()->getAs<MemberPointerType>();
     mlir::Location loc = cgf.getLoc(subExpr->getExprLoc());
-    return cgf.getBuilder().getConstant(
+    mlir::Value result = cgf.getBuilder().getConstant(
         loc, cgf.cgm.emitNullMemberAttr(destTy, mpt));
+    cgf.cgm.setMemberPointerTargetMetadata(result.getDefiningOp(), destTy);
+    cgf.cgm.setCastExprMetadata(result.getDefiningOp(), ce);
+    return result;
   }
 
   case CK_ReinterpretMemberPointer: {
@@ -2500,6 +2512,20 @@ mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
                                    "CastExpr: ", ce->getCastKindName());
   }
   return {};
+}
+
+mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
+  mlir::Value result = VisitCastExprImpl(ce);
+  if (!result)
+    return result;
+
+  mlir::Operation *resultOp = result.getDefiningOp();
+  cgf.cgm.setMemberPointerTargetMetadata(resultOp, ce->getType());
+  if (!resultOp)
+    return result;
+
+  cgf.cgm.setCastExprMetadata(resultOp, ce);
+  return result;
 }
 
 mlir::Value ScalarExprEmitter::VisitCallExpr(const CallExpr *e) {
@@ -2920,7 +2946,9 @@ mlir::Value ScalarExprEmitter::VisitAbstractConditionalOperator(
       rhs = builder.getNullValue(cgf.voidTy, loc);
     }
 
-    return builder.createSelect(loc, condV, lhs, rhs);
+    mlir::Value result = builder.createSelect(loc, condV, lhs, rhs);
+    cgf.cgm.setConditionalExprMetadata(result.getDefiningOp(), e);
+    return result;
   }
 
   mlir::Value condV = cgf.emitOpOnBoolExpr(loc, condExpr);
@@ -2954,17 +2982,18 @@ mlir::Value ScalarExprEmitter::VisitAbstractConditionalOperator(
     }
   };
 
-  mlir::Value result = cir::TernaryOp::create(
-                           builder, loc, condV,
-                           /*trueBuilder=*/
-                           [&](mlir::OpBuilder &b, mlir::Location loc) {
-                             emitBranch(b, loc, lhsExpr);
-                           },
-                           /*falseBuilder=*/
-                           [&](mlir::OpBuilder &b, mlir::Location loc) {
-                             emitBranch(b, loc, rhsExpr);
-                           })
-                           .getResult();
+  auto ternary = cir::TernaryOp::create(
+      builder, loc, condV,
+      /*trueBuilder=*/
+      [&](mlir::OpBuilder &b, mlir::Location loc) {
+        emitBranch(b, loc, lhsExpr);
+      },
+      /*falseBuilder=*/
+      [&](mlir::OpBuilder &b, mlir::Location loc) {
+        emitBranch(b, loc, rhsExpr);
+      });
+  cgf.cgm.setConditionalExprMetadata(ternary, e);
+  mlir::Value result = ternary.getResult();
 
   if (!insertPoints.empty()) {
     // If both arms are void, so be it.

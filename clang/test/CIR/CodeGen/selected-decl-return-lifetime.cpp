@@ -48,39 +48,39 @@ Payload unrelated() {
 // A selected definition returning a direct prvalue constructs into caller-owned
 // return storage. Its alloca must never acquire local temporary identity.
 // CHECK-LABEL: cir.func{{.*}} @_Z16direct_temporaryv(){{.*}} {
-// CHECK-NOT: ast_temporary_object_identity
+// CHECK-NOT: ast_temporary_object_identities
 // CHECK: %[[DIRECT_RET:.*]] = cir.alloca "__retval"
-// CHECK-NOT: ast_temporary_object_identity
+// CHECK-NOT: ast_temporary_object_identities
 // CHECK: cir.return
 
 // The same ownership rule applies when aggregate initialization is braced.
 // CHECK-LABEL: cir.func{{.*}} @_Z16braced_aggregatev(){{.*}} {
-// CHECK-NOT: ast_temporary_object_identity
+// CHECK-NOT: ast_temporary_object_identities
 // CHECK: %[[BRACED_RET:.*]] = cir.alloca "__retval"
-// CHECK-NOT: ast_temporary_object_identity
+// CHECK-NOT: ast_temporary_object_identities
 // CHECK: cir.return
 
 // Both branch-local CXXBindTemporaryExpr nodes target the one caller-owned
 // return allocation; neither may turn it into a function-local cleanup owner.
 // CHECK-LABEL: cir.func{{.*}} @_Z16branch_temporaryb({{.*}}){{.*}} {
-// CHECK-NOT: ast_temporary_object_identity
+// CHECK-NOT: ast_temporary_object_identities
 // CHECK: %[[BRANCH_RET:.*]] = cir.alloca "__retval"
-// CHECK-NOT: ast_temporary_object_identity
+// CHECK-NOT: ast_temporary_object_identities
 // CHECK: cir.return
 
 // Selected template specialization bodies obey the same exact allocation
 // ownership rule even though their definition originates in a template.
 // CHECK-LABEL: cir.func{{.*}} @_Z18template_temporaryIiE7Payloadv(){{.*}} {
-// CHECK-NOT: ast_temporary_object_identity
+// CHECK-NOT: ast_temporary_object_identities
 // CHECK: %[[TEMPLATE_RET:.*]] = cir.alloca "__retval"
-// CHECK-NOT: ast_temporary_object_identity
+// CHECK-NOT: ast_temporary_object_identities
 // CHECK: cir.return
 
 // NRVO is distinct: the exact automatic VarDecl owns cleanup identity even
 // though its storage is the return allocation.
 // CHECK-LABEL: cir.func{{.*}} @_Z11nrvo_resultv(){{.*}} {
-// CHECK-NOT: ast_temporary_object_identity
+// CHECK-NOT: ast_temporary_object_identities
 // CHECK: %[[NRVO_RET:.*]] = cir.alloca "__retval"
 // CHECK-SAME: ast_automatic_object_identity = {{.*}}declaration_usr = "{{[^"]+}}"{{.*}}function = @_Z11nrvo_resultv
-// CHECK-NOT: ast_temporary_object_identity
+// CHECK-NOT: ast_temporary_object_identities
 // CHECK: cir.return

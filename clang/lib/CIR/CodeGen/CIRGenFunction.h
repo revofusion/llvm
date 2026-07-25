@@ -36,6 +36,7 @@
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "clang/CIR/TypeEvaluationKind.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/ScopedHashTable.h"
 #include "llvm/IR/Instructions.h"
 
@@ -519,7 +520,6 @@ public:
     void restore() { cgf.currSrcLoc = oldLoc; }
     ~SourceLocRAIIObject() { restore(); }
   };
-
   using SymTableScopeTy =
       llvm::ScopedHashTableScope<const clang::Decl *, mlir::Value>;
 
@@ -529,10 +529,14 @@ public:
   unsigned counterAggTmp = 0;
   unsigned counterMaterializedTemporaryIdentity = 0;
   unsigned counterCXXTemporaryObjectIdentity = 0;
+  llvm::DenseMap<const clang::Expr *, uint64_t> temporaryDeclarationOrdinals;
+  bool temporaryDeclarationOrdinalsInitialized = false;
   std::string getCounterRefTmpAsString();
   std::string getCounterAggTmpAsString();
   std::string getMaterializedTemporaryInstanceToken();
   std::string getCXXTemporaryObjectInstanceToken();
+  std::optional<uint64_t>
+  getTemporaryDeclarationOrdinal(const clang::Expr *temporary);
 
   /// Helpers to convert Clang's SourceLocation to a MLIR Location.
   mlir::Location getLoc(clang::SourceLocation srcLoc);

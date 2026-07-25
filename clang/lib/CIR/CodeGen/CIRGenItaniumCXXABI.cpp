@@ -421,6 +421,7 @@ void CIRGenItaniumCXXABI::emitCXXConstructors(const CXXConstructorDecl *d) {
 }
 
 void CIRGenItaniumCXXABI::emitCXXDestructors(const CXXDestructorDecl *d) {
+  cgm.noteSelectedDestructorFamily(d);
   // The destructor used for destructing this as a base class; ignores
   // virtual bases.
   cgm.emitGlobal(GlobalDecl(d, Dtor_Base));

@@ -50,7 +50,100 @@ public:
   bool TraverseBlockExpr(BlockExpr *) { return true; }
   bool TraverseStmtExpr(StmtExpr *) { return true; }
 };
+
+class CXXBindTemporaryOrdinalCollector
+    : public RecursiveASTVisitor<CXXBindTemporaryOrdinalCollector> {
+public:
+  explicit CXXBindTemporaryOrdinalCollector(
+      llvm::DenseMap<const Expr *, uint64_t> &ordinals)
+      : ordinals(ordinals) {}
+
+  bool VisitCXXBindTemporaryExpr(CXXBindTemporaryExpr *binding) {
+    if (ordinals.try_emplace(binding, nextOrdinal).second)
+      ++nextOrdinal;
+    return true;
+  }
+
+  bool TraverseMaterializeTemporaryExpr(MaterializeTemporaryExpr *materialize) {
+    const Expr *subExpr = materialize->getSubExpr();
+    const CXXBindTemporaryExpr *binding = nullptr;
+    while (subExpr) {
+      subExpr = subExpr->IgnoreParenImpCasts();
+      if ((binding = dyn_cast<CXXBindTemporaryExpr>(subExpr)))
+        break;
+      const auto *withCleanups = dyn_cast<ExprWithCleanups>(subExpr);
+      if (!withCleanups)
+        break;
+      subExpr = withCleanups->getSubExpr();
+    }
+
+    // A MaterializeTemporaryExpr is a wrapper around the cleanup-bearing
+    // CXXBindTemporaryExpr. Keep both AST nodes on the same logical ordinal;
+    // only the binding introduces a cleanup lifetime. Materializations without
+    // a binding have no compiler-owned cleanup identity and therefore do not
+    // consume an ordinal.
+    if (binding) {
+      auto ordinal = ordinals.find(binding);
+      if (ordinal == ordinals.end())
+        ordinal = ordinals.try_emplace(binding, nextOrdinal++).first;
+      ordinals.try_emplace(materialize, ordinal->second);
+    }
+    return RecursiveASTVisitor<CXXBindTemporaryOrdinalCollector>::
+        TraverseMaterializeTemporaryExpr(materialize);
+  }
+
+  bool VisitMaterializeTemporaryExpr(MaterializeTemporaryExpr *) {
+    // Ordinals belong to cleanup-bearing bindings, not their materialization
+    // wrappers. TraverseMaterializeTemporaryExpr records the shared key.
+    return true;
+  }
+
+  bool TraverseCXXDefaultArgExpr(CXXDefaultArgExpr *defaultArg) {
+    return TraverseStmt(defaultArg->getExpr());
+  }
+
+  bool TraverseLambdaExpr(LambdaExpr *lambda) {
+    for (Expr *captureInit : lambda->capture_inits())
+      if (!TraverseStmt(captureInit))
+        return false;
+    return true;
+  }
+
+  bool TraverseBlockExpr(BlockExpr *) { return true; }
+
+private:
+  llvm::DenseMap<const Expr *, uint64_t> &ordinals;
+  uint64_t nextOrdinal = 0;
+};
+
 } // namespace
+
+std::optional<uint64_t>
+CIRGenFunction::getTemporaryDeclarationOrdinal(const Expr *temporary) {
+  if (!temporary)
+    return std::nullopt;
+  if (!temporaryDeclarationOrdinalsInitialized) {
+    temporaryDeclarationOrdinalsInitialized = true;
+    const auto *function = dyn_cast_or_null<FunctionDecl>(curFuncDecl);
+    if (!function || !function->hasBody())
+      return std::nullopt;
+    CXXBindTemporaryOrdinalCollector collector(temporaryDeclarationOrdinals);
+    // CXXConstructorDecl::inits() is the semantic initialization order. Keep
+    // constructor initializer expressions in the same declaration preorder
+    // domain as the body, without reconstructing order from source locations.
+    if (const auto *constructor = dyn_cast<CXXConstructorDecl>(function)) {
+      for (const CXXCtorInitializer *initializer : constructor->inits()) {
+        if (initializer && initializer->getInit())
+          collector.TraverseStmt(initializer->getInit());
+      }
+    }
+    collector.TraverseStmt(const_cast<Stmt *>(function->getBody()));
+  }
+  auto ordinal = temporaryDeclarationOrdinals.find(temporary);
+  if (ordinal == temporaryDeclarationOrdinals.end())
+    return std::nullopt;
+  return ordinal->second;
+}
 
 void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
     const CXXBindTemporaryExpr *binding, const CXXTemporary *temporary,
@@ -58,15 +151,14 @@ void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
   if (!binding || !temporary)
     return;
   cir::AllocaOp alloca = address.getUnderlyingAllocaOp();
-  if (!alloca || alloca.getAstTemporaryObjectIdentityAttr())
+  if (!alloca)
     return;
   // A CXXBindTemporaryExpr constructed directly into the function return
   // value transfers destruction to the caller. The return alloca is storage,
   // not a local cleanup owner, so it must not carry temporary-cleanup
   // identity. NRVO declarations still carry their separate automatic-object
   // identity on this storage.
-  if (returnValue.isValid() &&
-      alloca == returnValue.getUnderlyingAllocaOp())
+  if (returnValue.isValid() && alloca == returnValue.getUnderlyingAllocaOp())
     return;
 
   // Structured-op region builders run before the enclosing operation is
@@ -76,23 +168,59 @@ void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
   SourceLocation begin = binding->getBeginLoc();
   SourceLocation end = binding->getEndLoc();
   const CXXDestructorDecl *destructor = temporary->getDestructor();
-  if (!function || begin.isInvalid() || end.isInvalid() || !destructor)
+  if (!function || !destructor)
     return;
+  if (begin.isInvalid() || end.isInvalid() ||
+      end.getRawEncoding() < begin.getRawEncoding()) {
+    cgm.errorNYI(binding->getSourceRange(),
+                 "temporary identity has invalid source provenance");
+    return;
+  }
 
-  // The allocation is the storage for this exact CXXBindTemporaryExpr. Keep
-  // its location aligned with that AST owner so downstream span validation
-  // does not have to recover the owner from a nested construction location.
+  // Keep the allocation location aligned with this exact AST temporary. The
+  // location is provenance only; the tuple below is the identity join.
   alloca->setLoc(getLoc(binding->getSourceRange()));
-
   CIRGenBuilderTy &builder = getBuilder();
   mlir::NamedAttrList identity;
   identity.set("function",
                mlir::FlatSymbolRefAttr::get(function.getSymNameAttr()));
-  identity.set("begin_raw",
-               builder.getI64IntegerAttr(begin.getRawEncoding()));
+  identity.set("begin_raw", builder.getI64IntegerAttr(begin.getRawEncoding()));
   identity.set("end_raw", builder.getI64IntegerAttr(end.getRawEncoding()));
-  identity.set("instance_token",
-               builder.getStringAttr(getCXXTemporaryObjectInstanceToken()));
+  std::optional<uint64_t> declarationOrdinal =
+      getTemporaryDeclarationOrdinal(binding);
+  if (!declarationOrdinal)
+    return;
+  identity.set("declaration_ordinal",
+               builder.getI64IntegerAttr(*declarationOrdinal));
+  mlir::ArrayAttr existing = alloca.getAstTemporaryObjectIdentitiesAttr();
+  mlir::StringAttr instanceToken;
+  if (!existing || existing.empty()) {
+    if (mlir::DictionaryAttr materializeIdentity =
+            alloca.getAstMaterializeTemporaryIdentityAttr())
+      instanceToken =
+          materializeIdentity.getAs<mlir::StringAttr>("instance_token");
+  } else {
+    for (mlir::Attribute attribute : existing) {
+      auto existingIdentity = mlir::dyn_cast<mlir::DictionaryAttr>(attribute);
+      if (!existingIdentity)
+        continue;
+      auto existingFunction =
+          existingIdentity.getAs<mlir::FlatSymbolRefAttr>("function");
+      auto existingOrdinal =
+          existingIdentity.getAs<mlir::IntegerAttr>("declaration_ordinal");
+      if (existingFunction && existingOrdinal &&
+          !existingOrdinal.getValue().isNegative() &&
+          existingFunction.getValue() == function.getSymName() &&
+          existingOrdinal.getValue().getZExtValue() == *declarationOrdinal) {
+        instanceToken =
+            existingIdentity.getAs<mlir::StringAttr>("instance_token");
+        break;
+      }
+    }
+  }
+  if (!instanceToken)
+    instanceToken = builder.getStringAttr(getCXXTemporaryObjectInstanceToken());
+  identity.set("instance_token", instanceToken);
   identity.set("cleanup_kind", builder.getStringAttr("cxx_destructor"));
   identity.set("destructor_symbol",
                builder.getStringAttr(
@@ -103,29 +231,62 @@ void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
     identity.set("destructor_usr", builder.getStringAttr(destructorUSR));
   bool requiresObservedConstructorCall = false;
   const Expr *subExpr = binding->getSubExpr()->IgnoreParenImpCasts();
+  const CXXConstructorDecl *constructor = nullptr;
   if (const auto *construct = dyn_cast<CXXConstructExpr>(subExpr)) {
-    if (const CXXConstructorDecl *constructor =
-            construct->getConstructor()) {
-      requiresObservedConstructorCall = !constructor->isTrivial();
-      identity.set(
-          "constructor_symbol",
-          builder.getStringAttr(
-              cgm.getMangledName(GlobalDecl(constructor, Ctor_Complete))));
-      llvm::SmallString<256> constructorUSR;
-      if (!clang::index::generateUSRForDecl(constructor, constructorUSR))
-        identity.set("constructor_usr",
-                     builder.getStringAttr(constructorUSR));
-    }
+    constructor = construct->getConstructor();
+  } else if (const auto *init = dyn_cast<InitListExpr>(subExpr);
+             init && getContext().getAsConstantArrayType(init->getType())) {
+    const Expr *filler = init->getArrayFiller();
+    const auto *construct = dyn_cast_or_null<CXXConstructExpr>(
+        filler ? filler->IgnoreParenImpCasts() : nullptr);
+    constructor = construct ? construct->getConstructor() : nullptr;
+  }
+  if (constructor) {
+    requiresObservedConstructorCall = !constructor->isTrivial();
+    identity.set("constructor_symbol",
+                 builder.getStringAttr(cgm.getMangledName(
+                     GlobalDecl(constructor, Ctor_Complete))));
+    llvm::SmallString<256> constructorUSR;
+    if (!clang::index::generateUSRForDecl(constructor, constructorUSR))
+      identity.set("constructor_usr", builder.getStringAttr(constructorUSR));
   }
   identity.set("requires_observed_constructor_call",
                builder.getBoolAttr(requiresObservedConstructorCall));
 
-  alloca.setAstTemporaryObjectIdentityAttr(
-      identity.getDictionary(&getMLIRContext()));
+  mlir::DictionaryAttr temporaryIdentity =
+      identity.getDictionary(&getMLIRContext());
+  bool matchedExistingTuple = false;
+  if (existing) {
+    for (mlir::Attribute attribute : existing) {
+      auto existingIdentity = mlir::dyn_cast<mlir::DictionaryAttr>(attribute);
+      if (!existingIdentity)
+        continue;
+      auto existingFunction =
+          existingIdentity.getAs<mlir::FlatSymbolRefAttr>("function");
+      auto existingOrdinal =
+          existingIdentity.getAs<mlir::IntegerAttr>("declaration_ordinal");
+      if (!existingFunction || !existingOrdinal ||
+          existingOrdinal.getValue().isNegative() ||
+          existingFunction.getValue() != function.getSymName() ||
+          existingOrdinal.getValue().getZExtValue() != *declarationOrdinal)
+        continue;
+      matchedExistingTuple = true;
+      if (existingIdentity != temporaryIdentity)
+        cgm.errorNYI(binding->getSourceRange(),
+                     "conflicting automatic temporary identities");
+    }
+  }
+  if (matchedExistingTuple)
+    return;
+  llvm::SmallVector<mlir::Attribute> identities;
+  if (existing)
+    identities.append(existing.begin(), existing.end());
+  identities.push_back(temporaryIdentity);
+  alloca.setAstTemporaryObjectIdentitiesAttr(builder.getArrayAttr(identities));
 }
 
-void CIRGenFunction::setCXXAutomaticObjectIdentity(
-    const VarDecl *variable, Address address) {
+void CIRGenFunction::setCXXAutomaticObjectIdentity(const VarDecl *variable,
+                                                   Address address) {
   if (!variable)
     return;
   cir::AllocaOp alloca = address.getUnderlyingAllocaOp();
@@ -134,8 +295,7 @@ void CIRGenFunction::setCXXAutomaticObjectIdentity(
   // Only an actual NRVO declaration may own automatic cleanup identity on
   // the function return storage. Match the exact VarDecl classification used
   // when that declaration is assigned the return allocation.
-  if (returnValue.isValid() &&
-      alloca == returnValue.getUnderlyingAllocaOp() &&
+  if (returnValue.isValid() && alloca == returnValue.getUnderlyingAllocaOp() &&
       !(getContext().getLangOpts().ElideConstructors &&
         variable->isNRVOVariable())) {
     cgm.errorNYI(variable->getSourceRange(),
@@ -201,8 +361,7 @@ void CIRGenFunction::setCXXAutomaticObjectIdentity(
   identity.set("function",
                mlir::FlatSymbolRefAttr::get(function.getSymNameAttr()));
   identity.set("declaration_usr", builder.getStringAttr(declarationUSR));
-  identity.set("begin_raw",
-               builder.getI64IntegerAttr(begin.getRawEncoding()));
+  identity.set("begin_raw", builder.getI64IntegerAttr(begin.getRawEncoding()));
   identity.set("end_raw", builder.getI64IntegerAttr(end.getRawEncoding()));
   identity.set("cleanup_kind", builder.getStringAttr("cxx_destructor"));
   identity.set("destructor_symbol",
@@ -230,18 +389,32 @@ void CIRGenFunction::setCXXAutomaticObjectIdentity(
   if (const auto *construct = dyn_cast_or_null<CXXConstructExpr>(initializer)) {
     if (const CXXConstructorDecl *constructor = construct->getConstructor()) {
       requiresObservedConstructorCall = !constructor->isTrivial();
-      identity.set(
-          "constructor_symbol",
-          builder.getStringAttr(
-              cgm.getMangledName(GlobalDecl(constructor, Ctor_Complete))));
+      identity.set("constructor_symbol",
+                   builder.getStringAttr(cgm.getMangledName(
+                       GlobalDecl(constructor, Ctor_Complete))));
       llvm::SmallString<256> constructorUSR;
       if (!clang::index::generateUSRForDecl(constructor, constructorUSR))
-        identity.set("constructor_usr",
-                     builder.getStringAttr(constructorUSR));
+        identity.set("constructor_usr", builder.getStringAttr(constructorUSR));
     }
   }
   identity.set("requires_observed_constructor_call",
                builder.getBoolAttr(requiresObservedConstructorCall));
+  if (mlir::ArrayAttr temporaryIdentities =
+          alloca.getAstTemporaryObjectIdentitiesAttr()) {
+    llvm::SmallVector<mlir::Attribute> transferredIdentities;
+    for (mlir::Attribute attribute : temporaryIdentities) {
+      auto temporaryIdentity = mlir::dyn_cast<mlir::DictionaryAttr>(attribute);
+      if (!temporaryIdentity)
+        continue;
+      mlir::NamedAttrList transferredIdentity(temporaryIdentity);
+      transferredIdentity.set("transferred_to_automatic_decl_usr",
+                              builder.getStringAttr(declarationUSR));
+      transferredIdentities.push_back(
+          transferredIdentity.getDictionary(&getMLIRContext()));
+    }
+    alloca.setAstTemporaryObjectIdentitiesAttr(
+        builder.getArrayAttr(transferredIdentities));
+  }
   alloca.setAstAutomaticObjectIdentityAttr(
       identity.getDictionary(&getMLIRContext()));
 }
@@ -251,9 +424,9 @@ void CIRGenFunction::setCXXAutomaticObjectIdentity(
 //===----------------------------------------------------------------------===//
 
 /// Emits all the code to cause the given temporary to be cleaned up.
-void CIRGenFunction::emitCXXTemporary(
-    const CXXTemporary *temporary, QualType tempType, Address ptr,
-    const CXXBindTemporaryExpr *binding) {
+void CIRGenFunction::emitCXXTemporary(const CXXTemporary *temporary,
+                                      QualType tempType, Address ptr,
+                                      const CXXBindTemporaryExpr *binding) {
   setCXXBindTemporaryObjectIdentity(binding, temporary, ptr);
   pushDestroy(NormalAndEHCleanup, ptr, tempType, destroyCXXObject);
 }
@@ -271,10 +444,22 @@ Address CIRGenFunction::createCleanupActiveFlag() {
       /*arraySize=*/nullptr,
       builder.getBestAllocaInsertPoint(getCurFunctionEntryBlock()));
 
-  // Initialize to false before the outermost conditional.
+  // Initialize to false before the outermost conditional. The conditional's
+  // saved insertion point can precede an alloca added to the entry block after
+  // that point was captured, so advance past that exact alloca when both are
+  // in the same block. This preserves per-evaluation initialization in loops
+  // while guaranteeing alloca -> false store -> conditional branch ordering.
   {
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.restoreInsertionPoint(outermostConditional->getInsertPoint());
+    cir::AllocaOp activeAlloca = active.getUnderlyingAllocaOp();
+    if (activeAlloca &&
+        activeAlloca->getBlock() == builder.getInsertionBlock()) {
+      mlir::Block::iterator insertPoint = builder.getInsertionPoint();
+      if (insertPoint != activeAlloca->getBlock()->end() &&
+          !activeAlloca->isBeforeInBlock(&*insertPoint))
+        builder.setInsertionPointAfter(activeAlloca);
+    }
     builder.createFlagStore(loc, false, active.getPointer());
   }
 
@@ -447,42 +632,12 @@ void CIRGenFunction::FullExprCleanupScope::exit(
                   entry.addr.getPointer().getDefiningOp()->getBlock()) &&
                  "alloca and cast are in different blocks");
 
-          // A conditional cleanup can expose a temporary lifetime only when
-          // the cleanup entry owns a single, complete producer identity. In
-          // particular, multiple deferred entries using the same storage do
-          // not reveal which construction lifetime the flag protects.
-          mlir::DictionaryAttr conditionalCleanupIdentity;
+          // Preserve every exact binding identity when one conditional cleanup
+          // guards materialized storage shared by multiple alternatives.
+          mlir::ArrayAttr conditionalCleanupIdentities;
           if (entry.destroyer == destroyCXXObject)
-            conditionalCleanupIdentity =
-                alloca.getAstTemporaryObjectIdentityAttr();
-          if (conditionalCleanupIdentity) {
-            bool hasUniqueStorage = true;
-            for (const PendingCleanupEntry &other :
-                 llvm::make_range(
-                     cgf.deferredConditionalCleanupStack.begin() + oldSize,
-                     cgf.deferredConditionalCleanupStack.end())) {
-              if (&entry != &other &&
-                  other.addr.getUnderlyingAllocaOp() == alloca) {
-                hasUniqueStorage = false;
-                break;
-              }
-            }
-            if (!hasUniqueStorage ||
-                !conditionalCleanupIdentity.getAs<mlir::FlatSymbolRefAttr>(
-                    "function") ||
-                !conditionalCleanupIdentity.getAs<mlir::IntegerAttr>(
-                    "begin_raw") ||
-                !conditionalCleanupIdentity.getAs<mlir::IntegerAttr>(
-                    "end_raw") ||
-                !conditionalCleanupIdentity.getAs<mlir::StringAttr>(
-                    "instance_token") ||
-                !conditionalCleanupIdentity.getAs<mlir::StringAttr>(
-                    "destructor_symbol") ||
-                !conditionalCleanupIdentity.getAs<mlir::StringAttr>(
-                    "cleanup_kind")) {
-              conditionalCleanupIdentity = {};
-            }
-          }
+            conditionalCleanupIdentities =
+                alloca.getAstTemporaryObjectIdentitiesAttr();
 
           mlir::Value flag =
               cgf.builder.createLoad(scope.getLoc(), entry.activeFlag);
@@ -492,9 +647,9 @@ void CIRGenFunction::FullExprCleanupScope::exit(
                 cgf.emitDestroy(entry.addr, entry.type, entry.destroyer);
                 cgf.builder.createYield(loc);
               });
-          if (conditionalCleanupIdentity)
-            cleanupGuard.setAstConditionalCleanupIdentityAttr(
-                conditionalCleanupIdentity);
+          if (conditionalCleanupIdentities)
+            cleanupGuard.setAstConditionalCleanupIdentitiesAttr(
+                conditionalCleanupIdentities);
         } else {
           cgf.emitDestroy(entry.addr, entry.type, entry.destroyer);
         }
@@ -658,9 +813,11 @@ void EHScopeStack::popCleanup() {
   EHCleanupScope &cleanup = cast<EHCleanupScope>(*begin());
   innermostNormalCleanup = cleanup.getEnclosingNormalCleanup();
   innermostEHScope = cleanup.getEnclosingEHScope();
-  deallocate(cleanup.getAllocatedSize());
 
+  // Save everything needed from the scope before destroying it and releasing
+  // its backing stack storage.
   cir::CleanupScopeOp cleanupScope = cleanup.getCleanupScopeOp();
+  size_t allocatedSize = cleanup.getAllocatedSize();
   if (cleanupScope) {
     auto *block = &cleanupScope.getBodyRegion().back();
     if (!block->mightHaveTerminator()) {
@@ -677,8 +834,10 @@ void EHScopeStack::popCleanup() {
       cgf->getBuilder().setInsertionPointAfter(cleanupScope);
   }
 
-  // Destroy the cleanup.
+  // Destroy the cleanup before releasing its storage. No access through
+  // `cleanup` is valid after deallocate().
   cleanup.destroy();
+  deallocate(allocatedSize);
 }
 
 bool EHScopeStack::requiresCatchOrCleanup() const {
@@ -949,8 +1108,8 @@ void CIRGenFunction::popCleanupBlock(bool forDeactivation) {
   // In CIR, the cleanup code is emitted into the cleanup region of the
   // cir.cleanup.scope op. There is no CFG threading needed — the FlattenCFG
   // pass handles lowering the structured cleanup scope.
-  ehStack.popCleanup();
   scope.markEmitted();
+  ehStack.popCleanup();
   emitCleanup(*this, cleanupScope, cleanup, cleanupFlags, cleanupActiveFlag);
 }
 

@@ -848,14 +848,12 @@ static bool shouldEmitVTableThunk(CIRGenModule &cgm, const CXXMethodDecl *md,
   if (cgm.getTarget().getCXXABI().isMicrosoft())
     return true;
 
-  // In the Itanium C++ ABI, vtable thunks are provided by TUs that provide
-  // definitions of the main method. Therefore, emitting thunks with the vtable
-  // is purely an optimization. Emit the thunk if optimizations are enabled and
-  // all of the parameter types are complete.
+  // CIR must materialize every thunk revealed by a vtable layout. Leaving a
+  // declaration at -O0 loses the callable body and its producer identity at
+  // the CIR/export boundary; the layout already bounds this to required
+  // virtual-adjustment entries.
   if (forVTable)
-    return cgm.getCodeGenOpts().OptimizationLevel && !isUnprototyped;
-
-  // Always emit thunks along with the method definition.
+    return !isUnprototyped;
   return true;
 }
 

@@ -21,6 +21,7 @@
 #include "clang/Basic/OperatorKinds.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/Support/TrailingObjects.h"
 
@@ -205,7 +206,6 @@ RValue CIRGenFunction::emitCXXMemberOrOperatorMemberCallExpr(
                  "emitCXXMemberOrOperatorMemberCallExpr: constructor call");
     return RValue::get(nullptr);
   }
-
 
   // Compute the function type we're calling
   const CXXMethodDecl *calleeDecl =
@@ -1366,10 +1366,59 @@ RValue CIRGenFunction::emitCXXDestructorCall(
                                      implicitParamTy, ce, args, nullptr);
   assert((ce || dtor.getDecl()) && "expected source location provider");
   assert(!cir::MissingFeatures::opCallMustTail());
-  return emitCall(cgm.getTypes().arrangeCXXStructorDeclaration(dtor), callee,
-                  ReturnValueSlot(), args, nullptr,
-                  ce ? getLoc(ce->getExprLoc())
-                     : getLoc(dtor.getDecl()->getSourceRange()));
+  mlir::Block *insertionBlock = builder.getInsertionBlock();
+  mlir::Operation *previous = nullptr;
+  if (insertionBlock && !insertionBlock->empty())
+    previous = &insertionBlock->back();
+  RValue result = emitCall(cgm.getTypes().arrangeCXXStructorDeclaration(dtor),
+                           callee, ReturnValueSlot(), args, nullptr,
+                           ce ? getLoc(ce->getExprLoc())
+                              : getLoc(dtor.getDecl()->getSourceRange()));
+  mlir::Block *callBlock = builder.getInsertionBlock();
+  if (callBlock != insertionBlock)
+    previous = nullptr;
+  if (ce) {
+    // emitCall may append bookkeeping operations after the call itself. Keep
+    // the producer identity on the exact call created by this emission rather
+    // than assuming it is the block terminator.
+    mlir::Operation *emittedCall = nullptr;
+    bool afterPrevious = previous == nullptr;
+    if (callBlock) {
+      for (mlir::Operation &operation : *callBlock) {
+        if (&operation == previous) {
+          afterPrevious = true;
+          continue;
+        }
+        if (afterPrevious && isa<cir::CallOp>(&operation)) {
+          emittedCall = &operation;
+          break;
+        }
+      }
+    }
+    auto call = dyn_cast_or_null<cir::CallOp>(emittedCall);
+    if (!call) {
+      cgm.errorNYI(ce->getSourceRange(),
+                   "explicit destructor emission produced no CIR call");
+      return result;
+    }
+    mlir::NamedAttrList identity;
+    llvm::SmallString<256> destructorUSR;
+    if (!clang::index::generateUSRForDecl(dtorDecl->getCanonicalDecl(),
+                                          destructorUSR))
+      identity.set("destructor_usr", builder.getStringAttr(destructorUSR));
+    identity.set("callee_symbol",
+                 builder.getStringAttr(cgm.getMangledName(dtor)));
+    StringRef variant = "complete";
+    if (dtor.getDtorType() == Dtor_Base)
+      variant = "base";
+    else if (dtor.getDtorType() == Dtor_Deleting)
+      variant = "deleting";
+    identity.set("variant", builder.getStringAttr(variant));
+    identity.set("is_explicit", builder.getBoolAttr(true));
+    call->setAttr("ast_destructor_call",
+                  identity.getDictionary(&getMLIRContext()));
+  }
+  return result;
 }
 
 RValue CIRGenFunction::emitCXXPseudoDestructorExpr(

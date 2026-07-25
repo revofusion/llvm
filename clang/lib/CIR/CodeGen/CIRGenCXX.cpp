@@ -216,14 +216,15 @@ cir::FuncOp CIRGenModule::codegenCXXStructor(GlobalDecl gd) {
   cir::FuncType funcType = getTypes().getFunctionType(fnInfo);
   cir::FuncOp fn = getAddrOfCXXStructor(gd, &fnInfo, /*FnType=*/nullptr,
                                         /*DontDefer=*/true, ForDefinition);
+  if (!fn.isDeclaration())
+    return fn;
   setFunctionLinkage(gd, fn);
-  CIRGenFunction cgf{*this, builder};
-  curCGF = &cgf;
   {
+    CIRGenFunction cgf{*this, builder};
+    llvm::SaveAndRestore<CIRGenFunction *> savedCGF(curCGF, &cgf);
     mlir::OpBuilder::InsertionGuard guard(builder);
     cgf.generateCode(gd, fn, funcType);
   }
-  curCGF = nullptr;
 
   setNonAliasAttributes(gd, fn);
   setCIRFunctionAttributesForDefinition(mlir::cast<FunctionDecl>(gd.getDecl()),

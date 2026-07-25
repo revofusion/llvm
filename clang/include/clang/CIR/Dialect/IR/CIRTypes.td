@@ -754,11 +754,11 @@ def CIR_StructType : CIR_Type<"Struct", "struct", [
     bool isSized() const { return isComplete(); }
 
     /// Returns the data size (excluding tail padding) for this struct type.
-    unsigned computeStructDataSize(const mlir::DataLayout &dataLayout) const;
+    uint64_t computeStructDataSize(const mlir::DataLayout &dataLayout) const;
 
   private:
     static constexpr char abi_conversion_prefix[] = "__post_abi_";
-    unsigned computeStructSize(const mlir::DataLayout &dataLayout) const;
+    uint64_t computeStructSize(const mlir::DataLayout &dataLayout) const;
     uint64_t computeStructAlignment(const mlir::DataLayout &dataLayout) const;
   public:
   }];

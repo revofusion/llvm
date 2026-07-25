@@ -904,11 +904,22 @@ void CIRGenFunction::emitDelegateCallArg(CallArgList &args,
     args.add(
         RValue::get(builder.createLoad(getLoc(param->getSourceRange()), local)),
         type);
-  } else if (getLangOpts().ObjCAutoRefCount) {
-    cgm.errorNYI(param->getSourceRange(),
-                 "emitDelegateCallArg: ObjCAutoRefCount");
-    // For the most part, we just need to load the alloca, except that aggregate
-    // r-values are actually pointers to temporaries.
+
+  // In ARC, move out of consumed arguments so that the release cleanup
+  // entered by StartFunction doesn't cause an over-release. This isn't
+  // optimal -O0 code generation, but it should get cleaned up when
+  // optimization is enabled. This also assumes that delegate calls are
+  // performed exactly once for a set of arguments, but that should be safe.
+  } else if (getLangOpts().ObjCAutoRefCount &&
+             param->hasAttr<NSConsumedAttr>() && type->isObjCRetainableType()) {
+    mlir::Location argLoc = getLoc(param->getSourceRange());
+    mlir::Value ptr = builder.createLoad(argLoc, local);
+    mlir::Value null = builder.getNullValue(ptr.getType(), argLoc);
+    builder.createStore(argLoc, null, local);
+    args.add(RValue::get(ptr), type);
+
+  // For the most part, we just need to load the alloca, except that aggregate
+  // r-values are actually pointers to temporaries.
   } else {
     args.add(convertTempToRValue(local, type, loc), type);
   }
