@@ -131,7 +131,11 @@ public:
     assert(lvalue.isSimple());
     Address addr = getAtomicAddress();
     if (hasPadding())
-      addr = cgf.getBuilder().createGetMember(loc, addr, /*name=*/"value",
+      // The padded atomic wrapper is compiler-synthesized; its member 0 has
+      // no source-level spelling, so it is identified by index alone. A
+      // fabricated name would be indistinguishable from a real FieldDecl
+      // spelling to consumers that read this attribute.
+      addr = cgf.getBuilder().createGetMember(loc, addr, /*name=*/"",
                                               /*index=*/0);
 
     assert(!cir::MissingFeatures::opTBAA());

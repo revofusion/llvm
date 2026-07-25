@@ -303,8 +303,14 @@ AtomicS1 make_atomic_source() {
   return {1, 2, 3};
 }
 
+// The discarded-destination path must still emit the source call. Use the
+// implicit conversion, which is the only form Sema models as
+// CK_NonAtomicToAtomic: an explicit `(_Atomic(T))x` cast is built as CK_NoOp
+// with mismatched subexpression/result types, which asserts in the shared
+// aggregate-cast type check in both classic CodeGen and CIRGen.
 void discard_atomic_conversion() {
-  (void)(_Atomic(AtomicS1))make_atomic_source();
+  _Atomic(AtomicS1) discarded = make_atomic_source();
+  (void)discarded;
 }
 
 

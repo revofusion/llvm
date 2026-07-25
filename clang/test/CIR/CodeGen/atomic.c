@@ -98,7 +98,7 @@ void init_with_padding(_Atomic struct S1 *p) {
   // CIR-NEXT: %[[MEMSET_VALUE:.+]] = cir.const #cir.int<0> : !u8i
   // CIR-NEXT: %[[MEMSET_SIZE:.+]] = cir.const #cir.int<8> : !u64i
   // CIR-NEXT: cir.libc.memset %[[MEMSET_SIZE]] bytes at %[[PTR_VOID]] align(8) to %[[MEMSET_VALUE]] : !cir.ptr<!void>, !u8i, !u64i
-  // CIR-NEXT: %[[VALUE_PTR:.+]] = cir.get_member %[[PTR]][0] {name = "value"} : !cir.ptr<!rec_anon_struct> -> !cir.ptr<!rec_S1>
+  // CIR-NEXT: %[[VALUE_PTR:.+]] = cir.get_member %[[PTR]][0] {name = ""} : !cir.ptr<!rec_anon_struct> -> !cir.ptr<!rec_S1>
   // CIR-NEXT: %[[X_PTR:.+]] = cir.get_member %[[VALUE_PTR]][0] {name = "x"} : !cir.ptr<!rec_S1> -> !cir.ptr<!s16i>
   // CIR-NEXT: %[[X_INIT:.+]] = cir.const #cir.int<1> : !s16i
   // CIR-NEXT: cir.store align(8) %[[X_INIT]], %[[X_PTR]] : !s16i, !cir.ptr<!s16i>

@@ -286,8 +286,12 @@ public:
       if (!dest.isZeroed())
         cgf.emitNullInitialization(loc, dest.getAddress(), atomicType);
 
+      // The atomic representation wrapper is compiler-synthesized and its
+      // member 0 has no source-level spelling. Identify it by index only;
+      // a fabricated name would be indistinguishable from a real FieldDecl
+      // spelling to consumers that read this attribute.
       Address valueAddress = cgf.getBuilder().createGetMember(
-          loc, dest.getAddress(), /*name=*/"value", /*index=*/0);
+          loc, dest.getAddress(), /*name=*/"", /*index=*/0);
       AggValueSlot valueDest = AggValueSlot::forAddr(
           valueAddress, dest.getQualifiers(), dest.isExternallyDestructed(),
           dest.isPotentiallyAliased(), AggValueSlot::DoesNotOverlap,
