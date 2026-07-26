@@ -293,9 +293,10 @@ static RValue emitBinaryAtomicPost(CIRGenFunction &cgf,
 
 /// Utility to insert an atomic cmpxchg instruction for the legacy __sync
 /// builtins.
-static mlir::Value makeAtomicCmpXchgValue(
-    CIRGenFunction &cgf, const CallExpr *e, bool returnBool,
-    cir::MemOrder successOrdering, cir::MemOrder failureOrdering) {
+static mlir::Value makeAtomicCmpXchgValue(CIRGenFunction &cgf,
+                                          const CallExpr *e, bool returnBool,
+                                          cir::MemOrder successOrdering,
+                                          cir::MemOrder failureOrdering) {
   QualType type = returnBool ? e->getArg(1)->getType() : e->getType();
   Address destAddr = checkAtomicAlignment(cgf, e);
   CIRGenBuilderTy &builder = cgf.getBuilder();
@@ -322,8 +323,7 @@ static mlir::Value makeAtomicCmpXchgValue(
       cir::MemOrderAttr::get(&cgf.getMLIRContext(), failureOrdering),
       cir::SyncScopeKindAttr::get(&cgf.getMLIRContext(),
                                   cir::SyncScopeKind::System),
-      builder.getI64IntegerAttr(
-          destAddr.getAlignment().getAsAlign().value()));
+      builder.getI64IntegerAttr(destAddr.getAlignment().getAsAlign().value()));
 
   if (returnBool)
     return builder.createBoolToInt(cmpxchg.getSuccess(),
@@ -601,8 +601,13 @@ static RValue emitBuiltinAlloca(CIRGenFunction &cgf, const CallExpr *e,
           hasExplicitAlignment) &&
          "unexpected alloca builtin");
 
-  // Get alloca size input
+  // `cir.alloca` models its dynamic element count as an unsigned 64-bit
+  // quantity even when the target's `size_t` is narrower.
+  CIRGenBuilderTy &builder = cgf.getBuilder();
   mlir::Value size = cgf.emitScalarExpr(e->getArg(0));
+  mlir::Value allocaSize = size;
+  if (allocaSize.getType() != builder.getUInt64Ty())
+    allocaSize = builder.createIntCast(allocaSize, builder.getUInt64Ty());
 
   CharUnits suitableAlignmentInBytes;
   if (hasExplicitAlignment) {
@@ -626,26 +631,40 @@ static RValue emitBuiltinAlloca(CIRGenFunction &cgf, const CallExpr *e,
   // FIXME(cir): It may make sense to allow AllocaOp of type `u8` to return a
   // pointer of type `void *`. This will require a change to the allocaOp
   // verifier.
-  CIRGenBuilderTy &builder = cgf.getBuilder();
   mlir::Value allocaAddr = builder.createAlloca(
       cgf.getLoc(e->getSourceRange()), builder.getUInt8PtrTy(),
-      builder.getUInt8Ty(), "bi_alloca", suitableAlignmentInBytes, size);
+      builder.getUInt8Ty(), "bi_alloca", suitableAlignmentInBytes, allocaSize);
 
   // Initialize the allocated buffer if required.
   if (builtinID != Builtin::BI__builtin_alloca_uninitialized &&
       builtinID != Builtin::BI__builtin_alloca_with_align_uninitialized) {
     // Initialize the alloca with the given size and alignment according to
-    // the lang opts. Only the trivial non-initialization is supported for
-    // now.
-
+    // the language options. As in classic codegen, pattern initialization
+    // uses 0xAA when the maximum pointer width is at least 64 bits and 0xFF
+    // otherwise.
+    const mlir::Location loc = cgf.getLoc(e->getSourceRange());
+    mlir::Value initByte;
     switch (cgf.getLangOpts().getTrivialAutoVarInit()) {
     case LangOptions::TrivialAutoVarInitKind::Uninitialized:
       // Nothing to initialize.
       break;
     case LangOptions::TrivialAutoVarInitKind::Zero:
-    case LangOptions::TrivialAutoVarInitKind::Pattern:
-      cgf.cgm.errorNYI("trivial auto var init");
+      initByte = builder.getNullValue(builder.getUInt8Ty(), loc);
       break;
+    case LangOptions::TrivialAutoVarInitKind::Pattern:
+      initByte = builder.getConstInt(
+          loc, builder.getUInt8Ty(),
+          cgf.getContext().getTargetInfo().getMaxPointerWidth() < 64 ? 0xFF
+                                                                     : 0xAA);
+      break;
+    }
+
+    if (initByte) {
+      mlir::Value allocaVoidAddr = builder.createBitcast(
+          allocaAddr, builder.getVoidPtrTy(cgf.getCIRAllocaAddressSpace()));
+      builder.createMemSet(loc,
+                           Address(allocaVoidAddr, suitableAlignmentInBytes),
+                           initByte, size);
     }
   }
 
@@ -2211,6 +2230,13 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
             : cir::MinOp::create(builder, loc, lhs, rhs).getResult();
     return RValue::get(result);
   }
+  case Builtin::BI__builtin_reduce_or: {
+    mlir::Location loc = getLoc(e->getExprLoc());
+    mlir::Value value = emitScalarExpr(e->getArg(0));
+    mlir::Type resultType = convertType(e->getType());
+    return RValue::get(builder.emitIntrinsicCallOp(
+        loc, "vector.reduce.or", resultType, mlir::ValueRange{value}));
+  }
   case Builtin::BI__builtin_elementwise_maxnum:
   case Builtin::BI__builtin_elementwise_minnum:
   case Builtin::BI__builtin_elementwise_maximum:
@@ -2222,7 +2248,6 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_reduce_add:
   case Builtin::BI__builtin_reduce_mul:
   case Builtin::BI__builtin_reduce_xor:
-  case Builtin::BI__builtin_reduce_or:
   case Builtin::BI__builtin_reduce_and:
   case Builtin::BI__builtin_reduce_assoc_fadd:
   case Builtin::BI__builtin_reduce_in_order_fadd:
@@ -2607,8 +2632,7 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__sync_val_compare_and_swap_8:
   case Builtin::BI__sync_val_compare_and_swap_16:
     return RValue::get(makeAtomicCmpXchgValue(
-        *this, e, /*returnBool=*/false,
-        cir::MemOrder::SequentiallyConsistent,
+        *this, e, /*returnBool=*/false, cir::MemOrder::SequentiallyConsistent,
         cir::MemOrder::SequentiallyConsistent));
   case Builtin::BI__sync_bool_compare_and_swap_1:
   case Builtin::BI__sync_bool_compare_and_swap_2:
@@ -2616,8 +2640,7 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__sync_bool_compare_and_swap_8:
   case Builtin::BI__sync_bool_compare_and_swap_16:
     return RValue::get(makeAtomicCmpXchgValue(
-        *this, e, /*returnBool=*/true,
-        cir::MemOrder::SequentiallyConsistent,
+        *this, e, /*returnBool=*/true, cir::MemOrder::SequentiallyConsistent,
         cir::MemOrder::SequentiallyConsistent));
   case Builtin::BI__sync_swap_1:
   case Builtin::BI__sync_swap_2:

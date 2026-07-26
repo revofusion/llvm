@@ -20,19 +20,19 @@ struct ZeroInit {
 };
 
 // CIR: cir.func{{.*}} @_ZN8ZeroInitC2Ev(%[[THIS_ARG:.*]]: !cir.ptr<!rec_ZeroInit> {{.*}})
-// CIR:   %[[ITER:.*]] = cir.alloca "arrayinit.temp"
+// CIR:   %[[ITER:.*]] = cir.alloca "arrayinit.temp" {{.*}}
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ALLOCA:.*]]
-// CIR:   %[[I:.*]] = cir.get_member %[[THIS]][0] {name = "i"}
+// CIR:   %[[I:.*]] = cir.get_member %[[THIS]][0] {{.*name = "i".*}} : !cir.ptr<!rec_ZeroInit> -> !cir.ptr<!s32i>
 // CIR:   %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
 // CIR:   cir.store{{.*}} %[[ZERO]], %[[I]]
-// CIR:   %[[P:.*]] = cir.get_member %[[THIS]][1] {name = "p"}
-// CIR:   %[[P_A:.*]] = cir.get_member %[[P]][0] {name = "a"}
+// CIR:   %[[P:.*]] = cir.get_member %[[THIS]][1] {{.*name = "p".*}} : !cir.ptr<!rec_ZeroInit> -> !cir.ptr<!rec_Pair>
+// CIR:   %[[P_A:.*]] = cir.get_member %[[P]][0] {{.*name = "a".*}} : !cir.ptr<!rec_Pair> -> !cir.ptr<!s32i>
 // CIR:   %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
 // CIR:   cir.store{{.*}} %[[ZERO]], %[[P_A]]
-// CIR:   %[[P_B:.*]] = cir.get_member %[[P]][1] {name = "b"}
+// CIR:   %[[P_B:.*]] = cir.get_member %[[P]][1] {{.*name = "b".*}} : !cir.ptr<!rec_Pair> -> !cir.ptr<!s32i>
 // CIR:   %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
 // CIR:   cir.store{{.*}} %[[ZERO]], %[[P_B]]
-// CIR:   %[[ARR:.*]] = cir.get_member %[[THIS]][2] {name = "arr"}
+// CIR:   %[[ARR:.*]] = cir.get_member %[[THIS]][2] {{.*name = "arr".*}} : !cir.ptr<!rec_ZeroInit> -> !cir.ptr<!cir.array<!s32i x 4>>
 // CIR:   %[[ARR_BEGIN:.*]] = cir.cast array_to_ptrdecay %[[ARR]] : !cir.ptr<!cir.array<!s32i x 4>> -> !cir.ptr<!s32i>
 // CIR:   cir.store{{.*}} %[[ARR_BEGIN]], %[[ITER]]
 // CIR:   %[[FOUR:.*]] = cir.const #cir.int<4> : !s64i
@@ -50,10 +50,10 @@ struct ZeroInit {
 // CIR:     %[[CMP:.*]] = cir.cmp ne %[[CUR]], %[[END]]
 // CIR:     cir.condition(%[[CMP]])
 // CIR:   }
-// CIR:   %[[C:.*]] = cir.get_member %[[THIS]][3] {name = "c"}
+// CIR:   %[[C:.*]] = cir.get_member %[[THIS]][3] {{.*name = "c".*}} : !cir.ptr<!rec_ZeroInit> -> !cir.ptr<!cir.complex<!cir.float>>
 // CIR:   %[[ZERO:.*]] = cir.const #cir.zero : !cir.complex<!cir.float>
 // CIR:   cir.store{{.*}} %[[ZERO]], %[[C]]
-// CIR:   %[[BF:.*]] = cir.get_member %[[THIS]][4] {name = "bf"}
+// CIR:   %[[BF:.*]] = cir.get_member %[[THIS]][4] {{.*name = "bf".*}} : !cir.ptr<!rec_ZeroInit> -> !cir.ptr<!u8i>
 // CIR:   %[[ZERO:.*]] = cir.const #cir.int<0> : !u32i
 // CIR:   %[[BF_VAL:.*]] = cir.set_bitfield{{.*}} (#bfi_bf, %[[BF]] : !cir.ptr<!u8i>, %[[ZERO]] : !u32i)
 
@@ -126,19 +126,19 @@ struct ValueInit {
 };
 
 // CIR: cir.func{{.*}} @_ZN9ValueInitC2Ev(%[[THIS_ARG:.*]]: !cir.ptr<!rec_ValueInit> {{.*}})
-// CIR:   %[[ITER:.*]] = cir.alloca "arrayinit.temp"
+// CIR:   %[[ITER:.*]] = cir.alloca "arrayinit.temp" {{.*}}
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ALLOCA:.*]]
-// CIR:   %[[I:.*]] = cir.get_member %[[THIS]][0] {name = "i"}
+// CIR:   %[[I:.*]] = cir.get_member %[[THIS]][0] {{.*name = "i".*}} : !cir.ptr<!rec_ValueInit> -> !cir.ptr<!s32i>
 // CIR:   %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
 // CIR:   cir.store{{.*}} %[[ONE]], %[[I]]
-// CIR:   %[[P:.*]] = cir.get_member %[[THIS]][1] {name = "p"}
-// CIR:   %[[P_A:.*]] = cir.get_member %[[P]][0] {name = "a"}
+// CIR:   %[[P:.*]] = cir.get_member %[[THIS]][1] {{.*name = "p".*}} : !cir.ptr<!rec_ValueInit> -> !cir.ptr<!rec_Pair>
+// CIR:   %[[P_A:.*]] = cir.get_member %[[P]][0] {{.*name = "a".*}} : !cir.ptr<!rec_Pair> -> !cir.ptr<!s32i>
 // CIR:   %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
 // CIR:   cir.store{{.*}} %[[TWO]], %[[P_A]]
-// CIR:   %[[P_B:.*]] = cir.get_member %[[P]][1] {name = "b"}
+// CIR:   %[[P_B:.*]] = cir.get_member %[[P]][1] {{.*name = "b".*}} : !cir.ptr<!rec_Pair> -> !cir.ptr<!s32i>
 // CIR:   %[[THREE:.*]] = cir.const #cir.int<3> : !s32i
 // CIR:   cir.store{{.*}} %[[THREE]], %[[P_B]]
-// CIR:   %[[ARR:.*]] = cir.get_member %[[THIS]][2] {name = "arr"}
+// CIR:   %[[ARR:.*]] = cir.get_member %[[THIS]][2] {{.*name = "arr".*}} : !cir.ptr<!rec_ValueInit> -> !cir.ptr<!cir.array<!s32i x 4>>
 // CIR:   %[[ARR_BEGIN:.*]] = cir.cast array_to_ptrdecay %[[ARR]] : !cir.ptr<!cir.array<!s32i x 4>> -> !cir.ptr<!s32i>
 // CIR:   %[[FOUR:.*]] = cir.const #cir.int<4> : !s32i
 // CIR:   cir.store{{.*}} %[[FOUR]], %[[ARR_BEGIN]]
@@ -164,10 +164,10 @@ struct ValueInit {
 // CIR:     %[[CMP:.*]] = cir.cmp ne %[[CUR]], %[[END]]
 // CIR:     cir.condition(%[[CMP]])
 // CIR:   }
-// CIR:   %[[C:.*]] = cir.get_member %[[THIS]][3] {name = "c"}
+// CIR:   %[[C:.*]] = cir.get_member %[[THIS]][3] {{.*name = "c".*}} : !cir.ptr<!rec_ValueInit> -> !cir.ptr<!cir.complex<!cir.float>>
 // CIR:   %[[FOUR_FIVEI:.*]] = cir.const #cir.const_complex<#cir.fp<6.000000e+00> : !cir.float, #cir.fp<7.000000e+00>
 // CIR:   cir.store{{.*}} %[[FOUR_FIVEI]], %[[C]]
-// CIR:   %[[BF:.*]] = cir.get_member %[[THIS]][4] {name = "bf"}
+// CIR:   %[[BF:.*]] = cir.get_member %[[THIS]][4] {{.*name = "bf".*}} : !cir.ptr<!rec_ValueInit> -> !cir.ptr<!u8i>
 // CIR:   %[[FF:.*]] = cir.const #cir.int<255> : !u32i
 // CIR:   %[[BF_VAL:.*]] = cir.set_bitfield{{.*}} (#bfi_bf, %[[BF]] : !cir.ptr<!u8i>, %[[FF]] : !u32i)
 

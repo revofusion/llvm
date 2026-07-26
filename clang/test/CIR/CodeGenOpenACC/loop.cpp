@@ -22,7 +22,7 @@ extern "C" void acc_loop(int *A, int *B, int *C, int N) {
   // CHECK: cir.condition
   // CHECK-NEXT: } body {
   // CHECK-NEXT: cir.scope {
-  // CHECK: }
+  // CHECK: {{^ *}}} loc
   // CHECK-NEXT: cir.yield
   // CHECK-NEXT: } step {
   // CHECK: cir.yield

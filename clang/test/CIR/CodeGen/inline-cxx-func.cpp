@@ -22,7 +22,7 @@ struct S {
 // CIR:   %[[RET_ADDR:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!s32i>
 // CIR:   cir.store %arg0, %[[THIS_ADDR]] : !cir.ptr<!rec_S>, !cir.ptr<!cir.ptr<!rec_S>>
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
-// CIR:   %[[MEMBER_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "Member"} : !cir.ptr<!rec_S> -> !cir.ptr<!s32i>
+// CIR:   %[[MEMBER_ADDR:.*]] = cir.get_member %[[THIS]][0] {{.*name = "Member".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!s32i>
 // CIR:   %[[MEMBER:.*]] = cir.load{{.*}} %[[MEMBER_ADDR]] : !cir.ptr<!s32i>, !s32i
 // CIR:   cir.store %[[MEMBER]], %[[RET_ADDR]] : !s32i, !cir.ptr<!s32i>
 // CIR:   %[[RET_VAL:.*]] = cir.load %[[RET_ADDR]] : !cir.ptr<!s32i>, !s32i

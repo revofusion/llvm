@@ -20,8 +20,8 @@
 #include "clang/CIR/ABIArgInfo.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "llvm/ADT/FloatingPointMode.h"
-#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Support/TypeSize.h"
 
 using namespace clang;
@@ -905,11 +905,11 @@ void CIRGenFunction::emitDelegateCallArg(CallArgList &args,
         RValue::get(builder.createLoad(getLoc(param->getSourceRange()), local)),
         type);
 
-  // In ARC, move out of consumed arguments so that the release cleanup
-  // entered by StartFunction doesn't cause an over-release. This isn't
-  // optimal -O0 code generation, but it should get cleaned up when
-  // optimization is enabled. This also assumes that delegate calls are
-  // performed exactly once for a set of arguments, but that should be safe.
+    // In ARC, move out of consumed arguments so that the release cleanup
+    // entered by StartFunction doesn't cause an over-release. This isn't
+    // optimal -O0 code generation, but it should get cleaned up when
+    // optimization is enabled. This also assumes that delegate calls are
+    // performed exactly once for a set of arguments, but that should be safe.
   } else if (getLangOpts().ObjCAutoRefCount &&
              param->hasAttr<NSConsumedAttr>() && type->isObjCRetainableType()) {
     mlir::Location argLoc = getLoc(param->getSourceRange());
@@ -918,8 +918,8 @@ void CIRGenFunction::emitDelegateCallArg(CallArgList &args,
     builder.createStore(argLoc, null, local);
     args.add(RValue::get(ptr), type);
 
-  // For the most part, we just need to load the alloca, except that aggregate
-  // r-values are actually pointers to temporaries.
+    // For the most part, we just need to load the alloca, except that aggregate
+    // r-values are actually pointers to temporaries.
   } else {
     args.add(convertTempToRValue(local, type, loc), type);
   }
@@ -927,16 +927,14 @@ void CIRGenFunction::emitDelegateCallArg(CallArgList &args,
   if (type->isRecordType() && !curFuncIsThunk &&
       type->castAsRecordDecl()->isParamDestroyedInCallee() &&
       param->needsDestruction(getContext())) {
-    const auto *parm = dyn_cast<ParmVarDecl>(param);
-    auto cleanup = parm ? calleeDestructedParamCleanups.find(parm)
-                        : calleeDestructedParamCleanups.end();
-    if (cleanup == calleeDestructedParamCleanups.end()) {
+    CalleeDestructedParamCleanup *cleanup =
+        findCalleeDestructedParamCleanup(dyn_cast<ParmVarDecl>(param));
+    if (!cleanup) {
       cgm.errorNYI(param->getSourceRange(),
                    "emitDelegateCallArg: callee-destructed param cleanup");
       return;
     }
-    args.addArgCleanupDeactivation(cleanup->second.cleanup,
-                                   cleanup->second.dominatingIP);
+    args.addArgCleanupDeactivation(cleanup->cleanup, cleanup->dominatingIP);
   }
 }
 
@@ -1440,6 +1438,21 @@ mlir::Value CIRGenFunction::emitRuntimeCall(mlir::Location loc,
   return call->getResult(0);
 }
 
+namespace {
+/// Destroys a callee-owned argument if evaluation unwinds before control is
+/// transferred to the callee.
+struct DestroyUnpassedArg final : EHScopeStack::Cleanup {
+  DestroyUnpassedArg(Address addr, QualType type) : addr(addr), type(type) {}
+
+  Address addr;
+  QualType type;
+
+  void emit(CIRGenFunction &cgf, Flags) override {
+    cgf.emitDestroy(addr, type, CIRGenFunction::destroyCXXObject);
+  }
+};
+} // namespace
+
 void CIRGenFunction::emitCallArg(CallArgList &args, const clang::Expr *e,
                                  clang::QualType argType) {
   assert(argType->isReferenceType() == e->isGLValue() &&
@@ -1452,8 +1465,9 @@ void CIRGenFunction::emitCallArg(CallArgList &args, const clang::Expr *e,
 
   bool hasAggregateEvalKind = hasAggregateEvaluationKind(argType);
 
-  // For callee-destructed parameters (trivial_abi, MS ABI), create an
-  // aggregate temp and let the callee destroy it.
+  // Some ABIs transfer destruction of record arguments to the callee. Until
+  // the call begins, however, the caller still owns a fully-constructed
+  // argument and must destroy it if evaluation of a later argument unwinds.
   if (argType->isRecordType() &&
       argType->castAsRecordDecl()->isParamDestroyedInCallee()) {
     AggValueSlot slot = createAggTemp(argType, getLoc(e->getSourceRange()),
@@ -1470,9 +1484,19 @@ void CIRGenFunction::emitCallArg(CallArgList &args, const clang::Expr *e,
     RValue rv = slot.asRValue();
     args.add(rv, argType);
 
-    if (destroyedInCallee && getLangOpts().Exceptions)
-      cgm.errorNYI(e->getSourceRange(),
-                   "callee-destructed param with exceptions");
+    if (destroyedInCallee) {
+      // Push this cleanup directly: unlike an ordinary full-expression
+      // temporary, it is deactivated immediately before this call, including
+      // when the call appears in a conditionally-evaluated branch.
+      mlir::Location cleanupLoc = getLoc(e->getSourceRange());
+      mlir::Operation *dominatingIP =
+          builder.getBool(false, cleanupLoc).getOperation();
+      ehStack.pushCleanup<DestroyUnpassedArg>(NormalAndEHCleanup,
+                                              slot.getAddress(), argType);
+      if (isInConditionalBranch())
+        initFullExprCleanupWithFlag(createCleanupActiveFlag());
+      args.addArgCleanupDeactivation(ehStack.stable_begin(), dominatingIP);
+    }
     return;
   }
 

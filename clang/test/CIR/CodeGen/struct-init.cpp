@@ -5,8 +5,8 @@
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -emit-llvm %s -o %t.ll
 // RUN: FileCheck --check-prefix=OGCG --input-file=%t.ll %s
 
-// CIR-DAG: cir.global "private"{{.*}}constant cir_private @[[INIT_S1:.*]] = #cir.const_record<{#cir.int<1> : !s32i, #cir.int<2> : !s32i, #cir.int<3> : !s32i}> : !rec_S
-// CIR-DAG: cir.global "private"{{.*}}constant cir_private @[[INIT_S2:.*]] = #cir.const_record<{#cir.int<4> : !s32i, #cir.int<5> : !s32i, #cir.int<0> : !s32i}> : !rec_S
+// CIR-DAG: cir.global "private"{{.*}}constant cir_private @[[INIT_S1:.*]] = #cir.const_record<{#cir.int<1>, #cir.int<2>, #cir.int<3>}> : !rec_S
+// CIR-DAG: cir.global "private"{{.*}}constant cir_private @[[INIT_S2:.*]] = #cir.const_record<{#cir.int<4>, #cir.int<5>, #cir.int<0>}> : !rec_S
 
 struct BitfieldStruct {
   unsigned int a:4;
@@ -19,7 +19,7 @@ BitfieldStruct overlapping_init = { 3, 2, 1 };
 // This is unintuitive. The bitfields are initialized using a struct of constants
 // that maps to the bitfields but splits the value into bytes.
 
-// CIR: cir.global external @overlapping_init = #cir.const_record<{#cir.int<35> : !u8i, #cir.int<0> : !u8i, #cir.int<4> : !u8i, #cir.int<0> : !u8i}> : !rec_anon_struct
+// CIR: cir.global external @overlapping_init = #cir.const_record<{#cir.int<35>, #cir.int<0>, #cir.int<4>, #cir.int<0>}> : !rec_anon_struct
 // LLVM: @overlapping_init = global { i8, i8, i8, i8 } { i8 35, i8 0, i8 4, i8 0 }
 // OGCG: @overlapping_init = global { i8, i8, i8, i8 } { i8 35, i8 0, i8 4, i8 0 }
 
@@ -29,7 +29,7 @@ struct S {
 
 S partial_init = { 1 };
 
-// CIR: cir.global external @partial_init = #cir.const_record<{#cir.int<1> : !s32i, #cir.int<0> : !s32i, #cir.int<0> : !s32i}> : !rec_S
+// CIR: cir.global external @partial_init = #cir.const_record<{#cir.int<1>, #cir.int<0>, #cir.int<0>}> : !rec_S
 // LLVM: @partial_init = global %struct.S { i32 1, i32 0, i32 0 }
 // OGCG: @partial_init = global %struct.S { i32 1, i32 0, i32 0 }
 
@@ -39,7 +39,7 @@ struct StructWithDefaultInit {
 
 StructWithDefaultInit swdi = {};
 
-// CIR: cir.global external @swdi = #cir.const_record<{#cir.int<2> : !s32i}> : !rec_StructWithDefaultInit
+// CIR: cir.global external @swdi = #cir.const_record<{#cir.int<2>}> : !rec_StructWithDefaultInit
 // LLVM: @swdi = global %struct.StructWithDefaultInit { i32 2 }, align 4
 // OGCG: @swdi = global %struct.StructWithDefaultInit { i32 2 }, align 4
 
@@ -56,7 +56,7 @@ StructWithFieldInitFromConst swfifc = {};
 
 StructWithFieldInitFromConst swfifc2 = { 2 };
 
-// CIR: cir.global external @swfifc2 = #cir.const_record<{#cir.int<2> : !u8i, #cir.int<0> : !u8i, #cir.int<2> : !s32i}> : !rec_anon_struct
+// CIR: cir.global external @swfifc2 = #cir.const_record<{#cir.int<2>, #cir.int<0>, #cir.int<2>}> : !rec_anon_struct
 // LLVM: @swfifc2 = global { i8, i8, i32 } { i8 2, i8 0, i32 2 }, align 4
 // OGCG: @swfifc2 = global { i8, i8, i32 } { i8 2, i8 0, i32 2 }, align 4
 
@@ -69,7 +69,7 @@ struct StructWithBoolField {
 
 StructWithBoolField sbf = {1, true, 3};
 
-// CIR: cir.global external @sbf = #cir.const_record<{#cir.int<1> : !s32i, #true, #cir.int<3> : !s32i}> : !rec_StructWithBoolField
+// CIR: cir.global external @sbf = #cir.const_record<{#cir.int<1>, #true, #cir.int<3>}> : !rec_StructWithBoolField
 // LLVM: @sbf = global %struct.StructWithBoolField { i32 1, i8 1, i32 3 }, align 4
 // OGCG: @sbf = global %struct.StructWithBoolField { i32 1, i8 1, i32 3 }, align 4
 
@@ -111,10 +111,10 @@ void init_var(int a, int b) {
 // CIR:   %[[S:.*]] = cir.alloca "s" {{.*}} init : !cir.ptr<!rec_S>
 // CIR:   cir.store{{.*}} %[[A_ARG]], %[[A_PTR]]
 // CIR:   cir.store{{.*}} %[[B_ARG]], %[[B_PTR]]
-// CIR:   %[[S_A:.*]] = cir.get_member %[[S]][0] {name = "a"}
+// CIR:   %[[S_A:.*]] = cir.get_member %[[S]][0] {{.*name = "a".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!s32i>
 // CIR:   %[[A:.*]] = cir.load{{.*}} %[[A_PTR]]
 // CIR:   cir.store{{.*}} %[[A]], %[[S_A]]
-// CIR:   %[[S_B:.*]] = cir.get_member %[[S]][1] {name = "b"}
+// CIR:   %[[S_B:.*]] = cir.get_member %[[S]][1] {{.*name = "b".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!s32i>
 // CIR:   %[[B:.*]] = cir.load{{.*}} %[[B_PTR]]
 // CIR:   cir.store{{.*}} %[[B]], %[[S_B]]
 // CIR:   cir.return
@@ -161,17 +161,17 @@ void init_expr(int a, int b, int c) {
 // CIR:   cir.store{{.*}} %[[A_ARG]], %[[A_PTR]]
 // CIR:   cir.store{{.*}} %[[B_ARG]], %[[B_PTR]]
 // CIR:   cir.store{{.*}} %[[C_ARG]], %[[C_PTR]]
-// CIR:   %[[S_A:.*]] = cir.get_member %[[S]][0] {name = "a"}
+// CIR:   %[[S_A:.*]] = cir.get_member %[[S]][0] {{.*name = "a".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!s32i>
 // CIR:   %[[A:.*]] = cir.load{{.*}} %[[A_PTR]]
 // CIR:   %[[ONE:.*]] = cir.const #cir.int<1>
 // CIR:   %[[A_PLUS_ONE:.*]] = cir.add nsw %[[A]], %[[ONE]]
 // CIR:   cir.store{{.*}} %[[A_PLUS_ONE]], %[[S_A]]
-// CIR:   %[[S_B:.*]] = cir.get_member %[[S]][1] {name = "b"}
+// CIR:   %[[S_B:.*]] = cir.get_member %[[S]][1] {{.*name = "b".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!s32i>
 // CIR:   %[[B:.*]] = cir.load{{.*}} %[[B_PTR]]
 // CIR:   %[[TWO:.*]] = cir.const #cir.int<2>
 // CIR:   %[[B_PLUS_TWO:.*]] = cir.add nsw %[[B]], %[[TWO]] : !s32i
 // CIR:   cir.store{{.*}} %[[B_PLUS_TWO]], %[[S_B]]
-// CIR:   %[[S_C:.*]] = cir.get_member %[[S]][2] {name = "c"}
+// CIR:   %[[S_C:.*]] = cir.get_member %[[S]][2] {{.*name = "c".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!s32i>
 // CIR:   %[[C:.*]] = cir.load{{.*}} %[[C_PTR]]
 // CIR:   %[[THREE:.*]] = cir.const #cir.int<3>
 // CIR:   %[[C_PLUS_THREE:.*]] = cir.add nsw %[[C]], %[[THREE]] : !s32i
@@ -231,7 +231,7 @@ void cxx_default_init_with_struct_field() {
 }
 
 // CIR: %[[P_ADDR:.*]] = cir.alloca "p" {{.*}} init : !cir.ptr<!rec_Parent>
-// CIR: %[[P_ELEM_0_PTR:.*]] = cir.get_member %[[P_ADDR]][0] {name = "a"} : !cir.ptr<!rec_Parent> -> !cir.ptr<!s32i>
+// CIR: %[[P_ELEM_0_PTR:.*]] = cir.get_member %[[P_ADDR]][0] {{.*name = "a".*}} : !cir.ptr<!rec_Parent> -> !cir.ptr<!s32i>
 // CIR: %[[METHOD_CALL:.*]] = cir.call @_ZZ34cxx_default_init_with_struct_fieldvEN6Parent4getAEv(%[[P_ADDR]]) : (!cir.ptr<!rec_Parent>{{.*}}) -> (!s32i {llvm.noundef})
 // CIR: cir.store{{.*}} %[[METHOD_CALL]], %[[P_ELEM_0_PTR]] : !s32i, !cir.ptr<!s32i>
 

@@ -13,14 +13,14 @@ struct Pt {
 int tempObj(int i) { return Pt(i, i).v; }
 
 // CIR-LABEL: cir.func {{.*}}@_Z7tempObji(%arg0: !s32i
-// CIR:         %[[I:.*]] = cir.alloca "i"
-// CIR:         %[[RET:.*]] = cir.alloca "__retval"
-// CIR:         %[[TMP:.*]] = cir.alloca "tmp"
+// CIR:         %[[I:.*]] = cir.alloca "i" {{.*}}
+// CIR:         %[[RET:.*]] = cir.alloca "__retval" {{.*}}
+// CIR:         %[[TMP:.*]] = cir.alloca "tmp" {{.*}}
 // CIR:         cir.store %arg0, %[[I]]
 // CIR:         %[[A:.*]] = cir.load align(4) %[[I]]
 // CIR:         %[[B:.*]] = cir.load align(4) %[[I]]
 // CIR:         cir.call @_ZN2PtC1Eii(%[[TMP]], %[[A]], %[[B]])
-// CIR:         %[[V:.*]] = cir.get_member %[[TMP]][0] {name = "v"} : !cir.ptr<!rec_Pt> -> !cir.ptr<!s32i>
+// CIR:         %[[V:.*]] = cir.get_member %[[TMP]][0] {{.*name = "v".*}} : !cir.ptr<!rec_Pt> -> !cir.ptr<!s32i>
 // CIR:         %[[VAL:.*]] = cir.load align(4) %[[V]]
 // CIR:         cir.store %[[VAL]], %[[RET]]
 // CIR:         %[[RES:.*]] = cir.load %[[RET]]
@@ -44,13 +44,13 @@ struct Conv {
 int construct(int i) { return Conv(i).y; }
 
 // CIR-LABEL: cir.func {{.*}}@_Z9constructi(%arg0: !s32i
-// CIR:         %[[I:.*]] = cir.alloca "i"
-// CIR:         %[[RET:.*]] = cir.alloca "__retval"
-// CIR:         %[[TMP:.*]] = cir.alloca "tmp"
+// CIR:         %[[I:.*]] = cir.alloca "i" {{.*}}
+// CIR:         %[[RET:.*]] = cir.alloca "__retval" {{.*}}
+// CIR:         %[[TMP:.*]] = cir.alloca "tmp" {{.*}}
 // CIR:         cir.store %arg0, %[[I]]
 // CIR:         %[[A:.*]] = cir.load align(4) %[[I]]
 // CIR:         cir.call @_ZN4ConvC1Ei(%[[TMP]], %[[A]])
-// CIR:         %[[Y:.*]] = cir.get_member %[[TMP]][0] {name = "y"} : !cir.ptr<!rec_Conv> -> !cir.ptr<!s32i>
+// CIR:         %[[Y:.*]] = cir.get_member %[[TMP]][0] {{.*name = "y".*}} : !cir.ptr<!rec_Conv> -> !cir.ptr<!s32i>
 // CIR:         %[[VAL:.*]] = cir.load align(4) %[[Y]]
 // CIR:         cir.store %[[VAL]], %[[RET]]
 // CIR:         %[[RES:.*]] = cir.load %[[RET]]

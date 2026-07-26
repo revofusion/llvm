@@ -494,7 +494,7 @@ def CIR_ConstRecordAttr : CIR_ValueLikeAttr<"ConstRecord", "const_record"> {
   ];
 
   let assemblyFormat = [{
-    `<` custom<RecordMembers>($members) `>`
+    `<` custom<RecordMembers>($members, ref($type)) `>`
   }];
 
   let genVerifyDecl = 1;

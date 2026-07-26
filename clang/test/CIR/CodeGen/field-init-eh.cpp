@@ -27,7 +27,7 @@ void test_field_initializer() {
 
 // CIR: cir.func {{.*}} @_ZN9ContainerC2Ev
 // CIR:   %[[THIS:.*]] = cir.load %{{.*}}
-// CIR:   %[[X_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "x"} : !cir.ptr<!rec_Container> -> !cir.ptr<!s32i>
+// CIR:   %[[X_ADDR:.*]] = cir.get_member %[[THIS]][0] {{.*}}name = "x"} : !cir.ptr<!rec_Container> -> !cir.ptr<!s32i>
 // CIR:   %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
 // CIR:   cir.store align(4) %[[ZERO]], %[[X_ADDR]] : !s32i, !cir.ptr<!s32i>
 // CIR:   %[[VOID_PTR_THIS:.*]] = cir.cast bitcast %[[THIS]] : !cir.ptr<!rec_Container> -> !cir.ptr<!u8i>

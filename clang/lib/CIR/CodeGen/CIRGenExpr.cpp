@@ -100,7 +100,7 @@ static Address emitAddrOfZeroSizeField(CIRGenFunction &cgf, Address base,
   CIRGenBuilderTy &builder = cgf.getBuilder();
   CharUnits offset = cgf.getContext().toCharUnitsFromBits(
       cgf.getContext().getFieldOffset(field));
-  mlir::Type fieldType = cgf.convertType(field->getType());
+  mlir::Type fieldType = cgf.convertTypeForMem(field->getType());
   mlir::Location loc = getFieldLocationWithIdentity(
       cgf, cgf.getLoc(field->getLocation()), field);
 
@@ -146,7 +146,7 @@ Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
   //
   // For unions, all fields map to index 0, so we use the field's declared type
   // directly instead of looking up the member type from the layout.
-  mlir::Type fieldType = convertType(field->getType());
+  mlir::Type fieldType = convertTypeForMem(field->getType());
   auto fieldPtr = cir::PointerType::get(fieldType);
   bool needsBitcast = false;
 
@@ -528,13 +528,10 @@ void CIRGenFunction::emitStoreOfScalar(mlir::Value value, Address addr,
                                        LValueBaseInfo baseInfo, bool isInit,
                                        bool isNontemporal) {
 
-  if (const auto *clangVecTy = ty->getAs<clang::VectorType>()) {
-    // Boolean vectors use `iN` as storage type.
-    if (clangVecTy->isExtVectorBoolType())
-      cgm.errorNYI(addr.getPointer().getLoc(),
-                   "emitStoreOfScalar ExtVectorBoolType");
-
-    // Handle vectors of size 3 like size 4 for better performance.
+  if (const auto *clangVecTy = ty->getAs<clang::VectorType>();
+      clangVecTy && !clangVecTy->isPackedVectorBoolType(getContext())) {
+    // Packed boolean vectors use an integer storage type and are converted
+    // below. Other vectors retain a vector memory representation.
     const mlir::Type elementType = addr.getElementType();
     const auto vecTy = cast<cir::VectorType>(elementType);
 
@@ -546,6 +543,9 @@ void CIRGenFunction::emitStoreOfScalar(mlir::Value value, Address addr,
   }
 
   value = emitToMemory(value, ty);
+  if (ty->isExtVectorBoolType())
+    assert(value.getType() == addr.getElementType() &&
+           "boolean vector store type does not match its memory type");
 
   assert(!cir::MissingFeatures::opLoadStoreTbaa());
   LValue atomicLValue = LValue::makeAddr(addr, ty, baseInfo);
@@ -764,19 +764,57 @@ LValue CIRGenFunction::emitLValueForFieldInitialization(
   return makeAddrLValue(v, fieldType, fieldBaseInfo);
 }
 
-/// Converts a scalar value from its primary IR type (as returned
-/// by ConvertType) to its load/store type.
+/// Resize a boolean vector while preserving the source lanes in order.
+/// Padding lanes are zero so packing the result never introduces poison into
+/// the stored integer representation.
+static mlir::Value resizeBoolVector(CIRGenBuilderTy &builder, mlir::Value value,
+                                    unsigned numElements) {
+  auto valueTy = mlir::cast<cir::VectorType>(value.getType());
+  unsigned sourceElements = valueTy.getSize();
+  if (sourceElements == numElements)
+    return value;
+
+  mlir::Location loc = value.getLoc();
+  SmallVector<int64_t, 8> mask;
+  mask.reserve(numElements);
+  for (unsigned i = 0; i < std::min(sourceElements, numElements); ++i)
+    mask.push_back(i);
+
+  if (numElements < sourceElements)
+    return builder.createVecShuffle(loc, value, value, mask);
+
+  // The first lane of the second operand is at index sourceElements.
+  mlir::Value zero = builder.getNullValue(valueTy, loc);
+  mask.append(numElements - sourceElements, sourceElements);
+  return builder.createVecShuffle(loc, value, zero, mask);
+}
+
+/// Converts a scalar value from its primary IR type (as returned by
+/// ConvertType) to its load/store type.
 mlir::Value CIRGenFunction::emitToMemory(mlir::Value value, QualType ty) {
   if (auto *atomicTy = ty->getAs<AtomicType>())
     ty = atomicTy->getValueType();
 
   if (ty->isExtVectorBoolType()) {
-    cgm.errorNYI("emitToMemory: extVectorBoolType");
+    mlir::Type memoryTy = convertTypeForMem(ty);
+    if (value.getType() == memoryTy)
+      return value;
+
+    auto valueTy = mlir::cast<cir::VectorType>(value.getType());
+    assert(mlir::isa<cir::BoolType>(valueTy.getElementType()) &&
+           "expected boolean vector value representation");
+
+    if (!ty->isPackedVectorBoolType(getContext()))
+      return builder.createCast(value.getLoc(), cir::CastKind::bool_to_int,
+                                value, memoryTy);
+
+    auto memoryIntTy = mlir::cast<cir::IntType>(memoryTy);
+    value = resizeBoolVector(builder, value, memoryIntTy.getWidth());
+    return builder.createBitcast(value.getLoc(), value, memoryTy);
   }
 
   // Unlike in classic codegen CIR, bools are kept as `cir.bool` and BitInts are
-  // kept as `cir.int<N>` until further lowering
-
+  // kept as `cir.int<N>` until further lowering.
   return value;
 }
 
@@ -784,8 +822,24 @@ mlir::Value CIRGenFunction::emitFromMemory(mlir::Value value, QualType ty) {
   if (auto *atomicTy = ty->getAs<AtomicType>())
     ty = atomicTy->getValueType();
 
-  if (ty->isPackedVectorBoolType(getContext())) {
-    cgm.errorNYI("emitFromMemory: PackedVectorBoolType");
+  if (ty->isExtVectorBoolType()) {
+    auto resultTy = mlir::cast<cir::VectorType>(convertType(ty));
+    if (value.getType() == resultTy)
+      return value;
+
+    mlir::Type memoryTy = convertTypeForMem(ty);
+    assert(value.getType() == memoryTy &&
+           "boolean vector load does not use its memory type");
+
+    if (!ty->isPackedVectorBoolType(getContext()))
+      return builder.createCast(value.getLoc(), cir::CastKind::int_to_bool,
+                                value, resultTy);
+
+    auto memoryIntTy = mlir::cast<cir::IntType>(memoryTy);
+    auto paddedTy =
+        cir::VectorType::get(builder.getBoolTy(), memoryIntTy.getWidth());
+    value = builder.createBitcast(value.getLoc(), value, paddedTy);
+    return resizeBoolVector(builder, value, resultTy.getSize());
   }
 
   return value;
@@ -810,12 +864,8 @@ mlir::Value CIRGenFunction::emitLoadOfScalar(Address addr, bool isVolatile,
   // as part of getAddrOfGlobalVar (GetGlobalOp).
   mlir::Type eltTy = addr.getElementType();
 
-  if (const auto *clangVecTy = ty->getAs<clang::VectorType>()) {
-    if (clangVecTy->isExtVectorBoolType()) {
-      cgm.errorNYI(loc, "emitLoadOfScalar: ExtVectorBoolType");
-      return nullptr;
-    }
-
+  if (const auto *clangVecTy = ty->getAs<clang::VectorType>();
+      clangVecTy && !clangVecTy->isPackedVectorBoolType(getContext())) {
     const auto vecTy = cast<cir::VectorType>(eltTy);
 
     // Handle vectors of size 3 like size 4 for better performance.
@@ -836,11 +886,12 @@ mlir::Value CIRGenFunction::emitLoadOfScalar(Address addr, bool isVolatile,
   assert(!cir::MissingFeatures::opLoadEmitScalarRangeCheck());
 
   mlir::Value loadOp = builder.createLoad(getLoc(loc), addr, isVolatile);
+  mlir::Value result = emitFromMemory(loadOp, ty);
   if (!ty->isBooleanType() && ty->hasBooleanRepresentation())
-    assert(loadOp.getType() == convertType(ty) &&
+    assert(result.getType() == convertType(ty) &&
            "boolean-representation load type mismatch");
 
-  return loadOp;
+  return result;
 }
 
 mlir::Value CIRGenFunction::emitLoadOfScalar(LValue lvalue,
@@ -1229,14 +1280,19 @@ LValue CIRGenFunction::emitDeclRefLValue(const DeclRefExpr *e) {
 
   if (const auto *tpo = dyn_cast<TemplateParamObjectDecl>(nd)) {
     CharUnits alignment = cgm.getNaturalTypeAlignment(tpo->getType());
-    cir::GetGlobalOp atpo =
+    cir::GetGlobalOp global =
         builder.createGetGlobal(cgm.getAddrOfTemplateParamObject(tpo));
     assert(!MissingFeatures::addressSpace() &&
            "Do an address space conversion if necessary");
 
-    return makeAddrLValue(
-        Address(atpo, convertTypeForMem(tpo->getType()), alignment), ty,
-        AlignmentSource::Decl);
+    mlir::Type objectTy = convertTypeForMem(tpo->getType());
+    mlir::Value objectAddr = global.getAddr();
+    auto storagePtrTy = mlir::cast<cir::PointerType>(objectAddr.getType());
+    if (storagePtrTy.getPointee() != objectTy)
+      objectAddr = builder.createPtrBitcast(objectAddr, objectTy);
+
+    return makeAddrLValue(Address(objectAddr, objectTy, alignment), ty,
+                          AlignmentSource::Decl);
   }
 
   llvm_unreachable("Unhandled DeclRefExpr");

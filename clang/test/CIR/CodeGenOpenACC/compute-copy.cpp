@@ -17,7 +17,7 @@ void InlineFunc() {
 
 #pragma acc parallel copy(scalarMember)
   ;
-  // CHECK-NEXT: %[[GETSCALARMEM:.*]] = cir.get_member %[[THIS_LOAD]][0] {name = "scalarMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!s32i>
+  // CHECK-NEXT: %[[GETSCALARMEM:.*]] = cir.get_member %[[THIS_LOAD]][0] {{.*name = "scalarMember".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!s32i>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETSCALARMEM]] : !cir.ptr<!s32i>) -> !cir.ptr<!s32i> {dataClause = #acc<data_clause acc_copy>, name = "this->scalarMember"}
   // CHECK-NEXT: acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!s32i>) {
   // CHECK-NEXT: acc.yield
@@ -32,7 +32,7 @@ void InlineFunc() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS1:.*]] = acc.bounds lowerbound(%[[TWO_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][1] {name = "arrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][1] {{.*name = "arrayMember".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETARRAYMEM]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS1]]) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->arrayMember[2]"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.terminator
@@ -53,7 +53,7 @@ void InlineFunc() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS2:.*]] = acc.bounds lowerbound(%[[ONE_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GET2DARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][2] {name = "twoDArrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
+  // CHECK-NEXT: %[[GET2DARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][2] {{.*name = "twoDArrayMember".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GET2DARRAYMEM]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) bounds(%[[BOUNDS1]], %[[BOUNDS2]]) -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->twoDArrayMember[1][2]"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) {
   // CHECK-NEXT: acc.terminator
@@ -62,7 +62,7 @@ void InlineFunc() {
 
 #pragma acc kernels copy(iSTy)
   ;
-  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {name = "iSTy"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
+  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {{.*name = "iSTy".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETSTRUCTMEM]] : !cir.ptr<!rec_InnerStructTy>) -> !cir.ptr<!rec_InnerStructTy> {dataClause = #acc<data_clause acc_copy>, name = "this->iSTy"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!rec_InnerStructTy>) {
   // CHECK-NEXT: acc.terminator
@@ -71,8 +71,8 @@ void InlineFunc() {
 
 #pragma acc parallel copy(iSTy.Member)
   ;
-  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {name = "iSTy"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
-  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {name = "Member"} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {{.*name = "iSTy".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
+  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {{.*name = "Member".*}} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETMEMOFSTRUCT]] : !cir.ptr<!cir.array<!s32i x 5>>) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->iSTy.Member"}
   // CHECK-NEXT: acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.yield
@@ -87,8 +87,8 @@ void InlineFunc() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS1:.*]] = acc.bounds lowerbound(%[[ONE_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {name = "iSTy"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
-  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {name = "Member"} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {{.*name = "iSTy".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
+  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {{.*name = "Member".*}} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETMEMOFSTRUCT]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS1]]) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->iSTy.Member[1]"}
   // CHECK-NEXT: acc.serial dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.yield
@@ -97,7 +97,7 @@ void InlineFunc() {
 
 #pragma acc parallel copy(this->scalarMember)
   ;
-  // CHECK-NEXT: %[[GETSCALARMEM:.*]] = cir.get_member %[[THIS_LOAD]][0] {name = "scalarMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!s32i>
+  // CHECK-NEXT: %[[GETSCALARMEM:.*]] = cir.get_member %[[THIS_LOAD]][0] {{.*name = "scalarMember".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!s32i>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETSCALARMEM]] : !cir.ptr<!s32i>) -> !cir.ptr<!s32i> {dataClause = #acc<data_clause acc_copy>, name = "this->scalarMember"}
   // CHECK-NEXT: acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!s32i>) {
   // CHECK-NEXT: acc.yield
@@ -112,7 +112,7 @@ void InlineFunc() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS1:.*]] = acc.bounds lowerbound(%[[TWO_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][1] {name = "arrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][1] {{.*name = "arrayMember".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETARRAYMEM]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS1]]) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->arrayMember[2]"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.terminator
@@ -132,7 +132,7 @@ void InlineFunc() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS2:.*]] = acc.bounds lowerbound(%[[ONE_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GET2DARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][2] {name = "twoDArrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
+  // CHECK-NEXT: %[[GET2DARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][2] {{.*name = "twoDArrayMember".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GET2DARRAYMEM]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) bounds(%[[BOUNDS1]], %[[BOUNDS2]]) -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->twoDArrayMember[1][2]"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) {
   // CHECK-NEXT: acc.terminator
@@ -141,7 +141,7 @@ void InlineFunc() {
  
 #pragma acc kernels copy(this->iSTy)
   ;
-  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {name = "iSTy"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
+  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {{.*name = "iSTy".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETSTRUCTMEM]] : !cir.ptr<!rec_InnerStructTy>) -> !cir.ptr<!rec_InnerStructTy> {dataClause = #acc<data_clause acc_copy>, name = "this->iSTy"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!rec_InnerStructTy>) {
   // CHECK-NEXT: acc.terminator
@@ -150,8 +150,8 @@ void InlineFunc() {
 
 #pragma acc parallel copy(this->iSTy.Member)
   ;
-  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {name = "iSTy"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
-  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {name = "Member"} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {{.*name = "iSTy".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
+  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {{.*name = "Member".*}} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETMEMOFSTRUCT]] : !cir.ptr<!cir.array<!s32i x 5>>) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->iSTy.Member"}
   // CHECK-NEXT: acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.yield
@@ -166,8 +166,8 @@ void InlineFunc() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS1:.*]] = acc.bounds lowerbound(%[[ONE_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {name = "iSTy"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
-  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {name = "Member"} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {{.*name = "iSTy".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
+  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {{.*name = "Member".*}} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETMEMOFSTRUCT]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS1]]) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->iSTy.Member[1]"}
   // CHECK-NEXT: acc.serial dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.yield
@@ -190,7 +190,7 @@ void StructTy::OutlineFunc() {
   // CHECK-NEXT: %[[THIS_LOAD:.*]] = cir.load %[[THIS]] : !cir.ptr<!cir.ptr<!rec_StructTy>>, !cir.ptr<!rec_StructTy>
 #pragma acc parallel copy(scalarMember)
   ;
-  // CHECK-NEXT: %[[GETSCALARMEM:.*]] = cir.get_member %[[THIS_LOAD]][0] {name = "scalarMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!s32i>
+  // CHECK-NEXT: %[[GETSCALARMEM:.*]] = cir.get_member %[[THIS_LOAD]][0] {{.*name = "scalarMember".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!s32i>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETSCALARMEM]] : !cir.ptr<!s32i>) -> !cir.ptr<!s32i> {dataClause = #acc<data_clause acc_copy>, name = "this->scalarMember"}
   // CHECK-NEXT: acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!s32i>) {
   // CHECK-NEXT: acc.yield
@@ -204,7 +204,7 @@ void StructTy::OutlineFunc() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS1:.*]] = acc.bounds lowerbound(%[[TWO_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][1] {name = "arrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][1] {{.*name = "arrayMember".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETARRAYMEM]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS1]]) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->arrayMember[2]"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.terminator
@@ -224,7 +224,7 @@ void StructTy::OutlineFunc() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS2:.*]] = acc.bounds lowerbound(%[[ONE_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GET2DARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][2] {name = "twoDArrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
+  // CHECK-NEXT: %[[GET2DARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][2] {{.*name = "twoDArrayMember".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GET2DARRAYMEM]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) bounds(%[[BOUNDS1]], %[[BOUNDS2]]) -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->twoDArrayMember[1][2]"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) {
   // CHECK-NEXT: acc.terminator
@@ -232,7 +232,7 @@ void StructTy::OutlineFunc() {
   // CHECK-NEXT: acc.copyout accPtr(%[[COPYIN1]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) bounds(%[[BOUNDS1]], %[[BOUNDS2]]) to varPtr(%[[GET2DARRAYMEM]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) {dataClause = #acc<data_clause acc_copy>, name = "this->twoDArrayMember[1][2]"}
 #pragma acc kernels copy(iSTy)
   ;
-  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {name = "iSTy"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
+  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {{.*name = "iSTy".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETSTRUCTMEM]] : !cir.ptr<!rec_InnerStructTy>) -> !cir.ptr<!rec_InnerStructTy> {dataClause = #acc<data_clause acc_copy>, name = "this->iSTy"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!rec_InnerStructTy>) {
   // CHECK-NEXT: acc.terminator
@@ -241,8 +241,8 @@ void StructTy::OutlineFunc() {
 
 #pragma acc parallel copy(iSTy.Member)
   ;
-  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {name = "iSTy"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
-  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {name = "Member"} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {{.*name = "iSTy".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
+  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {{.*name = "Member".*}} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETMEMOFSTRUCT]] : !cir.ptr<!cir.array<!s32i x 5>>) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->iSTy.Member"}
   // CHECK-NEXT: acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.yield
@@ -257,8 +257,8 @@ void StructTy::OutlineFunc() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS1:.*]] = acc.bounds lowerbound(%[[ONE_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {name = "iSTy"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
-  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {name = "Member"} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {{.*name = "iSTy".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
+  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {{.*name = "Member".*}} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETMEMOFSTRUCT]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS1]]) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->iSTy.Member[1]"}
   // CHECK-NEXT: acc.serial dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.yield
@@ -267,7 +267,7 @@ void StructTy::OutlineFunc() {
 
 #pragma acc parallel copy(this->scalarMember)
   ;
-  // CHECK-NEXT: %[[GETSCALARMEM:.*]] = cir.get_member %[[THIS_LOAD]][0] {name = "scalarMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!s32i>
+  // CHECK-NEXT: %[[GETSCALARMEM:.*]] = cir.get_member %[[THIS_LOAD]][0] {{.*name = "scalarMember".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!s32i>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETSCALARMEM]] : !cir.ptr<!s32i>) -> !cir.ptr<!s32i> {dataClause = #acc<data_clause acc_copy>, name = "this->scalarMember"}
   // CHECK-NEXT: acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!s32i>) {
   // CHECK-NEXT: acc.yield
@@ -281,7 +281,7 @@ void StructTy::OutlineFunc() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS1:.*]] = acc.bounds lowerbound(%[[TWO_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][1] {name = "arrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][1] {{.*name = "arrayMember".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETARRAYMEM]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS1]]) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->arrayMember[2]"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.terminator
@@ -302,7 +302,7 @@ void StructTy::OutlineFunc() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS2:.*]] = acc.bounds lowerbound(%[[ONE_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GET2DARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][2] {name = "twoDArrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
+  // CHECK-NEXT: %[[GET2DARRAYMEM:.*]] = cir.get_member %[[THIS_LOAD]][2] {{.*name = "twoDArrayMember".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GET2DARRAYMEM]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) bounds(%[[BOUNDS1]], %[[BOUNDS2]]) -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->twoDArrayMember[1][2]"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) {
   // CHECK-NEXT: acc.terminator
@@ -311,7 +311,7 @@ void StructTy::OutlineFunc() {
 
 #pragma acc kernels copy(this->iSTy)
   ;
-  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {name = "iSTy"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
+  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {{.*name = "iSTy".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETSTRUCTMEM]] : !cir.ptr<!rec_InnerStructTy>) -> !cir.ptr<!rec_InnerStructTy> {dataClause = #acc<data_clause acc_copy>, name = "this->iSTy"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!rec_InnerStructTy>) {
   // CHECK-NEXT: acc.terminator
@@ -320,8 +320,8 @@ void StructTy::OutlineFunc() {
 
 #pragma acc parallel copy(this->iSTy.Member)
   ;
-  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {name = "iSTy"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
-  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {name = "Member"} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {{.*name = "iSTy".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
+  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {{.*name = "Member".*}} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETMEMOFSTRUCT]] : !cir.ptr<!cir.array<!s32i x 5>>) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->iSTy.Member"}
   // CHECK-NEXT: acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.yield
@@ -336,8 +336,8 @@ void StructTy::OutlineFunc() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS1:.*]] = acc.bounds lowerbound(%[[ONE_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {name = "iSTy"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
-  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {name = "Member"} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETSTRUCTMEM:.*]] = cir.get_member %[[THIS_LOAD]][3] {{.*name = "iSTy".*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!rec_InnerStructTy>
+  // CHECK-NEXT: %[[GETMEMOFSTRUCT:.*]] = cir.get_member %[[GETSTRUCTMEM]][0] {{.*name = "Member".*}} : !cir.ptr<!rec_InnerStructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETMEMOFSTRUCT]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS1]]) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "this->iSTy.Member[1]"}
   // CHECK-NEXT: acc.serial dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.yield

@@ -636,12 +636,27 @@ mlir::LogicalResult CIRDeleteArrayOpABILowering::matchAndRewrite(
   mlir::Value loweredAddress = adaptor.getAddress();
 
   cir::UsualDeleteParamsAttr deleteParams = op.getDeleteParams();
-  bool cookieRequired = deleteParams.getSize() || op.getElementDtorAttr();
 
-  if (deleteParams.getTypeAwareDelete() || deleteParams.getDestroyingDelete() ||
-      deleteParams.getAlignment())
+  // ConversionPatternRewriter cannot safely roll back the nested regions
+  // created below. Keep all match failures before the first IR mutation.
+  if (deleteParams.getTypeAwareDelete() || deleteParams.getDestroyingDelete())
     return rewriter.notifyMatchFailure(
-        op, "type-aware, destroying, or aligned delete not yet supported");
+        op, "type-aware or destroying delete not yet supported");
+
+  auto ptrTy = mlir::dyn_cast<cir::PointerType>(loweredAddress.getType());
+  if (!ptrTy)
+    return rewriter.notifyMatchFailure(op,
+                                       "expected a lowered pointer operand");
+
+  bool cookieRequired = deleteParams.getSize() || op.getElementDtorAttr();
+  mlir::DataLayout dl(op->getParentOfType<mlir::ModuleOp>());
+  uint64_t eltSizeBytes =
+      deleteParams.getSize() ? dl.getTypeSize(ptrTy.getPointee()) : 0;
+  auto elementAlignment = op.getElementAlignment();
+  if (deleteParams.getAlignment() && !elementAlignment)
+    return rewriter.notifyMatchFailure(
+        op, "aligned delete is missing its AST element alignment");
+  uint64_t deleteAlignment = elementAlignment.value_or(0);
 
   const CIRCXXABI &cxxABI = lowerModule->getCXXABI();
   CIRBaseBuilderTy cirBuilder(rewriter);
@@ -654,15 +669,12 @@ mlir::LogicalResult CIRDeleteArrayOpABILowering::matchAndRewrite(
   // total-size computation), so it must dominate both regions.
   mlir::Value deletePtr;
   mlir::Value numElements;
-  cir::PointerType ptrTy;
   clang::CharUnits cookieSize;
-  mlir::DataLayout dl(op->getParentOfType<mlir::ModuleOp>());
   unsigned ptrWidth =
       lowerModule->getTarget().getPointerWidth(clang::LangAS::Default);
   cir::IntType sizeTy = cirBuilder.getUIntNTy(ptrWidth);
 
   if (cookieRequired) {
-    ptrTy = mlir::cast<cir::PointerType>(loweredAddress.getType());
     cxxABI.readArrayCookie(loc, loweredAddress, dl, cirBuilder, numElements,
                            deletePtr, cookieSize);
   } else {
@@ -707,7 +719,6 @@ mlir::LogicalResult CIRDeleteArrayOpABILowering::matchAndRewrite(
         llvm::SmallVector<mlir::Value> callArgs;
         callArgs.push_back(deletePtr);
         if (deleteParams.getSize()) {
-          uint64_t eltSizeBytes = dl.getTypeSizeInBits(ptrTy.getPointee()) / 8;
           auto eltSizeVal = cir::ConstantOp::create(
               b, l, cir::IntAttr::get(sizeTy, eltSizeBytes));
           mlir::Value allocSize =
@@ -717,6 +728,11 @@ mlir::LogicalResult CIRDeleteArrayOpABILowering::matchAndRewrite(
           allocSize =
               cir::AddOp::create(b, l, sizeTy, allocSize, cookieSizeVal);
           callArgs.push_back(allocSize);
+        }
+        if (deleteParams.getAlignment()) {
+          auto alignmentVal = cir::ConstantOp::create(
+              b, l, cir::IntAttr::get(sizeTy, deleteAlignment));
+          callArgs.push_back(alignmentVal);
         }
         auto deleteCall =
             cir::CallOp::create(b, l, deleteFn, cir::VoidType(), callArgs);

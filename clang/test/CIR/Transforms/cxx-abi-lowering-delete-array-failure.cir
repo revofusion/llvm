@@ -1,0 +1,16 @@
+// RUN: cir-opt %s -cir-cxxabi-lowering -verify-diagnostics -o /dev/null
+
+!s32i = !cir.int<s, 32>
+!void = !cir.void
+
+module attributes {cir.triple = "x86_64-unknown-linux-gnu"} {
+  cir.func private @_ZdaPv(!cir.ptr<!void>)
+
+  cir.func @unsupported_type_aware_delete_array(%ptr: !cir.ptr<!s32i>) {
+    // The pattern must reject unsupported signatures before creating any IR;
+    // returning failure after building the cleanup regions crashes rollback.
+    // expected-error@+1 {{failed to legalize operation 'cir.delete_array'}}
+    cir.delete_array %ptr : !cir.ptr<!s32i> {delete_fn = @_ZdaPv, delete_params = #cir.usual_delete_params<type_aware_delete = true>}
+    cir.return
+  }
+}

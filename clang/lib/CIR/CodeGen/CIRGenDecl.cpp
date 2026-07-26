@@ -201,7 +201,8 @@ CIRGenFunction::emitAutoVarAlloca(const VarDecl &d,
   if (cir::AllocaOp alloca = address.getUnderlyingAllocaOp())
     cgm.setMemberPointerTargetMetadata(alloca.getOperation(), ty);
   else
-    cgm.setMemberPointerTargetMetadata(address.getPointer().getDefiningOp(), ty);
+    cgm.setMemberPointerTargetMetadata(address.getPointer().getDefiningOp(),
+                                       ty);
 
   emission.addr = address;
   setAddrOfLocalVar(&d, address);
@@ -698,17 +699,24 @@ void CIRGenFunction::emitStaticVarDecl(const VarDecl &d,
   cir::GlobalOp globalOp = cgm.getOrCreateStaticVarDecl(d, linkage);
   // TODO(cir): we should have a way to represent global ops as values without
   // having to emit a get global op. Sometimes these emissions are not used.
-  mlir::Value addr =
+  mlir::Value globalAddr =
       builder.createGetGlobal(globalOp, d.getTLSKind() != VarDecl::TLS_None);
-  auto getAddrOp = addr.getDefiningOp<cir::GetGlobalOp>();
+  auto getAddrOp = globalAddr.getDefiningOp<cir::GetGlobalOp>();
   assert(getAddrOp && "expected cir::GetGlobalOp");
 
   CharUnits alignment = getContext().getDeclAlign(&d);
 
-  // Store into LocalDeclMap before generating initializer to handle
-  // circular references.
+  // A previous emission can already have narrowed the global's physical
+  // storage type to its initializer type.  The local declaration map must
+  // still carry the declared object type.
   mlir::Type elemTy = convertTypeForMem(d.getType());
-  setAddrOfLocalVar(&d, Address(addr, elemTy, alignment));
+  auto globalPtrTy = mlir::cast<cir::PointerType>(globalAddr.getType());
+  mlir::Type expectedType =
+      builder.getPointerTo(elemTy, globalPtrTy.getAddrSpace());
+  mlir::Value objectAddr = globalAddr;
+  if (objectAddr.getType() != expectedType)
+    objectAddr = builder.createBitcast(objectAddr, expectedType);
+  setAddrOfLocalVar(&d, Address(objectAddr, elemTy, alignment));
 
   // We can't have a VLA here, but we can have a pointer to a VLA,
   // even though that doesn't really make any sense.
@@ -717,9 +725,6 @@ void CIRGenFunction::emitStaticVarDecl(const VarDecl &d,
     cgm.errorNYI(d.getSourceRange(),
                  "emitStaticVarDecl: variably modified type");
   }
-
-  // Save the type in case adding the initializer forces a type change.
-  mlir::Type expectedType = addr.getType();
 
   cir::GlobalOp var = globalOp;
 
@@ -760,8 +765,9 @@ void CIRGenFunction::emitStaticVarDecl(const VarDecl &d,
   //
   // FIXME: It is really dangerous to store this in the map; if anyone
   // RAUW's the GV uses of this constant will be invalid.
-  mlir::Value castedAddr =
-      builder.createBitcast(getAddrOp.getAddr(), expectedType);
+  mlir::Value castedAddr = getAddrOp.getAddr();
+  if (castedAddr.getType() != expectedType)
+    castedAddr = builder.createBitcast(castedAddr, expectedType);
   localDeclMap.find(&d)->second = Address(castedAddr, elemTy, alignment);
   cgm.setStaticLocalDeclAddress(&d, var);
 

@@ -25,7 +25,7 @@ void fn1() { F f1; }
 // CIR: cir.func {{.*}} @_ZN1F1bEv
 // CIR:   %[[H_PTR:.*]] = cir.get_global @h : !cir.ptr<!s32i>
 // CIR:   %[[H_VAL:.*]] = cir.load{{.*}} %[[H_PTR]] : !cir.ptr<!s32i>, !s32i
-// CIR:   %[[RET:.*]] = cir.call @_ZN1A1bEi(%[[H_VAL]]) : (!s32i {llvm.noundef}) -> (!cir.ptr<!s8i> {llvm.noundef})
+// CIR:   %[[RET:.*]] = cir.call @_ZN1A1bEi(%[[H_VAL]]) {{.*cast_kind = "NoOp".*}} : (!s32i {llvm.noundef}) -> (!cir.ptr<!s8i> {llvm.noundef})
 
 // LLVM: define {{.*}} ptr @_ZN1F1bEv
 // LLVM:   %[[VAR_H:.*]] = load i32, ptr @h
@@ -55,8 +55,8 @@ void fn2() { C c1; c1.call_indirect(2); }
 // CIR:   cir.store %[[THIS_ARG]], %[[THIS_ADDR]]
 // CIR:   cir.store %[[V_ARG]], %[[V_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]]
-// CIR:   %[[INNER:.*]] = cir.get_member %[[THIS]][0] {name = "inner"} : !cir.ptr<!rec_C> -> !cir.ptr<!rec_B>
-// CIR:   %[[INDIRECT_CALLEE_PTR:.*]] = cir.get_member %[[INNER]][0] {name = "indirect_callee_int_ref"}
+// CIR:   %[[INNER:.*]] = cir.get_member %[[THIS]][0] {{.*name = "inner".*}} : !cir.ptr<!rec_C> -> !cir.ptr<!rec_B>
+// CIR:   %[[INDIRECT_CALLEE_PTR:.*]] = cir.get_member %[[INNER]][0] {{.*name = "indirect_callee_int_ref".*}} : !cir.ptr<!rec_B> -> !cir.ptr<!cir.ptr<!cir.func<(!s32i) -> !s32i>>>
 // CIR:   %[[INDIRECT_CALLEE:.*]] = cir.load %[[INDIRECT_CALLEE_PTR]]
 // CIR:   %[[V:.*]] = cir.load{{.*}} %[[V_ADDR]] : !cir.ptr<!s32i>, !s32i
 // CIR:   %[[RET:.*]] = cir.call %[[INDIRECT_CALLEE]](%[[V]])

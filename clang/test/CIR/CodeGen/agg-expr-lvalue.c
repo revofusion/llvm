@@ -20,18 +20,18 @@ void test_member_in_array(void) {
   struct Point arr[1] = {line.start};
 }
 
-// CIR-DAG: cir.global "private" constant cir_private @[[LINE_CONST:.*]] = #cir.const_record<{#cir.const_record<{#cir.int<1> : !s32i, #cir.int<2> : !s32i}> : !rec_Point, #cir.const_record<{#cir.int<3> : !s32i, #cir.int<4> : !s32i}> : !rec_Point}> : !rec_Line
-// CIR-DAG: cir.global "private" constant cir_private @[[MATRIX_CONST:.*]] = #cir.const_array<[#cir.const_array<[#cir.int<104> : !s8i, #cir.int<101> : !s8i, #cir.int<108> : !s8i, #cir.int<108> : !s8i, #cir.int<111> : !s8i, #cir.int<0> : !s8i]> : !cir.array<!s8i x 6>, #cir.const_array<[#cir.int<119> : !s8i, #cir.int<111> : !s8i, #cir.int<114> : !s8i, #cir.int<108> : !s8i, #cir.int<100> : !s8i, #cir.int<0> : !s8i]> : !cir.array<!s8i x 6>]>
+// CIR-DAG: cir.global "private" constant cir_private @[[LINE_CONST:.*]] = #cir.const_record<{#cir.const_record<{#cir.int<1>, #cir.int<2>}> : !rec_Point, #cir.const_record<{#cir.int<3>, #cir.int<4>}> : !rec_Point}> : !rec_Line
+// CIR-DAG: cir.global "private" constant cir_private @[[MATRIX_CONST:.*]] = #cir.const_array<[#cir.const_array<[#cir.int<104>, #cir.int<101>, #cir.int<108>, #cir.int<108>, #cir.int<111>, #cir.int<0>]>, #cir.const_array<[#cir.int<119>, #cir.int<111>, #cir.int<114>, #cir.int<108>, #cir.int<100>, #cir.int<0>]>]>
 
 // LLVM-DAG: @[[LINE_CONST:.*]] = private constant %struct.Line { %struct.Point { i32 1, i32 2 }, %struct.Point { i32 3, i32 4 } }
 // LLVM-DAG: @[[MATRIX_CONST:.*]] = private constant [2 x [6 x i8]] {{.*}}
 
 // CIR-LABEL: cir.func{{.*}} @test_member_in_array
-// CIR:   %[[LINE:.*]] = cir.alloca "line" {{.*}} init : !cir.ptr<!rec_Line>
+// CIR:   %[[LINE:.*]] = cir.alloca "line" align(4) init : !cir.ptr<!rec_Line>
 // CIR:   %[[ARR:.*]] = cir.alloca "arr" {{.*}} init : !cir.ptr<!cir.array<!rec_Point x 1>>
 // CIR:   cir.get_global @[[LINE_CONST]]
 // CIR:   cir.copy
-// CIR:   %[[MEMBER:.*]] = cir.get_member %[[LINE]][0] {name = "start"}
+// CIR: %{{.*}} = cir.get_member %{{.*}}[0] {{.*}}name = "start"
 // CIR:   cir.copy
 
 // LLVM-LABEL: define{{.*}} @test_member_in_array
@@ -58,7 +58,7 @@ void test_member_arrow_in_array(void) {
 // CIR:   %[[PTR:.*]] = cir.alloca "line_ptr" {{.*}} : !cir.ptr<!cir.ptr<!rec_Line>>
 // CIR:   %[[ARR:.*]] = cir.alloca "arr" {{.*}} init : !cir.ptr<!cir.array<!rec_Point x 1>>
 // CIR:   %[[LOADED:.*]] = cir.load{{.*}}%[[PTR]]
-// CIR:   %[[MEMBER:.*]] = cir.get_member %[[LOADED]][0] {name = "start"}
+// CIR: %{{.*}} = cir.get_member %{{.*}}[0] {{.*}}name = "start"
 // CIR:   cir.copy
 
 // LLVM-LABEL: define{{.*}} @test_member_arrow_in_array

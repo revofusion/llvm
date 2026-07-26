@@ -96,8 +96,6 @@ void cleanup_in_case(int x) {
 // CIR:             cir.case(equal, [#cir.int<0> : !s32i]) {
 // CIR:               cir.cleanup.scope {
 // CIR:                 cir.break
-// CIR:               ^bb[[DEAD_BLOCK:.*]]:
-// CIR:                 cir.yield
 // CIR:               } cleanup normal {
 // CIR:                 cir.call @_ZN9BitVectorD1Ev
 // CIR:                 cir.yield
@@ -196,3 +194,34 @@ void cleanup_in_while_in_switch(int x) {
 // LLVM:         br label %[[EPILOG:.*]]
 // LLVM:       [[EPILOG]]:
 // LLVM:         ret void
+
+// A switch scope is shared by all of its case regions. More than one
+// continue must not finalize that one scope more than once. The enclosing
+// loop-body cleanup still destroys bv on every continue edge.
+void repeated_continue_in_switch(int x) {
+  for (; x; --x) {
+    BitVector bv;
+    switch (x) {
+    case 1:
+      continue;
+    case 2:
+      continue;
+    default:
+      break;
+    }
+  }
+}
+
+// CIR-LABEL: cir.func{{.*}} @{{[^ (]*repeated_continue_in_switch[^ (]*}}(
+// CIR:         cir.for
+// CIR:           %[[BV:.*]] = cir.alloca "bv" {{.*}} : !cir.ptr<!rec_BitVector>
+// CIR:           cir.cleanup.scope {
+// CIR:             cir.switch
+// CIR:               cir.continue
+// CIR:               cir.continue
+// CIR:           } cleanup normal {
+// CIR:             cir.call @_ZN9BitVectorD1Ev(%[[BV]])
+
+// LLVM-LABEL: define{{.*}} void @{{[^ (]*repeated_continue_in_switch[^ (]*}}
+// LLVM:         switch i32
+// LLVM:         call void @_ZN9BitVectorD1Ev

@@ -72,11 +72,11 @@ extern "C" int use() {
          dt1 + dt2 + dt3;
   // CIR-LABEL: use()
   // CIR:  %[[GET_GLOB:.*]] = cir.get_global @_ZDC2t12t22t3E : !cir.ptr<!rec_Type>
-  // CIR:  cir.get_member %[[GET_GLOB]][0] {name = "a"} : !cir.ptr<!rec_Type> -> !cir.ptr<!s32i>
+  // CIR:  cir.get_member %[[GET_GLOB]][0] {{.*name = "a".*}} : !cir.ptr<!rec_Type> -> !cir.ptr<!s32i>
   // CIR:  %[[GET_GLOB:.*]] = cir.get_global @_ZDC2t12t22t3E : !cir.ptr<!rec_Type>
-  // CIR:  cir.get_member %[[GET_GLOB]][1] {name = "b"} : !cir.ptr<!rec_Type> -> !cir.ptr<!s32i>
+  // CIR:  cir.get_member %[[GET_GLOB]][1] {{.*name = "b".*}} : !cir.ptr<!rec_Type> -> !cir.ptr<!s32i>
   // CIR:  %[[GET_GLOB:.*]] = cir.get_global @_ZDC2t12t22t3E : !cir.ptr<!rec_Type>
-  // CIR:  cir.get_member %[[GET_GLOB]][2] {name = "c"} : !cir.ptr<!rec_Type> -> !cir.ptr<!s32i>
+  // CIR:  cir.get_member %[[GET_GLOB]][2] {{.*name = "c".*}} : !cir.ptr<!rec_Type> -> !cir.ptr<!s32i>
 
   // LLVM: load i32, ptr @_ZDC2t12t22t3E, align 4
   // LLVM: load i32, ptr getelementptr inbounds nuw (i8, ptr @_ZDC2t12t22t3E, i64 4), align 4
@@ -85,13 +85,13 @@ extern "C" int use() {
   // Extra load is because this is a reference.
   // CIR:  %[[GET_GLOB:.*]] = cir.get_global @_ZDC3t113t123t13E : !cir.ptr<!cir.ptr<!rec_Type>>
   // CIR:  %[[LOAD_GLOB:.*]] = cir.load %[[GET_GLOB]] : !cir.ptr<!cir.ptr<!rec_Type>>, !cir.ptr<!rec_Type>
-  // CIR:  cir.get_member %[[LOAD_GLOB]][0] {name = "a"} : !cir.ptr<!rec_Type> -> !cir.ptr<!s32i>
+  // CIR:  cir.get_member %[[LOAD_GLOB]][0] {{.*name = "a".*}} : !cir.ptr<!rec_Type> -> !cir.ptr<!s32i>
   // CIR:  %[[GET_GLOB:.*]] = cir.get_global @_ZDC3t113t123t13E : !cir.ptr<!cir.ptr<!rec_Type>>
   // CIR:  %[[LOAD_GLOB:.*]] = cir.load %[[GET_GLOB]] : !cir.ptr<!cir.ptr<!rec_Type>>, !cir.ptr<!rec_Type>
-  // CIR:  cir.get_member %[[LOAD_GLOB]][1] {name = "b"} : !cir.ptr<!rec_Type> -> !cir.ptr<!s32i>
+  // CIR:  cir.get_member %[[LOAD_GLOB]][1] {{.*name = "b".*}} : !cir.ptr<!rec_Type> -> !cir.ptr<!s32i>
   // CIR:  %[[GET_GLOB:.*]] = cir.get_global @_ZDC3t113t123t13E : !cir.ptr<!cir.ptr<!rec_Type>>
   // CIR:  %[[LOAD_GLOB:.*]] = cir.load %[[GET_GLOB]] : !cir.ptr<!cir.ptr<!rec_Type>>, !cir.ptr<!rec_Type>
-  // CIR:  cir.get_member %[[LOAD_GLOB]][2] {name = "c"} : !cir.ptr<!rec_Type> -> !cir.ptr<!s32i>
+  // CIR:  cir.get_member %[[LOAD_GLOB]][2] {{.*name = "c".*}} : !cir.ptr<!rec_Type> -> !cir.ptr<!s32i>
 
   // LLVM: %[[LOAD_REF:.*]] = load ptr, ptr @_ZDC3t113t123t13E, align 8
   // LLVM: getelementptr {{.*}}%struct.Type, ptr %[[LOAD_REF]], i32 0, i32 0
@@ -101,11 +101,11 @@ extern "C" int use() {
   // LLVM: etelementptr {{.*}}%struct.Type, ptr %[[LOAD_REF]], i32 0, i32 2
 
   // CIR:  %[[GET_GLOB:.*]] = cir.get_global @_ZDC3dt13dt23dt3E : !cir.ptr<!rec_DtorType>
-  // CIR:  cir.get_member %[[GET_GLOB]][0] {name = "a"} : !cir.ptr<!rec_DtorType> -> !cir.ptr<!s32i>
+  // CIR:  cir.get_member %[[GET_GLOB]][0] {{.*name = "a".*}} : !cir.ptr<!rec_DtorType> -> !cir.ptr<!s32i>
   // CIR:  %[[GET_GLOB:.*]] = cir.get_global @_ZDC3dt13dt23dt3E : !cir.ptr<!rec_DtorType>
-  // CIR:  cir.get_member %[[GET_GLOB]][1] {name = "b"} : !cir.ptr<!rec_DtorType> -> !cir.ptr<!s32i>
+  // CIR:  cir.get_member %[[GET_GLOB]][1] {{.*name = "b".*}} : !cir.ptr<!rec_DtorType> -> !cir.ptr<!s32i>
   // CIR:  %[[GET_GLOB:.*]] = cir.get_global @_ZDC3dt13dt23dt3E : !cir.ptr<!rec_DtorType>
-  // CIR:  cir.get_member %[[GET_GLOB]][2] {name = "c"} : !cir.ptr<!rec_DtorType> -> !cir.ptr<!s32i>
+  // CIR:  cir.get_member %[[GET_GLOB]][2] {{.*name = "c".*}} : !cir.ptr<!rec_DtorType> -> !cir.ptr<!s32i>
  
   // LLVM: load i32, ptr @_ZDC3dt13dt23dt3E, align 4
   // LLVM: load i32, ptr getelementptr inbounds nuw (i8, ptr @_ZDC3dt13dt23dt3E, i64 4), align 4

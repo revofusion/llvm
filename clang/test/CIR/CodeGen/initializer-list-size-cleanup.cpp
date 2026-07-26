@@ -28,5 +28,5 @@ void build_container() {
 // CIR-LABEL: cir.func {{.*}}@_Z15build_containerv
 // CIR:         cir.cleanup.scope {
 // CIR:           %[[LEN_CONST:.*]] = cir.const #cir.int<3> : !u64i
-// CIR:           %[[LEN_PTR:.*]] = cir.get_member {{.*}}[1] {name = "len"}
+// CIR:           %[[LEN_PTR:.*]] = cir.get_member {{.*}}[1] {{{.*}}name = "len"{{.*}}}
 // CIR:           cir.store {{.*}} %[[LEN_CONST]], %[[LEN_PTR]]

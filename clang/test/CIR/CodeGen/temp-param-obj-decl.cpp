@@ -7,7 +7,7 @@
 
 struct HasMem { int x;};
 
-// CIR-DAG: cir.global "private" constant linkonce_odr comdat @_ZTAXtl6HasMemLi3EEE = #cir.const_record<{#cir.int<3> : !s32i}> : !rec_HasMem
+// CIR-DAG: cir.global "private" constant linkonce_odr comdat @_ZTAXtl6HasMemLi3EEE = #cir.const_record<{#cir.int<3>}> : !rec_HasMem
 // CIR-DAG: cir.global external @ptr = #cir.global_view<@_ZTAXtl6HasMemLi3EEE> : !cir.ptr<!rec_HasMem>
 
 // LLVM-BOTH-DAG: @_ZTAXtl6HasMemLi1EEE = linkonce_odr constant %struct.HasMem { i32 1 }, comdat
@@ -20,8 +20,13 @@ constexpr const HasMem *get_ptr() { return &m; }
 
 const auto *ptr = get_ptr<HasMem{3}>();
 
-// CIR-DAG: cir.global "private" constant linkonce_odr comdat @_ZTAXtl6HasMemLi1EEE = #cir.const_record<{#cir.int<1> : !s32i}> : !rec_HasMem
-// CIR-DAG: cir.global "private" constant linkonce_odr comdat @_ZTAXtl6HasMemLi2EEE = #cir.const_record<{#cir.int<2> : !s32i}> : !rec_HasMem
+// CIR-DAG: cir.global "private" constant linkonce_odr comdat @_ZTAXtl6HasMemLi1EEE = #cir.const_record<{#cir.int<1>}> : !rec_HasMem
+// CIR-DAG: cir.global "private" constant linkonce_odr comdat @_ZTAXtl6HasMemLi2EEE = #cir.const_record<{#cir.int<2>}> : !rec_HasMem
+
+// A partially initialized array gives this template parameter object a
+// narrowed physical storage type.
+// CIR-DAG: cir.global "private" constant linkonce_odr comdat @_ZTAXtl8HasArraytlA8_cLc120EEEE = #cir.const_record<{#cir.const_array<[#cir.int<120>, #cir.int<0>, #cir.int<0>, #cir.int<0>, #cir.int<0>, #cir.int<0>, #cir.int<0>, #cir.int<0>]>}> : !rec_HasArray
+// LLVM-BOTH-DAG: @{{_ZTAXtl8HasArray.*}} = linkonce_odr constant
 
 template<HasMem m>
 int get_x() { return m.x; }
@@ -57,7 +62,26 @@ HasMem get_m() { return m; }
 // OGCG: %[[TO_RET:.*]] = load i32, ptr %[[COERCE]]
 // OGCG: ret i32 %[[TO_RET]]
 
+struct HasArray {
+  char bytes[8];
+};
+
+template <HasArray value>
+HasArray get_array() {
+  return value;
+}
+
+// The get_global has the narrowed storage type, but the DeclRefExpr denotes a
+// HasArray object and must be cast before an Address is formed.
+// CIR-LABEL: cir.func {{.*}}@_Z9get_array
+// CIR: %[[ARRAY_GLOBAL:.*]] = cir.get_global @_ZTAXtl8HasArraytlA8_cLc120EEEE : !cir.ptr<!rec_HasArray>
+// CIR: cir.copy %[[ARRAY_GLOBAL]] to %{{.*}} : !cir.ptr<!rec_HasArray>
+//
+// LLVM-LABEL: define {{.*}} @_Z9get_array
+// LLVM: call void @llvm.memcpy.p0.p0.i64({{.*}}i64 8
+
 void caller() {
   get_x<{1}>();
   get_m<{2}>();
+  get_array<HasArray{"x"}>();
 }

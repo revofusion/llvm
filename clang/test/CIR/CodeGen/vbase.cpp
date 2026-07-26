@@ -51,21 +51,21 @@ void ppp() { B b; }
 // Note: OGCG speculatively emits the VTT and VTables. This is not yet implemented in CIR.
 
 // Vtable definition for B
-// CIR: cir.global "private" {{.*}}@_ZTV1B = #cir.vtable<{#cir.const_array<[#cir.ptr<12 : i64> : !cir.ptr<!u8i>, #cir.ptr<null> : !cir.ptr<!u8i>, #cir.global_view<@_ZTI1B> : !cir.ptr<!u8i>]> : !cir.array<!cir.ptr<!u8i> x 3>}> : !rec_anon_struct3 {alignment = 8 : i64}
+// CIR: cir.global "private" {{.*}}@_ZTV1B = #cir.vtable<{#cir.const_array<[#cir.ptr<12 : i64>, #cir.ptr<null>, #cir.global_view<@_ZTI1B>]> : !cir.array<!cir.ptr<!u8i> x 3>}> : !rec_anon_struct3 {alignment = 8 : i64}
 // LLVM: @_ZTV1B = linkonce_odr global { [3 x ptr] } { [3 x ptr] [ptr inttoptr (i64 12 to ptr), ptr null, ptr @_ZTI1B] }, comdat, align 8
 
 // OGCG: @_ZTV1B = linkonce_odr constant { [3 x ptr] } { [3 x ptr] [ptr inttoptr (i64 12 to ptr), ptr null, ptr @_ZTI1B] }, comdat, align 8
 
-// CIR: cir.func {{.*}}@_Z1fv()
-// CIR:   %[[D:.+]] = cir.alloca "d" {{.*}} init : !cir.ptr<!rec_Derived>
+// CIR: cir.func {{.*}}@_Z1fv(){{.*}}
+// CIR:   %[[D:.+]] = cir.alloca "d" align(8) init : !cir.ptr<!rec_Derived>
 // CIR:   cir.call @_ZN7DerivedC1Ev(%[[D]]) nothrow : (!cir.ptr<!rec_Derived> {{.*}}) -> ()
 // CIR:   %[[VPTR_PTR:.+]] = cir.vtable.get_vptr %[[D]] : !cir.ptr<!rec_Derived> -> !cir.ptr<!cir.vptr>
-// CIR:   %[[VPTR:.+]] = cir.load {{.*}} %[[VPTR_PTR]] : !cir.ptr<!cir.vptr>, !cir.vptr
+// CIR:   %[[VPTR:.+]] = cir.load align(8) %[[VPTR_PTR]] : !cir.ptr<!cir.vptr>, !cir.vptr
 // CIR:   %[[VPTR_I8:.+]] = cir.cast bitcast %[[VPTR]] : !cir.vptr -> !cir.ptr<!u8i>
 // CIR:   %[[NEG32:.+]] = cir.const #cir.int<-32> : !s64i
 // CIR:   %[[ADJ_VPTR_I8:.+]] = cir.ptr_stride %[[VPTR_I8]], %[[NEG32]] : (!cir.ptr<!u8i>, !s64i) -> !cir.ptr<!u8i>
 // CIR:   %[[OFFSET_PTR:.+]] = cir.cast bitcast %[[ADJ_VPTR_I8]] : !cir.ptr<!u8i> -> !cir.ptr<!s64i>
-// CIR:   %[[OFFSET:.+]] = cir.load {{.*}} %[[OFFSET_PTR]] : !cir.ptr<!s64i>, !s64i
+// CIR:   %[[OFFSET:.+]] = cir.load align(8) %[[OFFSET_PTR]] : !cir.ptr<!s64i>, !s64i
 // CIR:   %[[D_I8:.+]] = cir.cast bitcast %[[D]] : !cir.ptr<!rec_Derived> -> !cir.ptr<!u8i>
 // CIR:   %[[ADJ_THIS_I8:.+]] = cir.ptr_stride %[[D_I8]], %[[OFFSET]] : (!cir.ptr<!u8i>, !s64i) -> !cir.ptr<!u8i>
 // CIR:   %[[ADJ_THIS_D:.+]] = cir.cast bitcast %[[ADJ_THIS_I8]] : !cir.ptr<!u8i> -> !cir.ptr<!rec_Derived>
@@ -73,8 +73,8 @@ void ppp() { B b; }
 // CIR:   cir.call @_ZN4Base1fEv(%[[BASE_THIS]]) : (!cir.ptr<!rec_Base> {{.*}}) -> ()
 // CIR:   cir.return
 
-// CIR: cir.func {{.*}}@_Z1gv()
-// CIR:   %[[DF:.+]] = cir.alloca "df" {{.*}} init : !cir.ptr<!rec_DerivedFinal>
+// CIR: cir.func {{.*}}@_Z1gv(){{.*}}
+// CIR:   %[[DF:.+]] = cir.alloca "df" align(8) init : !cir.ptr<!rec_DerivedFinal>
 // CIR:   cir.call @_ZN12DerivedFinalC1Ev(%[[DF]]) nothrow : (!cir.ptr<!rec_DerivedFinal> {{.*}}) -> ()
 // CIR:   %[[BASE_THIS_2:.+]] = cir.base_class_addr %[[DF]] : !cir.ptr<!rec_DerivedFinal> nonnull [0] -> !cir.ptr<!rec_Base>
 // CIR:   cir.call @_ZN4Base1fEv(%[[BASE_THIS_2]]) : (!cir.ptr<!rec_Base> {{.*}}) -> ()
@@ -114,7 +114,7 @@ void ppp() { B b; }
 
 // Constructor for B
 // CIR: cir.func {{.*}} @_ZN1BC1Ev(%arg0: !cir.ptr<!rec_B>
-// CIR:   %[[THIS_ADDR:.*]] = cir.alloca "this" {{.*}} init : !cir.ptr<!cir.ptr<!rec_B>>
+// CIR:   %[[THIS_ADDR:.*]] = cir.alloca "this" align(8) init : !cir.ptr<!cir.ptr<!rec_B>>
 // CIR:   cir.store %arg0, %[[THIS_ADDR]] : !cir.ptr<!rec_B>, !cir.ptr<!cir.ptr<!rec_B>>
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_B>>, !cir.ptr<!rec_B>
 // CIR:   %[[BASE_A_ADDR:.*]] = cir.base_class_addr %[[THIS]] : !cir.ptr<!rec_B> nonnull [12] -> !cir.ptr<!rec_A>

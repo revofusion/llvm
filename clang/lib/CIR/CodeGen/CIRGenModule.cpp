@@ -1181,20 +1181,12 @@ static cir::GlobalViewAttr createNewGlobalView(CIRGenModule &cgm,
   uint64_t offset =
       bld.computeOffsetFromGlobalViewIndices(layout, oldTy, oldInds);
   bld.computeGlobalViewIndicesFromFlatOffset(offset, newTy, layout, newInds);
-  cir::PointerType newPtrTy;
-
-  if (isa<cir::RecordType>(oldTy))
-    newPtrTy = cir::PointerType::get(newTy);
-  else if (isa<cir::ArrayType>(oldTy))
-    newPtrTy = cast<cir::PointerType>(attr.getType());
-
-  if (newPtrTy)
-    return bld.getGlobalViewAttr(newPtrTy, newGlob, newInds);
-
-  // This may be unreachable in practice, but keep it as errorNYI while CIR
-  // is still under development.
-  cgm.errorNYI("Unhandled type in createNewGlobalView");
-  return {};
+  // A replacement changes the physical storage type of the global, not the
+  // type of the object (or subobject) denoted by an existing view.  Keep the
+  // view's result type while remapping its indices to the new storage layout.
+  auto symbol = mlir::FlatSymbolRefAttr::get(newGlob.getSymNameAttr());
+  return cir::GlobalViewAttr::get(attr.getType(), symbol,
+                                  bld.getI64ArrayAttr(newInds));
 }
 
 static mlir::Attribute getNewInitValue(CIRGenModule &cgm, cir::GlobalOp newGlob,
@@ -1218,8 +1210,12 @@ static mlir::Attribute getNewInitValue(CIRGenModule &cgm, cir::GlobalOp newGlob,
   };
 
   if (auto oldArray = mlir::dyn_cast<cir::ConstArrayAttr>(oldInit)) {
-    mlir::Attribute newElements =
-        getNewInitElements(mlir::cast<mlir::ArrayAttr>(oldArray.getElts()));
+    // String-backed arrays cannot contain a GlobalViewAttr and therefore need
+    // no recursive rewrite.
+    auto oldElements = mlir::dyn_cast<mlir::ArrayAttr>(oldArray.getElts());
+    if (!oldElements)
+      return oldArray;
+    mlir::ArrayAttr newElements = getNewInitElements(oldElements);
     return cgm.getBuilder().getConstArray(
         newElements, mlir::cast<cir::ArrayType>(oldArray.getType()));
   }
@@ -1361,7 +1357,10 @@ CIRGenModule::getOrCreateCIRGlobal(StringRef mangledName, mlir::Type ty,
   // from after the global creation to ensure the constant flag is set correctly
   // at creation time, matching the logic used in emitCXXGlobalVarDeclInit.
   bool isConstant = false;
-  if (d) {
+  // An incomplete array type is safe here when its base element type is
+  // complete. It is the definition-only C++ record queries performed by
+  // isConstantStorage that must be avoided.
+  if (d && !astContext.getBaseElementType(d->getType())->isIncompleteType()) {
     bool needsDtor =
         d->needsDestruction(astContext) == QualType::DK_cxx_destructor;
     isConstant = d->getType().isConstantStorage(
@@ -1492,7 +1491,7 @@ cir::GlobalViewAttr CIRGenModule::getAddrOfGlobalVarAttr(const VarDecl *d) {
 
   cir::GlobalOp globalOp = getOrCreateCIRGlobal(d, ty, NotForDefinition);
   cir::PointerType ptrTy =
-      builder.getPointerTo(globalOp.getSymType(), globalOp.getAddrSpaceAttr());
+      builder.getPointerTo(ty, globalOp.getAddrSpaceAttr());
   return builder.getGlobalViewAttr(ptrTy, globalOp);
 }
 
@@ -2432,19 +2431,26 @@ static const RecordDecl *getConditionalEndpointRecord(const Expr *expr) {
   return getCastEndpointRecord(expr->getType());
 }
 
-static std::optional<std::string> getRecordUSR(const RecordDecl *record) {
+mlir::StringAttr CIRGenModule::getRecordUSRAttr(const RecordDecl *record) {
   if (!record)
-    return std::nullopt;
+    return {};
+  record = cast<RecordDecl>(record->getCanonicalDecl());
+  auto [cached, inserted] = recordUSRCache.try_emplace(record);
+  if (!inserted)
+    return cached->second;
   llvm::SmallString<256> usr;
-  if (clang::index::generateUSRForDecl(record->getCanonicalDecl(), usr) ||
-      usr.empty())
-    return std::nullopt;
-  return usr.str().str();
+  if (clang::index::generateUSRForDecl(record, usr) || usr.empty())
+    return {};
+  cached->second = builder.getStringAttr(usr);
+  return cached->second;
 }
 
-static mlir::ArrayAttr buildCastEndpointSourceType(CIRGenModule &cgm,
-                                                   QualType type) {
-  CIRGenBuilderTy &builder = cgm.getBuilder();
+mlir::ArrayAttr CIRGenModule::buildCastEndpointSourceType(QualType type) {
+  if (auto cached = castEndpointSourceTypeCache.find(type);
+      cached != castEndpointSourceTypeCache.end())
+    return cached->second;
+  const QualType cacheKey = type;
+  CIRGenBuilderTy &builder = getBuilder();
   llvm::SmallVector<mlir::Attribute, 4> layers;
   while (true) {
     mlir::NamedAttrList layer;
@@ -2468,29 +2474,35 @@ static mlir::ArrayAttr buildCastEndpointSourceType(CIRGenModule &cgm,
     layer.set("clang_address_space",
               builder.getI64IntegerAttr(
                   static_cast<uint64_t>(qualifiers.getAddressSpace())));
-    layer.set(
-        "target_address_space",
-        builder.getI64IntegerAttr(cgm.getASTContext().getTargetAddressSpace(
-            qualifiers.getAddressSpace())));
-    QualType layoutType =
-        referenceStorage ? cgm.getASTContext().VoidPtrTy : type;
+    layer.set("target_address_space",
+              builder.getI64IntegerAttr(getASTContext().getTargetAddressSpace(
+                  qualifiers.getAddressSpace())));
+    QualType layoutType = referenceStorage ? getASTContext().VoidPtrTy : type;
     if (!layoutType->isIncompleteType() && !layoutType->isFunctionType() &&
         !layoutType->isVoidType()) {
-      const TypeInfo info = cgm.getASTContext().getTypeInfo(layoutType);
+      const TypeInfo info = getASTContext().getTypeInfo(layoutType);
       layer.set("bit_width", builder.getI64IntegerAttr(info.Width));
       layer.set("align_bits", builder.getI64IntegerAttr(info.Align));
     }
     if (type->isIntegerType() || type->isEnumeralType())
       layer.set("is_signed",
                 builder.getBoolAttr(type->isSignedIntegerOrEnumerationType()));
-    layers.push_back(layer.getDictionary(&cgm.getMLIRContext()));
+    layers.push_back(layer.getDictionary(&getMLIRContext()));
     if (type->isPointerType() || type->isReferenceType()) {
       type = type->getPointeeType();
       continue;
     }
     break;
   }
-  return builder.getArrayAttr(layers);
+  mlir::ArrayAttr result = builder.getArrayAttr(layers);
+  castEndpointSourceTypeCache.try_emplace(cacheKey, result);
+  return result;
+}
+mlir::StringAttr CIRGenModule::getSourceTypeSpelling(QualType type) {
+  auto [cached, inserted] = sourceTypeSpellingCache.try_emplace(type);
+  if (inserted)
+    cached->second = builder.getStringAttr(type.getAsString());
+  return cached->second;
 }
 
 void CIRGenModule::setCastExprMetadata(mlir::Operation *op, const CastExpr *e) {
@@ -2505,19 +2517,18 @@ void CIRGenModule::setCastExprMetadata(mlir::Operation *op, const CastExpr *e) {
                           (isa<ImplicitCastExpr>(e) &&
                            cast<ImplicitCastExpr>(e)->isPartOfExplicitCast())));
   identity.set("source_type",
-               buildCastEndpointSourceType(*this, e->getSubExpr()->getType()));
-  identity.set("result_type", buildCastEndpointSourceType(*this, e->getType()));
+               buildCastEndpointSourceType(e->getSubExpr()->getType()));
+  identity.set("result_type", buildCastEndpointSourceType(e->getType()));
   identity.set("source_type_spelling",
-               builder.getStringAttr(e->getSubExpr()->getType().getAsString()));
-  identity.set("result_type_spelling",
-               builder.getStringAttr(e->getType().getAsString()));
+               getSourceTypeSpelling(e->getSubExpr()->getType()));
+  identity.set("result_type_spelling", getSourceTypeSpelling(e->getType()));
   // AST endpoints own record identity; the materialized CIR operation may
   // wrap the record in an array or erase it behind a void pointer.
   if (auto usr =
-          getRecordUSR(getCastEndpointRecord(e->getSubExpr()->getType())))
-    identity.set("source_record_usr", builder.getStringAttr(*usr));
-  if (auto usr = getRecordUSR(getCastEndpointRecord(e->getType())))
-    identity.set("result_record_usr", builder.getStringAttr(*usr));
+          getRecordUSRAttr(getCastEndpointRecord(e->getSubExpr()->getType())))
+    identity.set("source_record_usr", usr);
+  if (auto usr = getRecordUSRAttr(getCastEndpointRecord(e->getType())))
+    identity.set("result_record_usr", usr);
   op->setAttr("ast_cast_expr", identity.getDictionary(&getMLIRContext()));
 }
 
@@ -2526,15 +2537,15 @@ void CIRGenModule::setConditionalExprMetadata(
   if (!op || !e || op->hasAttr("ast_conditional_expr"))
     return;
   mlir::NamedAttrList identity;
-  identity.set("result_type",
-               buildCastEndpointSourceType(*this, e->getType()));
-  if (auto usr = getRecordUSR(getConditionalEndpointRecord(e->getTrueExpr())))
-    identity.set("result_record_usr", builder.getStringAttr(*usr));
-  else if (auto usr =
-               getRecordUSR(getConditionalEndpointRecord(e->getFalseExpr())))
-    identity.set("result_record_usr", builder.getStringAttr(*usr));
-  else if (auto usr = getRecordUSR(getCastEndpointRecord(e->getType())))
-    identity.set("result_record_usr", builder.getStringAttr(*usr));
+  identity.set("result_type", buildCastEndpointSourceType(e->getType()));
+  if (auto usr =
+          getRecordUSRAttr(getConditionalEndpointRecord(e->getTrueExpr())))
+    identity.set("result_record_usr", usr);
+  else if (auto usr = getRecordUSRAttr(
+               getConditionalEndpointRecord(e->getFalseExpr())))
+    identity.set("result_record_usr", usr);
+  else if (auto usr = getRecordUSRAttr(getCastEndpointRecord(e->getType())))
+    identity.set("result_record_usr", usr);
   op->setAttr("ast_conditional_expr",
               identity.getDictionary(&getMLIRContext()));
 }
@@ -2546,12 +2557,12 @@ void CIRGenModule::setMemberPointerTargetMetadata(mlir::Operation *op,
   const auto *memberPointer = type->getAs<MemberPointerType>();
   if (!memberPointer)
     return;
-  std::optional<std::string> usr =
-      getRecordUSR(memberPointer->getMostRecentCXXRecordDecl());
+  mlir::StringAttr usr =
+      getRecordUSRAttr(memberPointer->getMostRecentCXXRecordDecl());
   if (!usr)
     return;
   mlir::NamedAttrList identity;
-  identity.set("record_usr", builder.getStringAttr(*usr));
+  identity.set("record_usr", usr);
   identity.set("pointee_kind",
                builder.getStringAttr(memberPointer->isMemberFunctionPointer()
                                          ? "function"
@@ -4485,6 +4496,11 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
     auto sourceType = [&](QualType type) -> std::optional<mlir::ArrayAttr> {
       llvm::SmallVector<mlir::Attribute, 4> layers;
       QualType current = type;
+      QualType leaf = current;
+      while (leaf->isPointerType() || leaf->isReferenceType())
+        leaf = leaf->getPointeeType();
+      if (!leaf->isObjCObjectPointerType())
+        return buildCastEndpointSourceType(type);
       while (true) {
         if (current->isLValueReferenceType()) {
           layers.push_back(sourceTypeLayer(current, "lvalue_reference", true));
@@ -4625,28 +4641,41 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
   if (auto sourceTypes =
           func->getAttrOfType<mlir::ArrayAttr>("ast_param_source_types")) {
     const unsigned cirParams = func.getNumArguments();
-    if (cirParams >= sourceTypes.size()) {
-      const auto *functionDecl =
-          dyn_cast_or_null<FunctionDecl>(globalDecl.getDecl());
-      const bool isStructor =
-          isa_and_nonnull<CXXConstructorDecl>(functionDecl) ||
-          isa_and_nonnull<CXXDestructorDecl>(functionDecl);
-      if (isStructor && !sourceTypes.empty()) {
-        // `this` is always the first CIR structor parameter. The Itanium VTT
-        // parameter, when present, is inserted immediately after it and has no
-        // source-level parameter type.
-        func.setArgAttr(0, "cir.ast_source_type", sourceTypes[0]);
+    const auto *functionDecl =
+        dyn_cast_or_null<FunctionDecl>(globalDecl.getDecl());
+    const bool isStructor = isa_and_nonnull<CXXConstructorDecl>(functionDecl) ||
+                            isa_and_nonnull<CXXDestructorDecl>(functionDecl);
+    if (isStructor && !sourceTypes.empty()) {
+      // `this` is always the first CIR structor parameter. The Itanium VTT
+      // parameter, when present, is inserted immediately after it and has no
+      // source-level parameter type.
+      assert(cirParams && "CIR structor must have a this parameter");
+      func.setArgAttr(0, "cir.ast_source_type", sourceTypes[0]);
+
+      bool passesExplicitParams = true;
+      if (const auto *constructor =
+              dyn_cast<CXXConstructorDecl>(functionDecl)) {
+        if (auto inherited = constructor->getInheritedConstructor())
+          passesExplicitParams = getTypes().inheritingCtorHasParams(
+              inherited, globalDecl.getCtorType());
+      }
+
+      // A base variant of an inheriting constructor can intentionally omit
+      // every explicit source parameter when the inherited constructor
+      // constructs a virtual base. Keep those types in the function-level
+      // source metadata, but do not attach them to nonexistent CIR arguments.
+      if (passesExplicitParams) {
         unsigned cirIndex = getCXXABI().needsVTTParameter(globalDecl) ? 2 : 1;
         for (unsigned sourceIndex = 1; sourceIndex < sourceTypes.size();
              ++sourceIndex)
           func.setArgAttr(cirIndex++, "cir.ast_source_type",
                           sourceTypes[sourceIndex]);
-      } else {
-        const unsigned offset = cirParams - sourceTypes.size();
-        for (unsigned index = 0; index < sourceTypes.size(); ++index)
-          func.setArgAttr(offset + index, "cir.ast_source_type",
-                          sourceTypes[index]);
       }
+    } else if (cirParams >= sourceTypes.size()) {
+      const unsigned offset = cirParams - sourceTypes.size();
+      for (unsigned index = 0; index < sourceTypes.size(); ++index)
+        func.setArgAttr(offset + index, "cir.ast_source_type",
+                        sourceTypes[index]);
     }
   }
   if (!retAttrs.empty())

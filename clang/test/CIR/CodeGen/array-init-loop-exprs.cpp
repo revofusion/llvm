@@ -22,9 +22,9 @@ struct HasNonTrivialArray {
 // CIR: %[[RHS_ALLOCA:.*]] = cir.alloca "" {{.*}} init const : !cir.ptr<!cir.ptr<!rec_HasNonTrivialArray>>
 // CIR: %[[ITR_ALLOCA:.*]] = cir.alloca "arrayinit.temp" {{.*}} : !cir.ptr<!cir.ptr<!rec_NonTrivial>>
 // CIR: %[[THIS_LOAD:.*]] = cir.load %[[THIS_ALLOCA]] : !cir.ptr<!cir.ptr<!rec_HasNonTrivialArray>>, !cir.ptr<!rec_HasNonTrivialArray>
-// CIR: %[[THIS_ARR:.*]] = cir.get_member %[[THIS_LOAD]][0] {name = "arr"} : !cir.ptr<!rec_HasNonTrivialArray> -> !cir.ptr<!cir.array<!rec_NonTrivial x 3>>
+// CIR: %[[THIS_ARR:.*]] = cir.get_member %[[THIS_LOAD]][0] {{.*}}name = "arr"{{.*}} : !cir.ptr<!rec_HasNonTrivialArray> -> !cir.ptr<!cir.array<!rec_NonTrivial x 3>>
 // CIR: %[[RHS_LOAD:.*]] = cir.load %[[RHS_ALLOCA]] : !cir.ptr<!cir.ptr<!rec_HasNonTrivialArray>>, !cir.ptr<!rec_HasNonTrivialArray>
-// CIR: %[[RHS_ARR:.*]] = cir.get_member %[[RHS_LOAD]][0] {name = "arr"} : !cir.ptr<!rec_HasNonTrivialArray> -> !cir.ptr<!cir.array<!rec_NonTrivial x 3>>
+// CIR: %[[RHS_ARR:.*]] = cir.get_member %[[RHS_LOAD]][0] {{.*}}name = "arr"{{.*}} : !cir.ptr<!rec_HasNonTrivialArray> -> !cir.ptr<!cir.array<!rec_NonTrivial x 3>>
 // CIR: %[[THIS_ARR_DECAY:.*]] = cir.cast array_to_ptrdecay %[[THIS_ARR]] : !cir.ptr<!cir.array<!rec_NonTrivial x 3>> -> !cir.ptr<!rec_NonTrivial>
 // CIR: cir.store {{.*}}%[[THIS_ARR_DECAY]], %[[ITR_ALLOCA]] : !cir.ptr<!rec_NonTrivial>, !cir.ptr<!cir.ptr<!rec_NonTrivial>>
 // CIR: %[[SIZE_CONST:.*]] = cir.const #cir.int<3>
@@ -144,9 +144,9 @@ struct HasMultiDimArray {
 // CIR: %[[ITR2_ALLOCA:.*]] = cir.alloca "arrayinit.temp" {{.*}} : !cir.ptr<!cir.ptr<!cir.array<!rec_NonTrivial x 4>>>
 // CIR: %[[ITR3_ALLOCA:.*]] = cir.alloca "arrayinit.temp" align(8) : !cir.ptr<!cir.ptr<!rec_NonTrivial>>
 // CIR: %[[THIS_LOAD:.*]] = cir.load %[[THIS_ALLOCA]] : !cir.ptr<!cir.ptr<!rec_HasMultiDimArray>>, !cir.ptr<!rec_HasMultiDimArray>
-// CIR: %[[THIS_ARR:.*]] = cir.get_member %[[THIS_LOAD]][0] {name = "arr"} : !cir.ptr<!rec_HasMultiDimArray> -> !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NonTrivial x 4> x 3> x 2>>
+// CIR: %[[THIS_ARR:.*]] = cir.get_member %[[THIS_LOAD]][0] {{.*}}name = "arr"{{.*}} : !cir.ptr<!rec_HasMultiDimArray> -> !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NonTrivial x 4> x 3> x 2>>
 // CIR: %[[RHS_LOAD:.*]] = cir.load %[[RHS_ALLOCA]] : !cir.ptr<!cir.ptr<!rec_HasMultiDimArray>>, !cir.ptr<!rec_HasMultiDimArray>
-// CIR: %[[RHS_ARR:.*]] = cir.get_member %[[RHS_LOAD]][0] {name = "arr"} : !cir.ptr<!rec_HasMultiDimArray> -> !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NonTrivial x 4> x 3> x 2>>
+// CIR: %[[RHS_ARR:.*]] = cir.get_member %[[RHS_LOAD]][0] {{.*}}name = "arr"{{.*}} : !cir.ptr<!rec_HasMultiDimArray> -> !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NonTrivial x 4> x 3> x 2>>
 // CIR: %[[THIS_ARR_DECAY:.*]] = cir.cast array_to_ptrdecay %[[THIS_ARR]] : !cir.ptr<!cir.array<!cir.array<!cir.array<!rec_NonTrivial x 4> x 3> x 2>> -> !cir.ptr<!cir.array<!cir.array<!rec_NonTrivial x 4> x 3>>
 // CIR: cir.store {{.*}}%[[THIS_ARR_DECAY]], %[[ITR1_ALLOCA]] : !cir.ptr<!cir.array<!cir.array<!rec_NonTrivial x 4> x 3>>, !cir.ptr<!cir.ptr<!cir.array<!cir.array<!rec_NonTrivial x 4> x 3>>>
 // CIR: %[[SIZE1_CONST:.*]] = cir.const #cir.int<2> : !s64i

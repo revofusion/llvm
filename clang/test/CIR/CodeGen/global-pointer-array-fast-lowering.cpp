@@ -15,17 +15,17 @@ int len() {
          flags[2];
 }
 
-// CIR: cir.global {{.*}}@".str" = #cir.const_array<"asdf" : !cir.array<!s8i x 4>, trailing_zeros>
+// CIR: cir.global {{.*}}@".str" = #cir.const_array<"asdf" : !cir.array<!s8i x 4>, trailing_zeros> {{.*}}
 
 // LLVM:       @.str = {{.*}}constant [5 x i8]
 // LLVM-NOT:   insertvalue
 
-// CIR: cir.global {{.*}}@names = #cir.const_array<[#cir.global_view<@".str.1"> : !cir.ptr<!s8i>, #cir.global_view<@".str.2"> : !cir.ptr<!s8i>, #cir.global_view<@".str.3"> : !cir.ptr<!s8i>]>
+// CIR: cir.global {{.*}}@names = #cir.const_array<[#cir.global_view<@".str.1">, #cir.global_view<@".str.2">, #cir.global_view<@".str.3">]> {{.*}}
 
 // LLVM:       @names = {{.*}}global [3 x ptr] [ptr @.str{{.*}}, ptr @.str{{.*}}, ptr @.str{{.*}}]
 // LLVM-NOT:   insertvalue
 
-// CIR: cir.global {{.*}}table = #cir.const_array<[#cir.int<0> : !s32i, #cir.int<1> : !s32i, #cir.int<2> : !s32i, #cir.int<3> : !s32i]>
+// CIR: cir.global {{.*}}table = #cir.const_array<[#cir.int<0>, #cir.int<1>, #cir.int<2>, #cir.int<3>]> {{.*}}
 // LLVM:       {{.*}}table{{.*}} = {{.*}}constant [4 x i32] [i32 0, i32 1, i32 2, i32 3]
 // LLVM-NOT:   insertvalue
 
@@ -33,6 +33,6 @@ int len() {
 // LLVM:       {{.*}}matrix{{.*}} = {{.*}}constant [2 x [2 x i32]]
 // LLVM-NOT:   insertvalue
 
-// CIR: cir.global {{.*}}flags = #cir.const_array<[#true, #false, #true]> : !cir.array<!cir.bool x 3>
+// CIR: cir.global {{.*}}flags = #cir.const_array<[#true, #false, #true]> {{.*}}
 // LLVM:       {{.*}}flags{{.*}} = {{.*}}constant [3 x i8]
 // LLVM-NOT:   insertvalue

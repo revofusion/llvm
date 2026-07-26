@@ -29,7 +29,7 @@ void api(struct State *s, int idx) {
   use_str(names[idx]);
 }
 
-// CIR: cir.global {{.*}} @names = #cir.const_array<[#cir.global_view<@".str"> : !cir.ptr<!s8i>, #cir.global_view<@".str.1"> : !cir.ptr<!s8i>]>
+// CIR: cir.global {{.*}} @names = #cir.const_array<[#cir.global_view<@".str">, #cir.global_view<@".str.1">]>
 // CIR: cir.global {{.*}} @g_state =
 // CIR: cir.global {{.*}} @".str" = #cir.const_array<"n1" :
 // CIR: cir.global {{.*}} @".str.1" = #cir.const_array<"n2" :

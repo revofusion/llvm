@@ -16,8 +16,8 @@ void store_bool_bitfield(B *b) {
 
 // CIR-LABEL: cir.func{{.*}} @_Z19store_bool_bitfieldP1B
 // CIR:         %[[TRUE:.+]] = cir.const #true
-// CIR:         %[[B_PTR:.+]] = cir.load align(8) %{{.+}} : !cir.ptr<!cir.ptr<!rec_B>>, !cir.ptr<!rec_B>
-// CIR:         %[[FLAG_PTR:.+]] = cir.get_member %[[B_PTR]][0] {name = "flag"} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
+// CIR:         %[[B_PTR:.+]] = cir.load align(8) %{{.+}} : !cir.ptr<!cir.ptr<!rec_B>>, !cir.ptr<!rec_B> {{.*}}
+// CIR:         %[[FLAG_PTR:.+]] = cir.get_member %[[B_PTR]][0] {{.*}} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
 // CIR:         cir.set_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] : !cir.ptr<!u8i>, %[[TRUE]] : !cir.bool) -> !cir.bool
 
 // LLVM-LABEL: define {{.*}} void @_Z19store_bool_bitfieldP1B
@@ -31,10 +31,10 @@ bool store_bool_bitfield_used(B *b, bool v) {
 }
 
 // CIR-LABEL: cir.func{{.*}} @_Z24store_bool_bitfield_usedP1Bb
-// CIR:         %[[V:.+]] = cir.load align(1) %{{.+}} : !cir.ptr<!cir.bool>, !cir.bool
-// CIR:         %[[B_PTR:.+]] = cir.load align(8) %{{.+}} : !cir.ptr<!cir.ptr<!rec_B>>, !cir.ptr<!rec_B>
-// CIR:         %[[FLAG_PTR:.+]] = cir.get_member %[[B_PTR]][0] {name = "flag"} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
-// CIR:         cir.set_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] : !cir.ptr<!u8i>, %[[V]] : !cir.bool) -> !cir.bool
+// CIR:         %[[V:.+]] = cir.load align(1) %{{.+}} : !cir.ptr<!cir.bool>, !cir.bool {{.*}}
+// CIR:         %[[B_PTR:.+]] = cir.load align(8) %{{.+}} : !cir.ptr<!cir.ptr<!rec_B>>, !cir.ptr<!rec_B> {{.*}}
+// CIR:         %[[FLAG_PTR:.+]] = cir.get_member %[[B_PTR]][0] {{.*}} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
+// CIR:         cir.set_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] : !cir.ptr<!u8i>, %[[V]] : !cir.bool) {{.*ast_cast_expr.*}} -> !cir.bool
 
 // LLVM-LABEL: define {{.*}}i1 @_Z24store_bool_bitfield_usedP1Bb
 // LLVM:         %{{.+}} = zext i1 %{{.+}} to i8
@@ -47,9 +47,9 @@ bool load_bool_bitfield(B *b) {
 }
 
 // CIR-LABEL: cir.func{{.*}} @_Z18load_bool_bitfieldP1B
-// CIR:         %[[B_PTR:.+]] = cir.load align(8) %{{.+}} : !cir.ptr<!cir.ptr<!rec_B>>, !cir.ptr<!rec_B>
-// CIR:         %[[FLAG_PTR:.+]] = cir.get_member %[[B_PTR]][0] {name = "flag"} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
-// CIR:         %[[FLAG:.+]] = cir.get_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] : !cir.ptr<!u8i>) -> !cir.bool
+// CIR:         %[[B_PTR:.+]] = cir.load align(8) %{{.+}} : !cir.ptr<!cir.ptr<!rec_B>>, !cir.ptr<!rec_B> {{.*}}
+// CIR:         %[[FLAG_PTR:.+]] = cir.get_member %[[B_PTR]][0] {{.*}} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
+// CIR:         %[[FLAG:.+]] = cir.get_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] {{.*ast_cast_expr.*}} : !cir.ptr<!u8i>) -> !cir.bool
 
 // LLVM-LABEL: define {{.*}}i1 @_Z18load_bool_bitfieldP1B
 // LLVM:         %[[OLD:.+]] = load i8, ptr %{{.+}}
@@ -63,7 +63,7 @@ void compound_or_bool_bitfield(B *b, bool v) {
 // CIR-LABEL: cir.func{{.*}} @_Z25compound_or_bool_bitfieldP1Bb
 // CIR:         %[[V:.+]] = cir.load align(1) %{{.+}} : !cir.ptr<!cir.bool>, !cir.bool
 // CIR:         %[[V_I32:.+]] = cir.cast bool_to_int %[[V]] : !cir.bool -> !s32i
-// CIR:         %[[FLAG_PTR:.+]] = cir.get_member %{{.+}}[0] {name = "flag"} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
+// CIR:         %[[FLAG_PTR:.+]] = cir.get_member %{{.+}}[0] {{.*}} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
 // CIR:         %[[OLD:.+]] = cir.get_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] : !cir.ptr<!u8i>) -> !cir.bool
 // CIR:         %[[OLD_I32:.+]] = cir.cast bool_to_int %[[OLD]] : !cir.bool -> !s32i
 // CIR:         %[[OR:.+]] = cir.or %[[OLD_I32]], %[[V_I32]] : !s32i
@@ -80,9 +80,9 @@ void copy_bool_bitfield(B *b) {
 }
 
 // CIR-LABEL: cir.func{{.*}} @_Z18copy_bool_bitfieldP1B
-// CIR:         %[[OTHER_PTR:.+]] = cir.get_member %{{.+}}[0] {name = "other"} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
-// CIR:         %[[OTHER:.+]] = cir.get_bitfield align(1) (#bfi_other, %[[OTHER_PTR]] : !cir.ptr<!u8i>) -> !cir.bool
-// CIR:         %[[FLAG_PTR:.+]] = cir.get_member %{{.+}}[0] {name = "flag"} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
+// CIR:         %[[OTHER_PTR:.+]] = cir.get_member %{{.+}}[0] {{.*}} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
+// CIR:         %[[OTHER:.+]] = cir.get_bitfield align(1) (#bfi_other, %[[OTHER_PTR]] {{.*ast_cast_expr.*}} : !cir.ptr<!u8i>) -> !cir.bool
+// CIR:         %[[FLAG_PTR:.+]] = cir.get_member %{{.+}}[0] {{.*}} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
 // CIR:         cir.set_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] : !cir.ptr<!u8i>, %[[OTHER]] : !cir.bool) -> !cir.bool
 
 // LLVM-LABEL: define {{.*}} void @_Z18copy_bool_bitfieldP1B
@@ -105,8 +105,8 @@ int load_int_bitfield(M *m) {
 }
 
 // CIR-LABEL: cir.func{{.*}} @_Z17load_int_bitfieldP1M
-// CIR:         %[[N_PTR:.+]] = cir.get_member %{{.+}}[0] {name = "n"} : !cir.ptr<!rec_M> -> !cir.ptr<!u8i>
-// CIR:         %[[N:.+]] = cir.get_bitfield align(4) (#bfi_n, %[[N_PTR]] : !cir.ptr<!u8i>) -> !s32i
+// CIR:         %[[N_PTR:.+]] = cir.get_member %{{.+}}[0] {{.*}} : !cir.ptr<!rec_M> -> !cir.ptr<!u8i>
+// CIR:         %[[N:.+]] = cir.get_bitfield align(4) (#bfi_n, %[[N_PTR]] {{.*ast_cast_expr.*}} : !cir.ptr<!u8i>) -> !s32i
 // CIR-NOT:     cir.cast int_to_bool
 
 // LLVM-LABEL: define {{.*}}i32 @_Z17load_int_bitfieldP1M
@@ -120,7 +120,7 @@ void store_int_bitfield(M *m) {
 
 // CIR-LABEL: cir.func{{.*}} @_Z18store_int_bitfieldP1M
 // CIR:         %[[FIVE:.+]] = cir.const #cir.int<5> : !s32i
-// CIR:         %[[N_PTR:.+]] = cir.get_member %{{.+}}[0] {name = "n"} : !cir.ptr<!rec_M> -> !cir.ptr<!u8i>
+// CIR:         %[[N_PTR:.+]] = cir.get_member %{{.+}}[0] {{.*}} : !cir.ptr<!rec_M> -> !cir.ptr<!u8i>
 // CIR-NOT:     cir.cast bool_to_int
 // CIR:         cir.set_bitfield align(4) (#bfi_n, %[[N_PTR]] : !cir.ptr<!u8i>, %[[FIVE]] : !s32i) -> !s32i
 

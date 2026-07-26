@@ -73,10 +73,10 @@ void copy_c(C &c1, C &c2) {
 // CIR:   %[[ARG1_LOAD:.*]] = cir.load{{.*}} %[[ARG1_ADDR]]
 // CIR:   %[[A_MEMBER_2:.*]] = cir.cast bitcast %[[ARG1_LOAD]] : !cir.ptr<!rec_C> -> !cir.ptr<!rec_A>
 // CIR:   %[[C_A:.*]] = cir.call @_ZN1AaSERKS_(%[[A_MEMBER]], %[[A_MEMBER_2]])
-// CIR:   %[[B_MEMBER:.*]] = cir.get_member %[[THIS]][1] {name = "b"}
+// CIR:   %[[B_MEMBER:.*]] = cir.get_member %[[THIS]][1] {{.*name = "b".*}} : !cir.ptr<!rec_C> -> !cir.ptr<!cir.array<!rec_B x 16>>
 // CIR:   %[[B_VOID_PTR:.*]] = cir.cast bitcast %[[B_MEMBER]] : !cir.ptr<!cir.array<!rec_B x 16>> -> !cir.ptr<!void>
 // CIR:   %[[RET_LOAD:.*]] = cir.load %[[ARG1_ADDR]]
-// CIR:   %[[B_MEMBER_2:.*]] = cir.get_member %[[RET_LOAD]][1] {name = "b"}
+// CIR:   %[[B_MEMBER_2:.*]] = cir.get_member %[[RET_LOAD]][1] {{.*name = "b".*}} : !cir.ptr<!rec_C> -> !cir.ptr<!cir.array<!rec_B x 16>>
 // CIR:   %[[B_VOID_PTR_2:.*]] = cir.cast bitcast %[[B_MEMBER_2]] : !cir.ptr<!cir.array<!rec_B x 16>> -> !cir.ptr<!void>
 // CIR:   %[[SIZE:.*]] = cir.const #cir.int<64> : !u64i
 // CIR:   %[[COUNT:.*]] = cir.call @memcpy(%[[B_VOID_PTR]], %[[B_VOID_PTR_2]], %[[SIZE]])

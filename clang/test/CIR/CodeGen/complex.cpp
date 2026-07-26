@@ -809,7 +809,7 @@ void foo31() {
 
 // CIR: %[[W_ADDR:.*]] = cir.alloca "w" {{.*}} : !cir.ptr<!rec_Wrapper>
 // CIR: %[[REAL_ADDR:.*]] = cir.alloca "r" {{.*}} init : !cir.ptr<!s32i>
-// CIR: %[[ELEM_PTR:.*]] = cir.get_member %[[W_ADDR]][0] {name = "c"} : !cir.ptr<!rec_Wrapper> -> !cir.ptr<!cir.complex<!s32i>>
+// CIR: %[[ELEM_PTR:.*]] = cir.get_member %{{.*}}[0] {{.*}}name = "c"}
 // CIR: %[[TMP_ELEM_PTR:.*]] = cir.load{{.*}} %[[ELEM_PTR]] : !cir.ptr<!cir.complex<!s32i>>, !cir.complex<!s32i>
 // CIR: %[[REAL:.*]] = cir.complex.real %[[TMP_ELEM_PTR]] : !cir.complex<!s32i> -> !s32i
 // CIR: cir.store{{.*}} %[[REAL]], %[[REAL_ADDR]] : !s32i, !cir.ptr<!s32i>

@@ -8,7 +8,7 @@
 void b(void *__attribute__((pass_object_size(0))));
 void e(void *__attribute__((pass_object_size(2))));
 
-// CIR: cir.func private @b(!cir.ptr<!void> {llvm.noundef}, !u64i {llvm.noundef})
+// CIR: cir.func private @b(!cir.ptr<!void> {llvm.noundef}, !u64i {{.*cir.ast_source_type.*llvm.noundef.*}})
 
 void test_constant() {
   int a;
@@ -21,7 +21,7 @@ void test_constant() {
 // CIR:   %[[SIZE:.*]] = cir.const #cir.int<4> : !u64i
 // CIR:   cir.call @b(%[[CAST]], %[[SIZE]]) : (!cir.ptr<!void> {{.*}}, !u64i {{.*}}) -> ()
 
-// CIR: cir.func private @e(!cir.ptr<!void> {llvm.noundef}, !u64i {llvm.noundef})
+// CIR: cir.func private @e(!cir.ptr<!void> {llvm.noundef}, !u64i {{.*cir.ast_source_type.*llvm.noundef.*}})
 
 // LLVM: declare void @b(ptr noundef, i64 noundef)
 

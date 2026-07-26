@@ -71,7 +71,7 @@ void acc_compute() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_mul__ZTS16DefaultOperators : !cir.ptr<!rec_DefaultOperators> reduction_operator <mul> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!rec_DefaultOperators>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!rec_DefaultOperators>
-// CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.const_record<{#cir.int<1> : !s32i, #cir.int<1> : !u32i, #cir.fp<1{{.*}}> : !cir.float, #cir.fp<1{{.*}}> : !cir.double, #true}> : !rec_DefaultOperators
+// CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.const_record<{#cir.int<1>, #cir.int<1>, #cir.fp<1.000000e+00>, #cir.fp<1.000000e+00>, #true}> : !rec_DefaultOperators
 // CHECK-NEXT: cir.store{{.*}} %[[ONE]], %[[ALLOCA]] : !rec_DefaultOperators, !cir.ptr<!rec_DefaultOperators>
 // CHECK-NEXT: acc.yield
 //
@@ -117,7 +117,7 @@ void acc_compute() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_max__ZTS16DefaultOperators : !cir.ptr<!rec_DefaultOperators> reduction_operator <max> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!rec_DefaultOperators>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!rec_DefaultOperators>
-// CHECK-NEXT: %[[LEAST:.*]] = cir.const #cir.const_record<{#cir.int<-2147483648> : !s32i, #cir.int<0> : !u32i, #cir.fp<-3.4{{.*}}E+38> : !cir.float, #cir.fp<-1.7{{.*}}E+308> : !cir.double, #false}> : !rec_DefaultOperators
+// CHECK-NEXT: %[[LEAST:.*]] = cir.const #cir.const_record<{#cir.int<-2147483648>, #cir.int<0>, #cir.fp<-3.40282347E+38>, #cir.fp<-1.7976931348623157E+308>, #false}> : !rec_DefaultOperators
 // CHECK-NEXT: cir.store{{.*}} %[[LEAST]], %[[ALLOCA]] : !rec_DefaultOperators, !cir.ptr<!rec_DefaultOperators>
 // CHECK-NEXT: acc.yield
 //
@@ -202,7 +202,7 @@ void acc_compute() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_min__ZTS16DefaultOperators : !cir.ptr<!rec_DefaultOperators> reduction_operator <min> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!rec_DefaultOperators>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!rec_DefaultOperators>
-// CHECK-NEXT: %[[LARGEST:.*]] = cir.const #cir.const_record<{#cir.int<2147483647> : !s32i, #cir.int<4294967295> : !u32i, #cir.fp<3.4{{.*}}E+38> : !cir.float, #cir.fp<1.7{{.*}}E+308> : !cir.double, #true}> : !rec_DefaultOperators
+// CHECK-NEXT: %[[LARGEST:.*]] = cir.const #cir.const_record<{#cir.int<2147483647>, #cir.int<4294967295>, #cir.fp<3.40282347E+38>, #cir.fp<1.7976931348623157E+308>, #true}> : !rec_DefaultOperators
 // CHECK-NEXT: cir.store{{.*}} %[[LARGEST]], %[[ALLOCA]] : !rec_DefaultOperators, !cir.ptr<!rec_DefaultOperators>
 // CHECK-NEXT: acc.yield
 //
@@ -287,7 +287,7 @@ void acc_compute() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_iand__ZTS24DefaultOperatorsNoFloats : !cir.ptr<!rec_DefaultOperatorsNoFloats> reduction_operator <iand> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!rec_DefaultOperatorsNoFloats>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!rec_DefaultOperatorsNoFloats>
-// CHECK-NEXT: %[[ALL_ONES:.*]] = cir.const #cir.const_record<{#cir.int<-1> : !s32i, #cir.int<4294967295> : !u32i, #true}> : !rec_DefaultOperatorsNoFloats
+// CHECK-NEXT: %[[ALL_ONES:.*]] = cir.const #cir.const_record<{#cir.int<-1>, #cir.int<4294967295>, #true}> : !rec_DefaultOperatorsNoFloats
 // CHECK-NEXT: cir.store{{.*}} %[[ALL_ONES]], %[[ALLOCA]] : !rec_DefaultOperatorsNoFloats, !cir.ptr<!rec_DefaultOperatorsNoFloats>
 // CHECK-NEXT: acc.yield
 //
@@ -389,7 +389,7 @@ void acc_compute() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_land__ZTS16DefaultOperators : !cir.ptr<!rec_DefaultOperators> reduction_operator <land> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!rec_DefaultOperators>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!rec_DefaultOperators>
-// CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.const_record<{#cir.int<1> : !s32i, #cir.int<1> : !u32i, #cir.fp<1{{.*}}> : !cir.float, #cir.fp<1{{.*}}> : !cir.double, #true}> : !rec_DefaultOperators
+// CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.const_record<{#cir.int<1>, #cir.int<1>, #cir.fp<1.000000e+00>, #cir.fp<1.000000e+00>, #true}> : !rec_DefaultOperators
 // CHECK-NEXT: cir.store{{.*}} %[[ONE]], %[[ALLOCA]] : !rec_DefaultOperators, !cir.ptr<!rec_DefaultOperators>
 // CHECK-NEXT: acc.yield
 //
@@ -627,7 +627,7 @@ void acc_compute() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_mul__ZTSA5_16DefaultOperators : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>> reduction_operator <mul> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!rec_DefaultOperators x 5>>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>>
-// CHECK-NEXT: %[[CONST_ARR:.*]] = cir.const #cir.const_array<[#cir.const_record<{#cir.int<1> : !s32i, #cir.int<1> : !u32i, #cir.fp<1{{.*}}> : !cir.float, #cir.fp<1{{.*}}> : !cir.double, #true}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<1> : !s32i, #cir.int<1> : !u32i, #cir.fp<1{{.*}}> : !cir.float, #cir.fp<1{{.*}}> : !cir.double, #true}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<1> : !s32i, #cir.int<1> : !u32i, #cir.fp<1{{.*}}> : !cir.float, #cir.fp<1{{.*}}> : !cir.double, #true}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<1> : !s32i, #cir.int<1> : !u32i, #cir.fp<1{{.*}}> : !cir.float, #cir.fp<1{{.*}}> : !cir.double, #true}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<1> : !s32i, #cir.int<1> : !u32i, #cir.fp<1{{.*}}> : !cir.float, #cir.fp<1{{.*}}> : !cir.double, #true}> : !rec_DefaultOperators]> : !cir.array<!rec_DefaultOperators x 5>
+// CHECK-NEXT: %[[CONST_ARR:.*]] = cir.const #cir.const_array<[#cir.const_record<{#cir.int<1>, #cir.int<1>, #cir.fp<1.000000e+00>, #cir.fp<1.000000e+00>, #true}>, #cir.const_record<{#cir.int<1>, #cir.int<1>, #cir.fp<1.000000e+00>, #cir.fp<1.000000e+00>, #true}>, #cir.const_record<{#cir.int<1>, #cir.int<1>, #cir.fp<1.000000e+00>, #cir.fp<1.000000e+00>, #true}>, #cir.const_record<{#cir.int<1>, #cir.int<1>, #cir.fp<1.000000e+00>, #cir.fp<1.000000e+00>, #true}>, #cir.const_record<{#cir.int<1>, #cir.int<1>, #cir.fp<1.000000e+00>, #cir.fp<1.000000e+00>, #true}>]> : !cir.array<!rec_DefaultOperators x 5>
 // CHECK-NEXT: cir.store{{.*}} %[[CONST_ARR]], %[[ALLOCA]] : !cir.array<!rec_DefaultOperators x 5>, !cir.ptr<!cir.array<!rec_DefaultOperators x 5>>
 // CHECK-NEXT: acc.yield
 //
@@ -697,7 +697,7 @@ void acc_compute() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_max__ZTSA5_16DefaultOperators : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>> reduction_operator <max> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!rec_DefaultOperators x 5>>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>>
-// CHECK-NEXT: %[[CONST_ARR:.*]] = cir.const #cir.const_array<[#cir.const_record<{#cir.int<-2147483648> : !s32i, #cir.int<0> : !u32i, #cir.fp<-3.4{{.*}}E+38> : !cir.float, #cir.fp<-1.7{{.*}}E+308> : !cir.double, #false}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<-2147483648> : !s32i, #cir.int<0> : !u32i, #cir.fp<-3.4{{.*}}E+38> : !cir.float, #cir.fp<-1.7{{.*}}E+308> : !cir.double, #false}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<-2147483648> : !s32i, #cir.int<0> : !u32i, #cir.fp<-3.4{{.*}}E+38> : !cir.float, #cir.fp<-1.7{{.*}}E+308> : !cir.double, #false}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<-2147483648> : !s32i, #cir.int<0> : !u32i, #cir.fp<-3.4{{.*}}E+38> : !cir.float, #cir.fp<-1.7{{.*}}E+308> : !cir.double, #false}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<-2147483648> : !s32i, #cir.int<0> : !u32i, #cir.fp<-3.4{{.*}}E+38> : !cir.float, #cir.fp<-1.7{{.*}}E+308> : !cir.double, #false}> : !rec_DefaultOperators]> : !cir.array<!rec_DefaultOperators x 5>
+// CHECK-NEXT: %[[CONST_ARR:.*]] = cir.const #cir.const_array<[#cir.const_record<{#cir.int<-2147483648>, #cir.int<0>, #cir.fp<-3.40282347E+38>, #cir.fp<-1.7976931348623157E+308>, #false}>, #cir.const_record<{#cir.int<-2147483648>, #cir.int<0>, #cir.fp<-3.40282347E+38>, #cir.fp<-1.7976931348623157E+308>, #false}>, #cir.const_record<{#cir.int<-2147483648>, #cir.int<0>, #cir.fp<-3.40282347E+38>, #cir.fp<-1.7976931348623157E+308>, #false}>, #cir.const_record<{#cir.int<-2147483648>, #cir.int<0>, #cir.fp<-3.40282347E+38>, #cir.fp<-1.7976931348623157E+308>, #false}>, #cir.const_record<{#cir.int<-2147483648>, #cir.int<0>, #cir.fp<-3.40282347E+38>, #cir.fp<-1.7976931348623157E+308>, #false}>]> : !cir.array<!rec_DefaultOperators x 5>
 // CHECK-NEXT: cir.store{{.*}} %[[CONST_ARR]], %[[ALLOCA]] : !cir.array<!rec_DefaultOperators x 5>, !cir.ptr<!cir.array<!rec_DefaultOperators x 5>>
 // CHECK-NEXT: acc.yield
 //
@@ -804,7 +804,7 @@ void acc_compute() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_min__ZTSA5_16DefaultOperators : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>> reduction_operator <min> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!rec_DefaultOperators x 5>>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>>
-// CHECK-NEXT: %[[CONST_ARR:.*]] = cir.const #cir.const_array<[#cir.const_record<{#cir.int<2147483647> : !s32i, #cir.int<4294967295> : !u32i, #cir.fp<3.4{{.*}}E+38> : !cir.float, #cir.fp<1.7{{.*}}E+308> : !cir.double, #true}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<2147483647> : !s32i, #cir.int<4294967295> : !u32i, #cir.fp<3.4{{.*}}E+38> : !cir.float, #cir.fp<1.7{{.*}}E+308> : !cir.double, #true}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<2147483647> : !s32i, #cir.int<4294967295> : !u32i, #cir.fp<3.4{{.*}}E+38> : !cir.float, #cir.fp<1.7{{.*}}E+308> : !cir.double, #true}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<2147483647> : !s32i, #cir.int<4294967295> : !u32i, #cir.fp<3.4{{.*}}E+38> : !cir.float, #cir.fp<1.7{{.*}}E+308> : !cir.double, #true}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<2147483647> : !s32i, #cir.int<4294967295> : !u32i, #cir.fp<3.4{{.*}}E+38> : !cir.float, #cir.fp<1.7{{.*}}E+308> : !cir.double, #true}> : !rec_DefaultOperators]> : !cir.array<!rec_DefaultOperators x 5>
+// CHECK-NEXT: %[[CONST_ARR:.*]] = cir.const #cir.const_array<[#cir.const_record<{#cir.int<2147483647>, #cir.int<4294967295>, #cir.fp<3.40282347E+38>, #cir.fp<1.7976931348623157E+308>, #true}>, #cir.const_record<{#cir.int<2147483647>, #cir.int<4294967295>, #cir.fp<3.40282347E+38>, #cir.fp<1.7976931348623157E+308>, #true}>, #cir.const_record<{#cir.int<2147483647>, #cir.int<4294967295>, #cir.fp<3.40282347E+38>, #cir.fp<1.7976931348623157E+308>, #true}>, #cir.const_record<{#cir.int<2147483647>, #cir.int<4294967295>, #cir.fp<3.40282347E+38>, #cir.fp<1.7976931348623157E+308>, #true}>, #cir.const_record<{#cir.int<2147483647>, #cir.int<4294967295>, #cir.fp<3.40282347E+38>, #cir.fp<1.7976931348623157E+308>, #true}>]> : !cir.array<!rec_DefaultOperators x 5>
 // CHECK-NEXT: cir.store{{.*}} %[[CONST_ARR]], %[[ALLOCA]] : !cir.array<!rec_DefaultOperators x 5>, !cir.ptr<!cir.array<!rec_DefaultOperators x 5>>
 // CHECK-NEXT: acc.yield
 //
@@ -911,7 +911,7 @@ void acc_compute() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_iand__ZTSA5_24DefaultOperatorsNoFloats : !cir.ptr<!cir.array<!rec_DefaultOperatorsNoFloats x 5>> reduction_operator <iand> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!rec_DefaultOperatorsNoFloats x 5>>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!cir.array<!rec_DefaultOperatorsNoFloats x 5>>
-// CHECK-NEXT: %[[CONST_ARR:.*]] = cir.const #cir.const_array<[#cir.const_record<{#cir.int<-1> : !s32i, #cir.int<4294967295> : !u32i, #true}> : !rec_DefaultOperatorsNoFloats, #cir.const_record<{#cir.int<-1> : !s32i, #cir.int<4294967295> : !u32i, #true}> : !rec_DefaultOperatorsNoFloats, #cir.const_record<{#cir.int<-1> : !s32i, #cir.int<4294967295> : !u32i, #true}> : !rec_DefaultOperatorsNoFloats, #cir.const_record<{#cir.int<-1> : !s32i, #cir.int<4294967295> : !u32i, #true}> : !rec_DefaultOperatorsNoFloats, #cir.const_record<{#cir.int<-1> : !s32i, #cir.int<4294967295> : !u32i, #true}> : !rec_DefaultOperatorsNoFloats]> : !cir.array<!rec_DefaultOperatorsNoFloats x 5>
+// CHECK-NEXT: %[[CONST_ARR:.*]] = cir.const #cir.const_array<[#cir.const_record<{#cir.int<-1>, #cir.int<4294967295>, #true}>, #cir.const_record<{#cir.int<-1>, #cir.int<4294967295>, #true}>, #cir.const_record<{#cir.int<-1>, #cir.int<4294967295>, #true}>, #cir.const_record<{#cir.int<-1>, #cir.int<4294967295>, #true}>, #cir.const_record<{#cir.int<-1>, #cir.int<4294967295>, #true}>]> : !cir.array<!rec_DefaultOperatorsNoFloats x 5>
 // CHECK-NEXT: cir.store{{.*}} %[[CONST_ARR]], %[[ALLOCA]] : !cir.array<!rec_DefaultOperatorsNoFloats x 5>, !cir.ptr<!cir.array<!rec_DefaultOperatorsNoFloats x 5>>
 // CHECK-NEXT: acc.yield
 //
@@ -1082,7 +1082,7 @@ void acc_compute() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_land__ZTSA5_16DefaultOperators : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>> reduction_operator <land> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!rec_DefaultOperators x 5>>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>>
-// CHECK-NEXT: %[[CONST_ARR:.*]] = cir.const #cir.const_array<[#cir.const_record<{#cir.int<1> : !s32i, #cir.int<1> : !u32i, #cir.fp<1{{.*}}> : !cir.float, #cir.fp<1{{.*}}> : !cir.double, #true}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<1> : !s32i, #cir.int<1> : !u32i, #cir.fp<1{{.*}}> : !cir.float, #cir.fp<1{{.*}}> : !cir.double, #true}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<1> : !s32i, #cir.int<1> : !u32i, #cir.fp<1{{.*}}> : !cir.float, #cir.fp<1{{.*}}> : !cir.double, #true}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<1> : !s32i, #cir.int<1> : !u32i, #cir.fp<1{{.*}}> : !cir.float, #cir.fp<1{{.*}}> : !cir.double, #true}> : !rec_DefaultOperators, #cir.const_record<{#cir.int<1> : !s32i, #cir.int<1> : !u32i, #cir.fp<1{{.*}}> : !cir.float, #cir.fp<1{{.*}}> : !cir.double, #true}> : !rec_DefaultOperators]> : !cir.array<!rec_DefaultOperators x 5>
+// CHECK-NEXT: %[[CONST_ARR:.*]] = cir.const #cir.const_array<[#cir.const_record<{#cir.int<1>, #cir.int<1>, #cir.fp<1.000000e+00>, #cir.fp<1.000000e+00>, #true}>, #cir.const_record<{#cir.int<1>, #cir.int<1>, #cir.fp<1.000000e+00>, #cir.fp<1.000000e+00>, #true}>, #cir.const_record<{#cir.int<1>, #cir.int<1>, #cir.fp<1.000000e+00>, #cir.fp<1.000000e+00>, #true}>, #cir.const_record<{#cir.int<1>, #cir.int<1>, #cir.fp<1.000000e+00>, #cir.fp<1.000000e+00>, #true}>, #cir.const_record<{#cir.int<1>, #cir.int<1>, #cir.fp<1.000000e+00>, #cir.fp<1.000000e+00>, #true}>]> : !cir.array<!rec_DefaultOperators x 5>
 // CHECK-NEXT: cir.store{{.*}} %[[CONST_ARR]], %[[ALLOCA]] : !cir.array<!rec_DefaultOperators x 5>, !cir.ptr<!cir.array<!rec_DefaultOperators x 5>>
 // CHECK-NEXT: acc.yield
 //
@@ -1314,19 +1314,19 @@ void acc_compute() {
 // CHECK-NEXT: %[[ITR_LOAD:.*]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[DECAY:.*]] = cir.cast array_to_ptrdecay %[[ALLOCA]] : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>> -> !cir.ptr<!rec_DefaultOperators>
 // CHECK-NEXT: %[[STRIDE:.*]] = cir.ptr_stride %[[DECAY]], %[[ITR_LOAD]] : (!cir.ptr<!rec_DefaultOperators>, !u64i) -> !cir.ptr<!rec_DefaultOperators>
-// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {name = "i"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!s32i>
+// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {{.*name = "i".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!s32i>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_I]] : !s32i, !cir.ptr<!s32i>
-// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {name = "u"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!u32i>
+// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {{.*name = "u".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!u32i>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #cir.int<0> : !u32i
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_U]] : !u32i, !cir.ptr<!u32i>
-// CHECK-NEXT: %[[GET_F:.*]] = cir.get_member %[[STRIDE]][2] {name = "f"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.float>
+// CHECK-NEXT: %[[GET_F:.*]] = cir.get_member %[[STRIDE]][2] {{.*name = "f".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.float>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #cir.fp<0{{.*}}> : !cir.float
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_F]] : !cir.float, !cir.ptr<!cir.float>
-// CHECK-NEXT: %[[GET_D:.*]] = cir.get_member %[[STRIDE]][3] {name = "d"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.double>
+// CHECK-NEXT: %[[GET_D:.*]] = cir.get_member %[[STRIDE]][3] {{.*name = "d".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.double>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #cir.fp<0{{.*}}> : !cir.double
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_D]] : !cir.double, !cir.ptr<!cir.double>
-// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][4] {name = "b"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.bool>
+// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][4] {{.*name = "b".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.bool>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #false
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_B]] : !cir.bool, !cir.ptr<!cir.bool>
 // CHECK-NEXT: cir.yield
@@ -1420,19 +1420,19 @@ void acc_compute() {
 // CHECK-NEXT: %[[ITR_LOAD:.*]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[DECAY:.*]] = cir.cast array_to_ptrdecay %[[ALLOCA]] : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>> -> !cir.ptr<!rec_DefaultOperators>
 // CHECK-NEXT: %[[STRIDE:.*]] = cir.ptr_stride %[[DECAY]], %[[ITR_LOAD]] : (!cir.ptr<!rec_DefaultOperators>, !u64i) -> !cir.ptr<!rec_DefaultOperators>
-// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {name = "i"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!s32i>
+// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {{.*name = "i".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!s32i>
 // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
 // CHECK-NEXT: cir.store {{.*}} %[[ONE]], %[[GET_I]] : !s32i, !cir.ptr<!s32i>
-// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {name = "u"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!u32i>
+// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {{.*name = "u".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!u32i>
 // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !u32i
 // CHECK-NEXT: cir.store {{.*}} %[[ONE]], %[[GET_U]] : !u32i, !cir.ptr<!u32i>
-// CHECK-NEXT: %[[GET_F:.*]] = cir.get_member %[[STRIDE]][2] {name = "f"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.float>
+// CHECK-NEXT: %[[GET_F:.*]] = cir.get_member %[[STRIDE]][2] {{.*name = "f".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.float>
 // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.fp<1{{.*}}> : !cir.float
 // CHECK-NEXT: cir.store {{.*}} %[[ONE]], %[[GET_F]] : !cir.float, !cir.ptr<!cir.float>
-// CHECK-NEXT: %[[GET_D:.*]] = cir.get_member %[[STRIDE]][3] {name = "d"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.double>
+// CHECK-NEXT: %[[GET_D:.*]] = cir.get_member %[[STRIDE]][3] {{.*name = "d".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.double>
 // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.fp<1{{.*}}> : !cir.double
 // CHECK-NEXT: cir.store {{.*}} %[[ONE]], %[[GET_D]] : !cir.double, !cir.ptr<!cir.double>
-// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][4] {name = "b"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.bool>
+// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][4] {{.*name = "b".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.bool>
 // CHECK-NEXT: %[[ONE:.*]] = cir.const #true
 // CHECK-NEXT: cir.store {{.*}} %[[ONE]], %[[GET_B]] : !cir.bool, !cir.ptr<!cir.bool>
 // CHECK-NEXT: cir.yield
@@ -1526,19 +1526,19 @@ void acc_compute() {
 // CHECK-NEXT: %[[ITR_LOAD:.*]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[DECAY:.*]] = cir.cast array_to_ptrdecay %[[ALLOCA]] : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>> -> !cir.ptr<!rec_DefaultOperators>
 // CHECK-NEXT: %[[STRIDE:.*]] = cir.ptr_stride %[[DECAY]], %[[ITR_LOAD]] : (!cir.ptr<!rec_DefaultOperators>, !u64i) -> !cir.ptr<!rec_DefaultOperators>
-// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {name = "i"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!s32i>
+// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {{.*name = "i".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!s32i>
 // CHECK-NEXT: %[[LEAST:.*]] = cir.const #cir.int<-2147483648> : !s32i
 // CHECK-NEXT: cir.store {{.*}} %[[LEAST]], %[[GET_I]] : !s32i, !cir.ptr<!s32i>
-// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {name = "u"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!u32i>
+// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {{.*name = "u".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!u32i>
 // CHECK-NEXT: %[[LEAST:.*]] = cir.const #cir.int<0> : !u32i
 // CHECK-NEXT: cir.store {{.*}} %[[LEAST]], %[[GET_U]] : !u32i, !cir.ptr<!u32i>
-// CHECK-NEXT: %[[GET_F:.*]] = cir.get_member %[[STRIDE]][2] {name = "f"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.float>
+// CHECK-NEXT: %[[GET_F:.*]] = cir.get_member %[[STRIDE]][2] {{.*name = "f".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.float>
 // CHECK-NEXT: %[[LEAST:.*]] = cir.const #cir.fp<-3.4{{.*}}E+38> : !cir.float
 // CHECK-NEXT: cir.store {{.*}} %[[LEAST]], %[[GET_F]] : !cir.float, !cir.ptr<!cir.float>
-// CHECK-NEXT: %[[GET_D:.*]] = cir.get_member %[[STRIDE]][3] {name = "d"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.double>
+// CHECK-NEXT: %[[GET_D:.*]] = cir.get_member %[[STRIDE]][3] {{.*name = "d".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.double>
 // CHECK-NEXT: %[[LEAST:.*]] = cir.const #cir.fp<-1.7{{.*}}E+308> : !cir.double
 // CHECK-NEXT: cir.store {{.*}} %[[LEAST]], %[[GET_D]] : !cir.double, !cir.ptr<!cir.double>
-// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][4] {name = "b"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.bool>
+// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][4] {{.*name = "b".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.bool>
 // CHECK-NEXT: %[[LEAST:.*]] = cir.const #false
 // CHECK-NEXT: cir.store {{.*}} %[[LEAST]], %[[GET_B]] : !cir.bool, !cir.ptr<!cir.bool>
 // CHECK-NEXT: cir.yield
@@ -1674,19 +1674,19 @@ void acc_compute() {
 // CHECK-NEXT: %[[ITR_LOAD:.*]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[DECAY:.*]] = cir.cast array_to_ptrdecay %[[ALLOCA]] : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>> -> !cir.ptr<!rec_DefaultOperators>
 // CHECK-NEXT: %[[STRIDE:.*]] = cir.ptr_stride %[[DECAY]], %[[ITR_LOAD]] : (!cir.ptr<!rec_DefaultOperators>, !u64i) -> !cir.ptr<!rec_DefaultOperators>
-// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {name = "i"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!s32i>
+// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {{.*name = "i".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!s32i>
 // CHECK-NEXT: %[[LARGEST:.*]] = cir.const #cir.int<2147483647> : !s32i
 // CHECK-NEXT: cir.store {{.*}} %[[LARGEST]], %[[GET_I]] : !s32i, !cir.ptr<!s32i>
-// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {name = "u"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!u32i>
+// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {{.*name = "u".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!u32i>
 // CHECK-NEXT: %[[LARGEST:.*]] = cir.const #cir.int<4294967295> : !u32i
 // CHECK-NEXT: cir.store {{.*}} %[[LARGEST]], %[[GET_U]] : !u32i, !cir.ptr<!u32i>
-// CHECK-NEXT: %[[GET_F:.*]] = cir.get_member %[[STRIDE]][2] {name = "f"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.float>
+// CHECK-NEXT: %[[GET_F:.*]] = cir.get_member %[[STRIDE]][2] {{.*name = "f".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.float>
 // CHECK-NEXT: %[[LARGEST:.*]] = cir.const #cir.fp<3.4{{.*}}E+38> : !cir.float
 // CHECK-NEXT: cir.store {{.*}} %[[LARGEST]], %[[GET_F]] : !cir.float, !cir.ptr<!cir.float>
-// CHECK-NEXT: %[[GET_D:.*]] = cir.get_member %[[STRIDE]][3] {name = "d"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.double>
+// CHECK-NEXT: %[[GET_D:.*]] = cir.get_member %[[STRIDE]][3] {{.*name = "d".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.double>
 // CHECK-NEXT: %[[LARGEST:.*]] = cir.const #cir.fp<1.7{{.*}}E+308> : !cir.double
 // CHECK-NEXT: cir.store {{.*}} %[[LARGEST]], %[[GET_D]] : !cir.double, !cir.ptr<!cir.double>
-// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][4] {name = "b"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.bool>
+// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][4] {{.*name = "b".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.bool>
 // CHECK-NEXT: %[[LARGEST:.*]] = cir.const #true
 // CHECK-NEXT: cir.store {{.*}} %[[LARGEST]], %[[GET_B]] : !cir.bool, !cir.ptr<!cir.bool>
 // CHECK-NEXT: cir.yield
@@ -1822,13 +1822,13 @@ void acc_compute() {
 // CHECK-NEXT: %[[ITR_LOAD:.*]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[DECAY:.*]] = cir.cast array_to_ptrdecay %[[ALLOCA]] : !cir.ptr<!cir.array<!rec_DefaultOperatorsNoFloats x 5>> -> !cir.ptr<!rec_DefaultOperatorsNoFloats>
 // CHECK-NEXT: %[[STRIDE:.*]] = cir.ptr_stride %[[DECAY]], %[[ITR_LOAD]] : (!cir.ptr<!rec_DefaultOperatorsNoFloats>, !u64i) -> !cir.ptr<!rec_DefaultOperatorsNoFloats>
-// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {name = "i"} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!s32i>
+// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {{.*name = "i".*}} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!s32i>
 // CHECK-NEXT: %[[ALL_ONES:.*]] = cir.const #cir.int<-1> : !s32i
 // CHECK-NEXT: cir.store {{.*}} %[[ALL_ONES]], %[[GET_I]] : !s32i, !cir.ptr<!s32i>
-// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {name = "u"} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!u32i>
+// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {{.*name = "u".*}} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!u32i>
 // CHECK-NEXT: %[[ALL_ONES:.*]] = cir.const #cir.int<4294967295> : !u32i
 // CHECK-NEXT: cir.store {{.*}} %[[ALL_ONES]], %[[GET_U]] : !u32i, !cir.ptr<!u32i>
-// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][2] {name = "b"} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!cir.bool>
+// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][2] {{.*name = "b".*}} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!cir.bool>
 // CHECK-NEXT: %[[ALL_ONES:.*]] = cir.const #true
 // CHECK-NEXT: cir.store {{.*}} %[[ALL_ONES]], %[[GET_B]] : !cir.bool, !cir.ptr<!cir.bool>
 // CHECK-NEXT: cir.yield
@@ -1910,13 +1910,13 @@ void acc_compute() {
 // CHECK-NEXT: %[[ITR_LOAD:.*]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[DECAY:.*]] = cir.cast array_to_ptrdecay %[[ALLOCA]] : !cir.ptr<!cir.array<!rec_DefaultOperatorsNoFloats x 5>> -> !cir.ptr<!rec_DefaultOperatorsNoFloats>
 // CHECK-NEXT: %[[STRIDE:.*]] = cir.ptr_stride %[[DECAY]], %[[ITR_LOAD]] : (!cir.ptr<!rec_DefaultOperatorsNoFloats>, !u64i) -> !cir.ptr<!rec_DefaultOperatorsNoFloats>
-// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {name = "i"} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!s32i>
+// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {{.*name = "i".*}} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!s32i>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_I]] : !s32i, !cir.ptr<!s32i>
-// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {name = "u"} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!u32i>
+// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {{.*name = "u".*}} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!u32i>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #cir.int<0> : !u32i
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_U]] : !u32i, !cir.ptr<!u32i>
-// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][2] {name = "b"} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!cir.bool>
+// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][2] {{.*name = "b".*}} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!cir.bool>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #false
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_B]] : !cir.bool, !cir.ptr<!cir.bool>
 // CHECK-NEXT: cir.yield
@@ -1998,13 +1998,13 @@ void acc_compute() {
 // CHECK-NEXT: %[[ITR_LOAD:.*]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[DECAY:.*]] = cir.cast array_to_ptrdecay %[[ALLOCA]] : !cir.ptr<!cir.array<!rec_DefaultOperatorsNoFloats x 5>> -> !cir.ptr<!rec_DefaultOperatorsNoFloats>
 // CHECK-NEXT: %[[STRIDE:.*]] = cir.ptr_stride %[[DECAY]], %[[ITR_LOAD]] : (!cir.ptr<!rec_DefaultOperatorsNoFloats>, !u64i) -> !cir.ptr<!rec_DefaultOperatorsNoFloats>
-// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {name = "i"} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!s32i>
+// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {{.*name = "i".*}} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!s32i>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_I]] : !s32i, !cir.ptr<!s32i>
-// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {name = "u"} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!u32i>
+// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {{.*name = "u".*}} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!u32i>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #cir.int<0> : !u32i
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_U]] : !u32i, !cir.ptr<!u32i>
-// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][2] {name = "b"} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!cir.bool>
+// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][2] {{.*name = "b".*}} : !cir.ptr<!rec_DefaultOperatorsNoFloats> -> !cir.ptr<!cir.bool>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #false
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_B]] : !cir.bool, !cir.ptr<!cir.bool>
 // CHECK-NEXT: cir.yield
@@ -2086,19 +2086,19 @@ void acc_compute() {
 // CHECK-NEXT: %[[ITR_LOAD:.*]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[DECAY:.*]] = cir.cast array_to_ptrdecay %[[ALLOCA]] : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>> -> !cir.ptr<!rec_DefaultOperators>
 // CHECK-NEXT: %[[STRIDE:.*]] = cir.ptr_stride %[[DECAY]], %[[ITR_LOAD]] : (!cir.ptr<!rec_DefaultOperators>, !u64i) -> !cir.ptr<!rec_DefaultOperators>
-// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {name = "i"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!s32i>
+// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {{.*name = "i".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!s32i>
 // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
 // CHECK-NEXT: cir.store {{.*}} %[[ONE]], %[[GET_I]] : !s32i, !cir.ptr<!s32i>
-// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {name = "u"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!u32i>
+// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {{.*name = "u".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!u32i>
 // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.int<1> : !u32i
 // CHECK-NEXT: cir.store {{.*}} %[[ONE]], %[[GET_U]] : !u32i, !cir.ptr<!u32i>
-// CHECK-NEXT: %[[GET_F:.*]] = cir.get_member %[[STRIDE]][2] {name = "f"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.float>
+// CHECK-NEXT: %[[GET_F:.*]] = cir.get_member %[[STRIDE]][2] {{.*name = "f".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.float>
 // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.fp<1{{.*}}> : !cir.float
 // CHECK-NEXT: cir.store {{.*}} %[[ONE]], %[[GET_F]] : !cir.float, !cir.ptr<!cir.float>
-// CHECK-NEXT: %[[GET_D:.*]] = cir.get_member %[[STRIDE]][3] {name = "d"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.double>
+// CHECK-NEXT: %[[GET_D:.*]] = cir.get_member %[[STRIDE]][3] {{.*name = "d".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.double>
 // CHECK-NEXT: %[[ONE:.*]] = cir.const #cir.fp<1{{.*}}> : !cir.double
 // CHECK-NEXT: cir.store {{.*}} %[[ONE]], %[[GET_D]] : !cir.double, !cir.ptr<!cir.double>
-// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][4] {name = "b"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.bool>
+// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][4] {{.*name = "b".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.bool>
 // CHECK-NEXT: %[[ONE:.*]] = cir.const #true
 // CHECK-NEXT: cir.store {{.*}} %[[ONE]], %[[GET_B]] : !cir.bool, !cir.ptr<!cir.bool>
 // CHECK-NEXT: cir.yield
@@ -2232,19 +2232,19 @@ void acc_compute() {
 // CHECK-NEXT: %[[ITR_LOAD:.*]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[DECAY:.*]] = cir.cast array_to_ptrdecay %[[ALLOCA]] : !cir.ptr<!cir.array<!rec_DefaultOperators x 5>> -> !cir.ptr<!rec_DefaultOperators>
 // CHECK-NEXT: %[[STRIDE:.*]] = cir.ptr_stride %[[DECAY]], %[[ITR_LOAD]] : (!cir.ptr<!rec_DefaultOperators>, !u64i) -> !cir.ptr<!rec_DefaultOperators>
-// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {name = "i"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!s32i>
+// CHECK-NEXT: %[[GET_I:.*]] = cir.get_member %[[STRIDE]][0] {{.*name = "i".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!s32i>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_I]] : !s32i, !cir.ptr<!s32i>
-// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {name = "u"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!u32i>
+// CHECK-NEXT: %[[GET_U:.*]] = cir.get_member %[[STRIDE]][1] {{.*name = "u".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!u32i>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #cir.int<0> : !u32i
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_U]] : !u32i, !cir.ptr<!u32i>
-// CHECK-NEXT: %[[GET_F:.*]] = cir.get_member %[[STRIDE]][2] {name = "f"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.float>
+// CHECK-NEXT: %[[GET_F:.*]] = cir.get_member %[[STRIDE]][2] {{.*name = "f".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.float>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #cir.fp<0{{.*}}> : !cir.float
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_F]] : !cir.float, !cir.ptr<!cir.float>
-// CHECK-NEXT: %[[GET_D:.*]] = cir.get_member %[[STRIDE]][3] {name = "d"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.double>
+// CHECK-NEXT: %[[GET_D:.*]] = cir.get_member %[[STRIDE]][3] {{.*name = "d".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.double>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #cir.fp<0{{.*}}> : !cir.double
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_D]] : !cir.double, !cir.ptr<!cir.double>
-// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][4] {name = "b"} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.bool>
+// CHECK-NEXT: %[[GET_B:.*]] = cir.get_member %[[STRIDE]][4] {{.*name = "b".*}} : !cir.ptr<!rec_DefaultOperators> -> !cir.ptr<!cir.bool>
 // CHECK-NEXT: %[[ZERO:.*]] = cir.const #false
 // CHECK-NEXT: cir.store {{.*}} %[[ZERO]], %[[GET_B]] : !cir.bool, !cir.ptr<!cir.bool>
 // CHECK-NEXT: cir.yield

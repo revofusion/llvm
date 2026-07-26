@@ -18,12 +18,11 @@ void S::key() {}
 // CHECK-DAG: !rec_anon_struct = !cir.struct<{!cir.array<!cir.ptr<!u8i> x 4>}>
 
 // The definition of the key function should result in the vtable being emitted.
-// CHECK:      cir.global "private" external @_ZTV1S = #cir.vtable<{
-// CHECK-SAME:     #cir.const_array<[
-// CHECK-SAME:         #cir.ptr<null> : !cir.ptr<!u8i>,
-// CHECK-SAME:         #cir.ptr<null> : !cir.ptr<!u8i>,
-// CHECK-SAME:         #cir.global_view<@_ZN1S3keyEv> : !cir.ptr<!u8i>,
-// CHECK-SAME:         #cir.global_view<@_ZN1S6nonKeyEv> : !cir.ptr<!u8i>]>
+// CHECK:      cir.global "private" external @_ZTV1S = #cir.vtable<{#cir.const_array<[
+// CHECK-SAME:         #cir.ptr<null>,
+// CHECK-SAME:         #cir.ptr<null>,
+// CHECK-SAME:         #cir.global_view<@_ZN1S3keyEv>,
+// CHECK-SAME:         #cir.global_view<@_ZN1S6nonKeyEv>]>
 // CHECK-SAME:     : !cir.array<!cir.ptr<!u8i> x 4>}> : !rec_anon_struct
 
 // LLVM:      @_ZTV1S = global { [4 x ptr] } { [4 x ptr]

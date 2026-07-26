@@ -11,7 +11,7 @@ struct Struct {
 };
 
 void test1(int i) {
-  // CIR: cir.func {{.*}}@_Z5test1i(%[[I_ARG:.*]]: {{.*}})
+  // CIR: cir.func {{.*}}@_Z5test1i(%[[I_ARG:[^:]+]]: {{.*}})
   // LLVM: define {{.*}}void @_Z5test1i(i32 {{.*}}%[[I_ARG:.*]])
   int &refI = {i};
   // CIR: %[[I_ALLOCA:.*]] = cir.alloca "i" {{.*}} init : !cir.ptr<!s32i>
@@ -43,7 +43,7 @@ void test2() {
 // Note: In addition to testing init-list-lvalue, this also tests
 // FunctionalCastExpr.
 void test3(Struct &s) {
-  // CIR: cir.func {{.*}}@_Z5test3R6Struct(%[[S_ARG:.*]]: !cir.ptr<!rec_Struct> {{.*}})
+  // CIR: cir.func {{.*}}@_Z5test3R6Struct(%[[S_ARG:[^:]+]]: !cir.ptr<!rec_Struct> {{.*}})
   // LLVM: define dso_local void @_Z5test3R6Struct(ptr{{.*}}%[[S_ARG:.*]])
   using refSTy = Struct &;
   Struct &refS = refSTy{s};

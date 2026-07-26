@@ -1062,10 +1062,17 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
     // and returns the 64-bit value
     return builder.emitIntrinsicCallOp(getLoc(expr->getExprLoc()), "x86.xgetbv",
                                        builder.getUInt64Ty(), ops[0]);
+  case X86::BI__builtin_ia32_storedquhi512_mask:
+  case X86::BI__builtin_ia32_storedquqi128_mask: {
+    mlir::Location loc = getLoc(expr->getExprLoc());
+    auto valueTy = cast<cir::VectorType>(ops[1].getType());
+    mlir::Value mask = getMaskVecValue(builder, loc, ops[2], valueTy.getSize());
+    return builder.emitIntrinsicCallOp(loc, "masked.store", voidTy,
+                                       mlir::ValueRange{ops[1], ops[0], mask});
+  }
   case X86::BI__builtin_ia32_storedqudi128_mask:
   case X86::BI__builtin_ia32_storedqusi128_mask:
   case X86::BI__builtin_ia32_storedquhi128_mask:
-  case X86::BI__builtin_ia32_storedquqi128_mask:
   case X86::BI__builtin_ia32_storeupd128_mask:
   case X86::BI__builtin_ia32_storeups128_mask:
   case X86::BI__builtin_ia32_storedqudi256_mask:
@@ -1076,7 +1083,6 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
   case X86::BI__builtin_ia32_storeups256_mask:
   case X86::BI__builtin_ia32_storedqudi512_mask:
   case X86::BI__builtin_ia32_storedqusi512_mask:
-  case X86::BI__builtin_ia32_storedquhi512_mask:
   case X86::BI__builtin_ia32_storedquqi512_mask:
   case X86::BI__builtin_ia32_storeupd512_mask:
   case X86::BI__builtin_ia32_storeups512_mask:
@@ -1117,6 +1123,26 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
   case X86::BI__builtin_ia32_cvtq2mask512:
     return emitX86ConvertToMask(*this, this->getBuilder(), ops[0],
                                 getLoc(expr->getExprLoc()));
+  case X86::BI__builtin_ia32_vfmaddph512_mask: {
+    mlir::Location loc = getLoc(expr->getExprLoc());
+    mlir::Type resultTy = convertType(expr->getType());
+    auto rounding = ops[4].getDefiningOp<cir::ConstantOp>();
+    assert(rounding && "expected constant rounding operand");
+
+    mlir::Value result;
+    if (rounding.getIntValue().getZExtValue() != 4) {
+      result = builder.emitIntrinsicCallOp(
+          loc, "x86.avx512fp16.vfmadd.ph.512", resultTy,
+          mlir::ValueRange{ops[0], ops[1], ops[2], ops[4]});
+    } else {
+      CIRGenFunction::CIRGenFPOptionsRAII FPOptsRAII(*this, expr);
+      assert(!cir::MissingFeatures::emitConstrainedFPCall());
+      result = builder.emitIntrinsicCallOp(
+          loc, "fma", resultTy, mlir::ValueRange{ops[0], ops[1], ops[2]});
+    }
+
+    return emitX86Select(builder, loc, ops[3], result, ops[0]);
+  }
   case X86::BI__builtin_ia32_cvtdq2ps512_mask:
   case X86::BI__builtin_ia32_cvtqq2ps512_mask:
   case X86::BI__builtin_ia32_cvtqq2pd512_mask:
@@ -1141,7 +1167,6 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
   case X86::BI__builtin_ia32_vfmsubsh3_mask3:
   case X86::BI__builtin_ia32_vfmsubss3_mask3:
   case X86::BI__builtin_ia32_vfmsubsd3_mask3:
-  case X86::BI__builtin_ia32_vfmaddph512_mask:
   case X86::BI__builtin_ia32_vfmaddph512_maskz:
   case X86::BI__builtin_ia32_vfmaddph512_mask3:
   case X86::BI__builtin_ia32_vfmaddps512_mask:
@@ -1226,6 +1251,14 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
             .getAsAlign(),
         getLoc(expr->getExprLoc()));
 
+  case X86::BI__builtin_ia32_expandloadsi512_mask: {
+    mlir::Location loc = getLoc(expr->getExprLoc());
+    auto resultTy = cast<cir::VectorType>(ops[1].getType());
+    mlir::Value mask =
+        getMaskVecValue(builder, loc, ops[2], resultTy.getSize());
+    return builder.emitIntrinsicCallOp(loc, "masked.expandload", resultTy,
+                                       mlir::ValueRange{ops[0], mask, ops[1]});
+  }
   case X86::BI__builtin_ia32_expandloaddf128_mask:
   case X86::BI__builtin_ia32_expandloaddf256_mask:
   case X86::BI__builtin_ia32_expandloaddf512_mask:
@@ -1237,7 +1270,6 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
   case X86::BI__builtin_ia32_expandloaddi512_mask:
   case X86::BI__builtin_ia32_expandloadsi128_mask:
   case X86::BI__builtin_ia32_expandloadsi256_mask:
-  case X86::BI__builtin_ia32_expandloadsi512_mask:
   case X86::BI__builtin_ia32_expandloadhi128_mask:
   case X86::BI__builtin_ia32_expandloadhi256_mask:
   case X86::BI__builtin_ia32_expandloadhi512_mask:

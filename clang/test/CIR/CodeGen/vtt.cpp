@@ -62,26 +62,26 @@ void D::y() {}
 
 // CIR-COMMON:       cir.global{{.*}} @_ZTV1D = #cir.vtable<{
 // CIR-COMMON-SAME:    #cir.const_array<[
-// CIR-COMMON-SAME:      #cir.ptr<40 : i64> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-NO-RTTI-SAME:     #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1D> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.global_view<@_ZN1B1wEv> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.global_view<@_ZN1D1yEv> : !cir.ptr<!u8i>
+// CIR-COMMON-SAME:      #cir.ptr<40 : i64>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:      #cir.ptr<null>{{( : !cir.ptr<!u8i>)?}},
+// CIR-NO-RTTI-SAME:     #cir.ptr<null>,
+// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1D>,
+// CIR-COMMON-SAME:      #cir.global_view<@_ZN1B1wEv>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:      #cir.global_view<@_ZN1D1yEv>{{( : !cir.ptr<!u8i>)?}}
 // CIR-COMMON-SAME:    ]> : !cir.array<!cir.ptr<!u8i> x 5>,
 // CIR-COMMON-SAME:    #cir.const_array<[
-// CIR-COMMON-SAME:      #cir.ptr<24 : i64> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.ptr<-16 : i64> : !cir.ptr<!u8i>,
-// CIR-NO-RTTI-SAME:     #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1D> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.global_view<@_ZN1C1xEv> : !cir.ptr<!u8i>
+// CIR-COMMON-SAME:      #cir.ptr<24 : i64>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:      #cir.ptr<-16 : i64>{{( : !cir.ptr<!u8i>)?}},
+// CIR-NO-RTTI-SAME:     #cir.ptr<null>,
+// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1D>,
+// CIR-COMMON-SAME:      #cir.global_view<@_ZN1C1xEv>{{( : !cir.ptr<!u8i>)?}}
 // CIR-COMMON-SAME:    ]> : !cir.array<!cir.ptr<!u8i> x 4>,
 // CIR-COMMON-SAME:    #cir.const_array<[
-// CIR-COMMON-SAME:      #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.ptr<-40 : i64> : !cir.ptr<!u8i>,
-// CIR-NO-RTTI-SAME:     #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1D> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.global_view<@_ZN1A1vEv> : !cir.ptr<!u8i>
+// CIR-COMMON-SAME:      #cir.ptr<null>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:      #cir.ptr<-40 : i64>{{( : !cir.ptr<!u8i>)?}},
+// CIR-NO-RTTI-SAME:     #cir.ptr<null>,
+// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1D>,
+// CIR-COMMON-SAME:      #cir.global_view<@_ZN1A1vEv>{{( : !cir.ptr<!u8i>)?}}
 // CIR-COMMON-SAME:    ]> : !cir.array<!cir.ptr<!u8i> x 4>
 // CIR-COMMON-SAME: }> : ![[REC_D_VTABLE]] {alignment = 8 : i64}
 
@@ -107,13 +107,13 @@ void D::y() {}
 // VTT for D
 
 // CIR-COMMON:      cir.global{{.*}} @_ZTT1D = #cir.const_array<[
-// CIR-COMMON-SAME:   #cir.global_view<@_ZTV1D, [0 : i32, 3 : i32]> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:   #cir.global_view<@_ZTC1D0_1B, [0 : i32, 3 : i32]> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:   #cir.global_view<@_ZTC1D0_1B, [1 : i32, 3 : i32]> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:   #cir.global_view<@_ZTC1D16_1C, [0 : i32, 3 : i32]> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:   #cir.global_view<@_ZTC1D16_1C, [1 : i32, 3 : i32]> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:   #cir.global_view<@_ZTV1D, [2 : i32, 3 : i32]> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:   #cir.global_view<@_ZTV1D, [1 : i32, 3 : i32]> : !cir.ptr<!u8i>
+// CIR-COMMON-SAME:   #cir.global_view<@_ZTV1D, [0 : i32, 3 : i32]>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:   #cir.global_view<@_ZTC1D0_1B, [0 : i32, 3 : i32]>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:   #cir.global_view<@_ZTC1D0_1B, [1 : i32, 3 : i32]>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:   #cir.global_view<@_ZTC1D16_1C, [0 : i32, 3 : i32]>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:   #cir.global_view<@_ZTC1D16_1C, [1 : i32, 3 : i32]>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:   #cir.global_view<@_ZTV1D, [2 : i32, 3 : i32]>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:   #cir.global_view<@_ZTV1D, [1 : i32, 3 : i32]>{{( : !cir.ptr<!u8i>)?}}
 // CIR-COMMON-SAME: ]> : !cir.array<!cir.ptr<!u8i> x 7> {alignment = 8 : i64}
 
 // LLVM-COMMON:      @_ZTT1D = global [7 x ptr] [
@@ -140,18 +140,18 @@ void D::y() {}
 
 // CIR-COMMON:      cir.global{{.*}} @_ZTC1D0_1B = #cir.vtable<{
 // CIR-COMMON-SAME:    #cir.const_array<[
-// CIR-COMMON-SAME:      #cir.ptr<40 : i64> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-NO-RTTI-SAME:     #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1B> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.global_view<@_ZN1B1wEv> : !cir.ptr<!u8i>
+// CIR-COMMON-SAME:      #cir.ptr<40 : i64>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:      #cir.ptr<null>{{( : !cir.ptr<!u8i>)?}},
+// CIR-NO-RTTI-SAME:     #cir.ptr<null>,
+// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1B>,
+// CIR-COMMON-SAME:      #cir.global_view<@_ZN1B1wEv>{{( : !cir.ptr<!u8i>)?}}
 // CIR-COMMON-SAME:    ]> : !cir.array<!cir.ptr<!u8i> x 4>,
 // CIR-COMMON-SAME:    #cir.const_array<[
-// CIR-COMMON-SAME:      #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.ptr<-40 : i64> : !cir.ptr<!u8i>,
-// CIR-NO-RTTI-SAME:     #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1B> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.global_view<@_ZN1A1vEv> : !cir.ptr<!u8i>
+// CIR-COMMON-SAME:      #cir.ptr<null>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:      #cir.ptr<-40 : i64>{{( : !cir.ptr<!u8i>)?}},
+// CIR-NO-RTTI-SAME:     #cir.ptr<null>,
+// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1B>,
+// CIR-COMMON-SAME:      #cir.global_view<@_ZN1A1vEv>{{( : !cir.ptr<!u8i>)?}}
 // CIR-COMMON-SAME:    ]> : !cir.array<!cir.ptr<!u8i> x 4>
 // CIR-COMMON-SAME:    }> : ![[REC_B_OR_C_IN_D_VTABLE]]
 
@@ -180,17 +180,17 @@ void D::y() {}
 
 // CIR-COMMON:       cir.global{{.*}} @_ZTC1D16_1C = #cir.vtable<{
 // CIR-COMMON-SAME:    #cir.const_array<[
-// CIR-COMMON-SAME:      #cir.ptr<24 : i64> : !cir.ptr<!u8i>,
-// CIR-NO-RTTI-SAME:     #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1C> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.global_view<@_ZN1C1xEv> : !cir.ptr<!u8i>
+// CIR-COMMON-SAME:      #cir.ptr<24 : i64>{{( : !cir.ptr<!u8i>)?}},
+// CIR-NO-RTTI-SAME:     #cir.ptr<null>,
+// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1C>,
+// CIR-COMMON-SAME:      #cir.global_view<@_ZN1C1xEv>{{( : !cir.ptr<!u8i>)?}}
 // CIR-COMMON-SAME:    ]> : !cir.array<!cir.ptr<!u8i> x 4>,
 // CIR-COMMON-SAME:    #cir.const_array<[
-// CIR-COMMON-SAME:      #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.ptr<-24 : i64> : !cir.ptr<!u8i>,
-// CIR-NO-RTTI-SAME:     #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1C> : !cir.ptr<!u8i>,
-// CIR-COMMON-SAME:      #cir.global_view<@_ZN1A1vEv> : !cir.ptr<!u8i>
+// CIR-COMMON-SAME:      #cir.ptr<null>{{( : !cir.ptr<!u8i>)?}},
+// CIR-COMMON-SAME:      #cir.ptr<-24 : i64>{{( : !cir.ptr<!u8i>)?}},
+// CIR-NO-RTTI-SAME:     #cir.ptr<null>,
+// CIR-RTTI-SAME:        #cir.global_view<@_ZTI1C>,
+// CIR-COMMON-SAME:      #cir.global_view<@_ZN1A1vEv>{{( : !cir.ptr<!u8i>)?}}
 // CIR-COMMON-SAME:  ]> : !cir.array<!cir.ptr<!u8i> x 4>}>
 // CIR-COMMON-SAME:  : ![[REC_B_OR_C_IN_D_VTABLE]]
 

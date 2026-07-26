@@ -34,9 +34,9 @@ int f1(int i) {
   return i;
 }
 
-// CIR:      cir.func{{.*}} @f1(%arg0: !s32i {llvm.noundef} loc({{.*}})) -> !s32i
-// CIR-NEXT:   %[[I_PTR:.*]] = cir.alloca "i" align(4) init : !cir.ptr<!s32i>
-// CIR-NEXT:   %[[RV:.*]] = cir.alloca "__retval" align(4) : !cir.ptr<!s32i>
+// CIR:      cir.func{{.*}} @f1(%arg0: !s32i {{.*llvm.noundef.*}} loc({{.*}})) -> !s32i
+// CIR-NEXT:   %[[I_PTR:.*]] = cir.alloca "i" {{.*}} : !cir.ptr<!s32i>
+// CIR-NEXT:   %[[RV:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!s32i>
 // CIR-NEXT:   cir.store{{.*}} %arg0, %[[I_PTR]] : !s32i, !cir.ptr<!s32i>
 // CIR-NEXT:   %[[I_IGNORED:.*]] = cir.load{{.*}} %[[I_PTR]] : !cir.ptr<!s32i>, !s32i
 // CIR-NEXT:   %[[I:.*]] = cir.load{{.*}} %[[I_PTR]] : !cir.ptr<!s32i>, !s32i
@@ -65,7 +65,7 @@ int f1(int i) {
 int f2(void) { return 3; }
 
 //      CIR: cir.func{{.*}} @f2() -> !s32i
-// CIR-NEXT:   %[[RV:.*]] = cir.alloca "__retval" align(4) : !cir.ptr<!s32i>
+// CIR-NEXT:   %[[RV:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!s32i>
 // CIR-NEXT:   %[[THREE:.*]] = cir.const #cir.int<3> : !s32i
 // CIR-NEXT:   cir.store{{.*}} %[[THREE]], %[[RV]] : !s32i, !cir.ptr<!s32i>
 // CIR-NEXT:   %[[R:.*]] = cir.load{{.*}} %0 : !cir.ptr<!s32i>, !s32i
@@ -87,8 +87,8 @@ int f3(void) {
 }
 
 //      CIR: cir.func{{.*}} @f3() -> !s32i
-// CIR-NEXT:   %[[RV:.*]] = cir.alloca "__retval" align(4) : !cir.ptr<!s32i>
-// CIR-NEXT:   %[[I_PTR:.*]] = cir.alloca "i" align(4) init : !cir.ptr<!s32i>
+// CIR-NEXT:   %[[RV:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!s32i>
+// CIR-NEXT:   %[[I_PTR:.*]] = cir.alloca "i" {{.*}} : !cir.ptr<!s32i>
 // CIR-NEXT:   %[[THREE:.*]] = cir.const #cir.int<3> : !s32i
 // CIR-NEXT:   cir.store{{.*}} %[[THREE]], %[[I_PTR]] : !s32i, !cir.ptr<!s32i>
 // CIR-NEXT:   %[[I:.*]] = cir.load{{.*}} %[[I_PTR]] : !cir.ptr<!s32i>, !s32i
@@ -172,7 +172,7 @@ int f6(void) {
 }
 
 //      CIR: cir.func{{.*}} @f6() -> !s32i
-// CIR-NEXT:   %[[RV:.*]] = cir.alloca "__retval" align(4) : !cir.ptr<!s32i>
+// CIR-NEXT:   %[[RV:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!s32i>
 // CIR-NEXT:   %[[GV_PTR:.*]] = cir.get_global @gv : !cir.ptr<!s32i>
 // CIR-NEXT:   %[[GV:.*]] = cir.load{{.*}} %[[GV_PTR]] : !cir.ptr<!s32i>, !s32i
 // CIR-NEXT:   cir.store{{.*}} %[[GV]], %[[RV]] : !s32i, !cir.ptr<!s32i>
@@ -269,7 +269,7 @@ void f9() {}
 
 void f10(int arg0, ...) {}
 
-//      CIR: cir.func{{.*}} @f10(%[[ARG0:.*]]: !s32i {llvm.noundef} loc({{.*}}), ...)
+//      CIR: cir.func{{.*}} @f10(%[[ARG0:.*]]: !s32i {{.*llvm.noundef.*}} loc({{.*}}), ...)
 // CIR-NEXT:   %[[ARG0_PTR:.*]] = cir.alloca "arg0" align(4) init : !cir.ptr<!s32i>
 // CIR-NEXT:   cir.store{{.*}} %[[ARG0]], %[[ARG0_PTR]] : !s32i, !cir.ptr<!s32i>
 // CIR-NEXT:   cir.return

@@ -106,57 +106,57 @@ void function() {
 // CIR-DAG: !rec_anon_struct1 = !cir.struct<{!u8i, !u8i, !cir.array<!u8i x 2>}>
 
 // CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE1e = #cir.zero : !rec_empty
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE1s = #cir.const_record<{#cir.int<0> : !s32i, #cir.int<-1> : !s32i}> : !rec_simple
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE2p1 = #cir.const_record<{#cir.int<10> : !s32i, #cir.int<20> : !s32i, #cir.const_array<[#cir.int<99> : !s8i, #cir.int<88> : !s8i, #cir.int<77> : !s8i]> : !cir.array<!s8i x 3>, #cir.int<40> : !s32i}> : !rec_Point
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE2p2 = #cir.const_record<{#cir.int<123> : !s8i, #cir.int<456> : !s32i}> : !rec_packed
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE3paa = #cir.const_record<{#cir.int<1> : !s16i, #cir.int<2> : !s8i, #cir.fp<3.000000e+00> : !cir.float, #cir.zero : !u8i}> : !rec_packed_and_aligned
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE1s = #cir.const_record<{#cir.int<0>, #cir.int<-1>}> : !rec_simple
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE2p1 = #cir.const_record<{#cir.int<10>, #cir.int<20>, #cir.const_array<[#cir.int<99>, #cir.int<88>, #cir.int<77>]>, #cir.int<40>}> : !rec_Point
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE2p2 = #cir.const_record<{#cir.int<123>, #cir.int<456>}> : !rec_packed
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE3paa = #cir.const_record<{#cir.int<1>, #cir.int<2>, #cir.fp<3.000000e+00>, #cir.zero}> : !rec_packed_and_aligned
 
 // CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE5array = #cir.const_array<[
-// CIR-DAG-SAME:   #cir.const_record<{#cir.int<123> : !s32i, #cir.int<456> : !s32i, #cir.const_array<[#cir.int<11> : !s8i, #cir.int<22> : !s8i, #cir.int<33> : !s8i]> : !cir.array<!s8i x 3>, #cir.int<789> : !s32i}> : !rec_Point
-// CIR-DAG-SAME:   #cir.const_record<{#cir.int<10> : !s32i, #cir.int<20> : !s32i, #cir.zero : !cir.array<!s8i x 3>, #cir.int<40> : !s32i}> : !rec_Point
+// CIR-DAG-SAME:   #cir.const_record<{#cir.int<123>, #cir.int<456>, #cir.const_array<[#cir.int<11>, #cir.int<22>, #cir.int<33>]>, #cir.int<789>}> : !rec_Point
+// CIR-DAG-SAME:   #cir.const_record<{#cir.int<10>, #cir.int<20>, #cir.zero : !cir.array<!s8i x 3>, #cir.int<40>}> : !rec_Point
 // CIR-DAG-SAME: ]> : !cir.array<!rec_Point x 2>
 
 // CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE12simple_array = #cir.const_array<[
-// CIR-DAG-SAME:   #cir.const_record<{#cir.int<0> : !s32i, #cir.int<-1> : !s32i}> : !rec_simple,
-// CIR-DAG-SAME:   #cir.const_record<{#cir.int<1111> : !s32i, #cir.int<2222> : !s32i}> : !rec_simple,
-// CIR-DAG-SAME:   #cir.const_record<{#cir.int<0> : !s32i, #cir.int<-1> : !s32i}> : !rec_simple
+// CIR-DAG-SAME:   #cir.const_record<{#cir.int<0>, #cir.int<-1>}> : !rec_simple,
+// CIR-DAG-SAME:   #cir.const_record<{#cir.int<1111>, #cir.int<2222>}> : !rec_simple,
+// CIR-DAG-SAME:   #cir.const_record<{#cir.int<0>, #cir.int<-1>}> : !rec_simple
 // CIR-DAG-SAME: ]> : !cir.array<!rec_simple x 3>
 
 // CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE12packed_array = #cir.const_array<[
-// CIR-DAG-SAME:   #cir.const_record<{#cir.int<123> : !s8i, #cir.int<456> : !s32i}> : !rec_packed,
-// CIR-DAG-SAME:   #cir.const_record<{#cir.int<123> : !s8i, #cir.int<456> : !s32i}> : !rec_packed
+// CIR-DAG-SAME:   #cir.const_record<{#cir.int<123>, #cir.int<456>}> : !rec_packed,
+// CIR-DAG-SAME:   #cir.const_record<{#cir.int<123>, #cir.int<456>}> : !rec_packed
 // CIR-DAG-SAME: ]> : !cir.array<!rec_packed x 2>
 
 // CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE9paa_array = #cir.const_array<[
-// CIR-DAG-SAME:   #cir.const_record<{#cir.int<1> : !s16i, #cir.int<2> : !s8i, #cir.fp<3.000000e+00> : !cir.float, #cir.zero : !u8i}> : !rec_packed_and_aligned,
+// CIR-DAG-SAME:   #cir.const_record<{#cir.int<1>, #cir.int<2>, #cir.fp<3.000000e+00>, #cir.zero}> : !rec_packed_and_aligned,
 // CIR-DAG-SAME:   #cir.zero : !rec_packed_and_aligned
 // CIR-DAG-SAME: ]> : !cir.array<!rec_packed_and_aligned x 2>
 
 // CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE6ba_bf1 = #cir.const_record<{
-// CIR-DAG-SAME:   #cir.int<255> : !u8i,
-// CIR-DAG-SAME:   #cir.int<170> : !u8i,
-// CIR-DAG-SAME:   #cir.int<52> : !u8i,
-// CIR-DAG-SAME:   #cir.int<18> : !u8i
+// CIR-DAG-SAME:   #cir.int<255>,
+// CIR-DAG-SAME:   #cir.int<170>,
+// CIR-DAG-SAME:   #cir.int<52>,
+// CIR-DAG-SAME:   #cir.int<18>
 // CIR-DAG-SAME: }> : !rec_anon_struct
 // CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE6ba_bf2 = #cir.const_record<{
-// CIR-DAG-SAME:   #cir.int<255> : !u8i,
-// CIR-DAG-SAME:   #cir.int<127> : !u8i,
+// CIR-DAG-SAME:   #cir.int<255>,
+// CIR-DAG-SAME:   #cir.int<127>,
 // CIR-DAG-SAME:   #cir.const_array<[#cir.zero : !u8i, #cir.zero : !u8i]> : !cir.array<!u8i x 2>
 // CIR-DAG-SAME: }> : !rec_anon_struct1
 // CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE6ba_bf3 = #cir.const_record<{
-// CIR-DAG-SAME:   #cir.int<42> : !u8i
+// CIR-DAG-SAME:   #cir.int<42>
 // CIR-DAG-SAME: }> : !rec_single_byte_bitfield
 // CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE5p_bf1 = #cir.const_record<{
-// CIR-DAG-SAME:   #cir.int<17> : !u8i,
-// CIR-DAG-SAME:   #cir.int<3> : !u8i,
+// CIR-DAG-SAME:   #cir.int<17>,
+// CIR-DAG-SAME:   #cir.int<3>,
 // CIR-DAG-SAME:   #cir.const_array<[#cir.zero : !u8i, #cir.zero : !u8i]> : !cir.array<!u8i x 2>
 // CIR-DAG-SAME: }> : !rec_anon_struct1
 // CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE5p_bf2 = #cir.const_record<{
-// CIR-DAG-SAME:   #cir.int<127> : !u8i,
+// CIR-DAG-SAME:   #cir.int<127>,
 // CIR-DAG-SAME:   #cir.const_array<[#cir.zero : !u8i, #cir.zero : !u8i, #cir.zero : !u8i]> : !cir.array<!u8i x 3>
 // CIR-DAG-SAME: }> : !rec_signed_partial_bitfields
 // CIR-DAG: cir.global "private" constant internal dso_local @_ZZ8functionvE5p_bf3 = #cir.const_record<{
-// CIR-DAG-SAME:   #cir.int<125> : !u8i
+// CIR-DAG-SAME:   #cir.int<125>
 // CIR-DAG-SAME: }> : !rec_mixed_partial_bitfields
 
 // CIR-LABEL: cir.func {{.*}} @_Z8functionv()

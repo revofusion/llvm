@@ -21,7 +21,7 @@ extern "C" void use() {
   // CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
   // CIR: %[[GET_STRUCT_CALL:.*]] = cir.call @getStruct(%[[ZERO]])
   // CIR: cir.store{{.*}} %[[GET_STRUCT_CALL]], %[[TEMP_ALLOCA]]
-  // CIR: %[[GET_MEMBER:.*]] = cir.get_member %[[TEMP_ALLOCA]][0] {name = "member"}
+  // CIR: %[[GET_MEMBER:.*]] = cir.get_member %[[TEMP_ALLOCA]][0] {{.*name = "member".*}} : !cir.ptr<!rec_Struct> -> !cir.ptr<!s32i>
   // CIR: %[[LOAD_MEM:.*]] = cir.load{{.*}}%[[GET_MEMBER]]
   // CIR: cir.store{{.*}} %[[LOAD_MEM]], %[[G_ALLOCA]] : !s32i, !cir.ptr<!s32i>
   //

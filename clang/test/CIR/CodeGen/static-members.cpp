@@ -14,7 +14,7 @@ struct S {
 
 // CIR: cir.global linkonce_odr comdat @_ZN1S2hdE = #cir.zero : !rec_HasDtor
 
-// CIR: cir.func internal private @__cxx_global_var_init() {
+// CIR: cir.func internal private @__cxx_global_var_init() attributes {{.*owner = @_ZN1S2hdE.*}} {
 // CIR:   %[[HD:.*]] = cir.get_global @_ZN1S2hdE : !cir.ptr<!rec_HasDtor>
 // CIR:   %[[DTOR:.*]] = cir.get_global @_ZN7HasDtorD1Ev : !cir.ptr<!cir.func<(!cir.ptr<!rec_HasDtor>)>>
 // CIR:   %[[DTOR_CAST:.*]] = cir.cast bitcast %[[DTOR]] : !cir.ptr<!cir.func<(!cir.ptr<!rec_HasDtor>)>> -> !cir.ptr<!cir.func<(!cir.ptr<!void>)>>

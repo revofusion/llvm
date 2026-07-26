@@ -55,9 +55,9 @@ void test() {
 // CIR:   %[[O_ALLOCA:.+]] = cir.alloca "o" {{.*}}
 // CIR:   %[[CONST_42:.+]] = cir.const #cir.int<42> : !s32i
 // CIR:   cir.store align(4) %[[CONST_42]], %[[X_ALLOCA]] : !s32i, !cir.ptr<!s32i>
-// CIR:   %[[INLINE_CALL:.+]] = cir.call @_ZNK15inline_operatorcviEv(%[[I_ALLOCA]]) : ({{.*}}) -> (!s32i{{.*}})
+// CIR:   %[[INLINE_CALL:.+]] = cir.call @_ZNK15inline_operatorcviEv(%[[I_ALLOCA]]) {{.*}} : ({{.*}}) -> (!s32i{{.*}})
 // CIR:   cir.store align(4) %[[INLINE_CALL]], %[[X_ALLOCA]] : !s32i, !cir.ptr<!s32i>
-// CIR:   %[[OUTLINE_CALL:.+]] = cir.call @_ZN20out_of_line_operatorcviEv(%[[O_ALLOCA]]) : ({{.*}}) -> (!s32i{{.*}})
+// CIR:   %[[OUTLINE_CALL:.+]] = cir.call @_ZN20out_of_line_operatorcviEv(%[[O_ALLOCA]]) {{.*}} : ({{.*}}) -> (!s32i{{.*}})
 // CIR:   cir.store align(4) %[[OUTLINE_CALL]], %[[X_ALLOCA]] : !s32i, !cir.ptr<!s32i>
 // CIR:   cir.return
 // CIR: }

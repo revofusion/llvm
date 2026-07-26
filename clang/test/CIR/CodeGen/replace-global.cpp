@@ -40,7 +40,24 @@ S gSMulti = {{0x50, 0x4B, 0x03, 0x04}};
 
 char *get_ptr_to_element() { return ptrToElement; }
 
-// CIR: cir.global {{.*}} @_ZL2gS = #cir.const_record<{#cir.const_record<{#cir.int<80> : !s8i, #cir.int<75> : !s8i, #cir.int<3> : !s8i, #cir.int<4> : !s8i, #cir.zero : !cir.array<!s8i x 24>}> : !rec_anon_struct}> : !rec_anon_struct1
+// A protobuf-style aggregate can combine a view of a member in a global whose
+// storage is later narrowed with a string-backed constant array. Rewriting the
+// view must retain the member pointer type and leave the string unchanged.
+struct TextWithString {
+  char text[4];
+};
+struct MemberAndString {
+  char *member;
+  TextWithString payload;
+};
+extern S gMemberAndString;
+MemberAndString memberAndString = {&gMemberAndString.arr[5], {{"cir"}}};
+S gMemberAndString = {{0x50, 0x4B, 0x03, 0x04}};
+S *wholeMemberAndString = &gMemberAndString;
+
+char *get_member_and_string_ptr() { return memberAndString.member; }
+
+// CIR: cir.global {{.*}} @_ZL2gS = #cir.const_record<{#cir.const_record<{#cir.int<80>, #cir.int<75>, #cir.int<3>, #cir.int<4>, #cir.zero}> : !rec_anon_struct}> : !rec_anon_struct1
 // CIR: cir.global {{.*}} @ptrToS = #cir.global_view<@_ZL2gS> : !cir.ptr<!rec_S>
 
 // CIR: cir.func {{.*}} @_ZN1RC2Ev
@@ -54,6 +71,12 @@ char *get_ptr_to_element() { return ptrToElement; }
 // CIR: cir.global {{.*}} @gSMulti = #cir.const_record<
 // CIR: cir.global {{.*}} @ptrToElement = #cir.global_view<@gSMulti, [0, 4, 1]> : !cir.ptr<
 
+// The view denotes the char subobject, not the narrowed physical type of
+// gMemberAndString.
+// CIR-DAG: cir.global {{.*}} @gMemberAndString = #cir.const_record<
+// CIR-DAG: cir.global {{.*}} @memberAndString = #cir.const_record<{#cir.global_view<@gMemberAndString, [0, 4, 1]>, #cir.const_record<{#cir.const_array<"cir" : !cir.array<!s8i x 3>, trailing_zeros>}> : !rec_TextWithString}> : !rec_MemberAndString
+// CIR-DAG: cir.global {{.*}} @wholeMemberAndString = #cir.global_view<@gMemberAndString> : !cir.ptr<!rec_S>
+
 // CIR: cir.func {{.*}} @_Z15use_as_constantv()
 // CIR:   %[[PTR_TO_S:.*]] = cir.alloca "ptrToS" {{.*}} init const : !cir.ptr<!cir.ptr<!rec_S>>
 // CIR:   %[[GLOBAL_PTR:.*]] = cir.const #cir.global_view<@_ZL2gS> : !cir.ptr<!rec_S>
@@ -63,6 +86,9 @@ char *get_ptr_to_element() { return ptrToElement; }
 // LLVM: @ptrToS = global ptr @_ZL2gS, align 8
 // LLVM: @gSMulti = global {{.*}} align 1
 // LLVM: @ptrToElement = global ptr getelementptr
+// LLVM-DAG: @gMemberAndString = global {{.*}} align 1
+// LLVM-DAG: @memberAndString = global {{.*}}ptr getelementptr{{.*}}@gMemberAndString
+// LLVM-DAG: @wholeMemberAndString = global ptr @gMemberAndString
 
 // LLVM: define {{.*}} void @_ZN1RC2Ev
 // LLVM:   call void @_Z3usePv(ptr noundef @_ZL2gS)
@@ -74,6 +100,9 @@ char *get_ptr_to_element() { return ptrToElement; }
 // OGCG: @ptrToS = global ptr @_ZL2gS, align 8
 // OGCG: @ptrToElement = global ptr {{.*}} align 8
 // OGCG: @gSMulti = global {{.*}} align 1
+// OGCG-DAG: @memberAndString = global {{.*}}ptr getelementptr{{.*}}@gMemberAndString
+// OGCG-DAG: @gMemberAndString = global {{.*}} align 1
+// OGCG-DAG: @wholeMemberAndString = global ptr @gMemberAndString
 // OGCG: @_ZL2gS = internal global { <{ i8, i8, i8, i8, [24 x i8] }> } { <{ i8, i8, i8, i8, [24 x i8] }> <{ i8 80, i8 75, i8 3, i8 4, [24 x i8] zeroinitializer }> }, align 1
 
 // OGCG: define {{.*}} void @_Z15use_as_constantv()

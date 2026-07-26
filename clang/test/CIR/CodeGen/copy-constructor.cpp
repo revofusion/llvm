@@ -18,9 +18,9 @@ HasScalarArrayMember::HasScalarArrayMember(const HasScalarArrayMember &) = defau
 // CIR-NEXT:    cir.store %arg0, %[[THIS]]
 // CIR-NEXT:    cir.store %arg1, %[[OTHER]]
 // CIR-NEXT:    %[[THIS_LOAD:.*]] = cir.load{{.*}} %[[THIS]]
-// CIR-NEXT:    %[[THIS_ARR:.*]] = cir.get_member %[[THIS_LOAD]][0] {name = "arr"}
+// CIR-NEXT:    %[[THIS_ARR:.*]] = cir.get_member %[[THIS_LOAD]][0] {{.*name = "arr".*}} : !cir.ptr<!rec_HasScalarArrayMember> -> !cir.ptr<!cir.array<!cir.array<!s32i x 2> x 2>>
 // CIR-NEXT:    %[[OTHER_LOAD:.*]] = cir.load{{.*}} %[[OTHER]]
-// CIR-NEXT:    %[[OTHER_ARR:.*]] = cir.get_member %[[OTHER_LOAD]][0] {name = "arr"}
+// CIR-NEXT:    %[[OTHER_ARR:.*]] = cir.get_member %[[OTHER_LOAD]][0] {{.*name = "arr".*}} : !cir.ptr<!rec_HasScalarArrayMember> -> !cir.ptr<!cir.array<!cir.array<!s32i x 2> x 2>>
 // CIR-NEXT:    cir.copy %[[OTHER_ARR]] to %[[THIS_ARR]] : !cir.ptr<!cir.array<!cir.array<!s32i x 2> x 2>>
 // CIR-NEXT:    cir.return
 

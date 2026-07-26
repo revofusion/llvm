@@ -21,6 +21,19 @@ struct Dtor {
 
 void use() { Ctor c; Dtor d; }
 
+struct NarrowStatic {
+  char bytes[8];
+};
+
+struct NarrowCtor {
+  NarrowCtor() {
+    static NarrowStatic value = {{"x"}};
+    (void)value;
+  }
+};
+
+void use_narrow() { NarrowCtor n; }
+
 
 // Static local inside the constructor body.
 
@@ -33,6 +46,13 @@ void use() { Ctor c; Dtor d; }
 // CIR-DAG: cir.global linkonce_odr comdat @_ZZN4DtorD1EvE1y = #cir.int<7> : !s32i {alignment = 4 : i64}
 // LLVM-DAG: @_ZZN4DtorD1EvE1y = linkonce_odr global i32 7, comdat, align 4
 
+// A constructor body is emitted more than once. After the first emission
+// narrows the aggregate static's physical storage type, later emissions must
+// cast its get_global result back to the declared object type before forming
+// an Address.
+// CIR-DAG: cir.global linkonce_odr comdat @_ZZN10NarrowCtorC1EvE5value = #cir.const_record<{#cir.const_array<"x" : !cir.array<!s8i x 1>, trailing_zeros>}> : !rec_NarrowStatic
+// LLVM-DAG: @[[NARROW_STATIC_LLVM:_ZZN10NarrowCtorC1EvE5value]] = linkonce_odr global
+
 
 // The static local is loaded by cir.get_global inside the base-subobject
 // constructor / destructor body (Itanium ABI emits both C1/C2 and D1/D2;
@@ -43,3 +63,6 @@ void use() { Ctor c; Dtor d; }
 
 // CIR: cir.func{{.*}}@_ZN4DtorD2Ev
 // CIR:   cir.get_global @_ZZN4DtorD1EvE1y : !cir.ptr<!s32i>
+
+// CIR-LABEL: cir.func{{.*}}@_ZN10NarrowCtorC2Ev
+// CIR: %[[NARROW_GLOBAL:.*]] = cir.get_global @_ZZN10NarrowCtorC1EvE5value : !cir.ptr<!rec_NarrowStatic>

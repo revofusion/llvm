@@ -23,7 +23,7 @@ int test_agg_cond(int a0, struct s6 a1, struct s6 a2) {
 // CIR:  } else {
 // CIR:    cir.copy %[[A2]] to %[[TMP]] : !cir.ptr<!rec_s6>
 // CIR:  }
-// CIR:  cir.get_member %[[TMP]][0] {name = "f0"} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
+// CIR: cir.get_member %[[TMP]][0] {{.*name = "f0".*}} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
 
 // LLVM: define {{.*}} i32 @test_agg_cond
 // LLVM:    %[[LOAD_A0:.*]] = load i32, ptr {{.*}}
@@ -77,7 +77,7 @@ int test_stmt_expr(int flag, struct s6 a1, struct s6 a2) {
 // CIR:  } else {
 // CIR:    cir.copy %[[A2]] to %[[TMP]] : !cir.ptr<!rec_s6>
 // CIR:  }
-// CIR:  cir.get_member %[[TMP]][0] {name = "f0"} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
+// CIR: cir.get_member %[[TMP]][0] {{.*name = "f0".*}} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
 
 // LLVM: define {{.*}} i32 @test_stmt_expr
 // LLVM:    %[[LOAD_FLAG:.*]] = load i32, ptr {{.*}}

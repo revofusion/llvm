@@ -23,15 +23,15 @@ void test_init_list_with_dtor() {
 
 // CIR: cir.func {{.*}} @_Z24test_init_list_with_dtorv
 // CIR:   %[[O:.*]] = cir.alloca "o" {{.*}} init : !cir.ptr<!rec_Outer>
-// CIR:   %[[S1:.*]] = cir.get_member %[[O]][0] {name = "s1"} : !cir.ptr<!rec_Outer> -> !cir.ptr<!rec_Struk>
+// CIR:   %[[S1:.*]] = cir.get_member %[[O]][0] {{.*name = "s1".*}} : !cir.ptr<!rec_Outer> -> !cir.ptr<!rec_Struk>
 // CIR:   %[[ONE:.*]] = cir.const #cir.int<1>
 // CIR:   cir.call @_ZN5StrukC1Ei(%[[S1]], %[[ONE]])
 // CIR:   cir.cleanup.scope {
-// CIR:     %[[S2:.*]] = cir.get_member %[[O]][1] {name = "s2"} : !cir.ptr<!rec_Outer> -> !cir.ptr<!rec_Struk>
+// CIR:     %[[S2:.*]] = cir.get_member %[[O]][1] {{.*name = "s2".*}} : !cir.ptr<!rec_Outer> -> !cir.ptr<!rec_Struk>
 // CIR:     %[[TWO:.*]] = cir.const #cir.int<2>
 // CIR:     cir.call @_ZN5StrukC1Ei(%[[S2]], %[[TWO]])
 // CIR:     cir.cleanup.scope {
-// CIR:       %[[X:.*]] = cir.get_member %[[O]][2] {name = "x"}
+// CIR:       %[[X:.*]] = cir.get_member %[[O]][2] {{.*name = "x".*}} : !cir.ptr<!rec_Outer> -> !cir.ptr<!s32i>
 // CIR:       %[[THREE:.*]] = cir.const #cir.int<3> : !s32i
 // CIR:       cir.store align(4) %[[THREE]], %[[X]]
 // CIR:       cir.yield

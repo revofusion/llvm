@@ -242,6 +242,13 @@ private:
   /// `noundef` on a return is possible.
   bool hasStrictReturn(QualType retTy, const Decl *targetDecl);
 
+  mlir::ArrayAttr buildCastEndpointSourceType(QualType type);
+  mlir::StringAttr getSourceTypeSpelling(QualType type);
+  mlir::StringAttr getRecordUSRAttr(const RecordDecl *record);
+  llvm::DenseMap<QualType, mlir::ArrayAttr> castEndpointSourceTypeCache;
+  llvm::DenseMap<QualType, mlir::StringAttr> sourceTypeSpellingCache;
+  llvm::DenseMap<const RecordDecl *, mlir::StringAttr> recordUSRCache;
+
   llvm::DenseMap<const Expr *, mlir::Operation *>
       materializedGlobalTemporaryMap;
 

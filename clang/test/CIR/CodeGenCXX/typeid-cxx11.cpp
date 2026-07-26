@@ -24,10 +24,10 @@ struct B : virtual A {};
 struct C { int n; };
 
 // CIR: cir.global constant external @_ZN5Test15itemsE = #cir.const_array<[
-// CIR-SAME: #cir.const_record<{#cir.global_view<@_ZTIN5Test11AE> : !cir.ptr<!rec_std3A3Atype_info>, #cir.global_view<@".str"> : !cir.ptr<!s8i>, #cir.global_view<@_ZN5Test19make_implINS_1AEEEPvv> : !cir.ptr<!cir.func<() -> !cir.ptr<!void>>>}> : !rec_Test13A3AItem
-// CIR-SAME: #cir.const_record<{#cir.global_view<@_ZTIN5Test11BE> : !cir.ptr<!rec_std3A3Atype_info>, #cir.global_view<@".str.1"> : !cir.ptr<!s8i>, #cir.global_view<@_ZN5Test19make_implINS_1BEEEPvv> : !cir.ptr<!cir.func<() -> !cir.ptr<!void>>>}> : !rec_Test13A3AItem
-// CIR-SAME: #cir.const_record<{#cir.global_view<@_ZTIN5Test11CE> : !cir.ptr<!rec_std3A3Atype_info>, #cir.global_view<@".str.2"> : !cir.ptr<!s8i>, #cir.global_view<@_ZN5Test19make_implINS_1CEEEPvv> : !cir.ptr<!cir.func<() -> !cir.ptr<!void>>>}> : !rec_Test13A3AItem
-// CIR-SAME: #cir.const_record<{#cir.global_view<@_ZTIi> : !cir.ptr<!rec_std3A3Atype_info>, #cir.global_view<@".str.3"> : !cir.ptr<!s8i>, #cir.global_view<@_ZN5Test19make_implIiEEPvv> : !cir.ptr<!cir.func<() -> !cir.ptr<!void>>>}> : !rec_Test13A3AItem
+// CIR-SAME: #cir.const_record<{#cir.global_view<@_ZTIN5Test11AE>, #cir.global_view<@".str">, #cir.global_view<@_ZN5Test19make_implINS_1AEEEPvv>}>
+// CIR-SAME: #cir.const_record<{#cir.global_view<@_ZTIN5Test11BE>, #cir.global_view<@".str.1">, #cir.global_view<@_ZN5Test19make_implINS_1BEEEPvv>}>
+// CIR-SAME: #cir.const_record<{#cir.global_view<@_ZTIN5Test11CE>, #cir.global_view<@".str.2">, #cir.global_view<@_ZN5Test19make_implINS_1CEEEPvv>}>
+// CIR-SAME: #cir.const_record<{#cir.global_view<@_ZTIi>, #cir.global_view<@".str.3">, #cir.global_view<@_ZN5Test19make_implIiEEPvv>}>
 // CIR-SAME: ]> : !cir.array<!rec_Test13A3AItem x 4>
 //
 // LLVM: @_ZN5Test15itemsE ={{.*}} constant [4 x {{.*}}] [{{.*}} @_ZTIN5Test11AE, {{.*}} @_ZN5Test19make_implINS_1AEEEPvv {{.*}} @_ZTIN5Test11BE, {{.*}} @_ZN5Test19make_implINS_1BEEEPvv {{.*}} @_ZTIN5Test11CE, {{.*}} @_ZN5Test19make_implINS_1CEEEPvv {{.*}} @_ZTIi, {{.*}} @_ZN5Test19make_implIiEEPvv }]

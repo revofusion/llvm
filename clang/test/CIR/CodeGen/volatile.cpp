@@ -74,8 +74,8 @@ int test_load_field3(Foo *ptr) {
 }
 
 // CIR: cir.func {{.*}} @_Z16test_load_field3P3Foo
-// CIR:   %[[MEMBER_ADDR:.*]] = cir.get_member
-// CIR:   %{{.*}} = cir.get_bitfield align(4) (#bfi_z, %[[MEMBER_ADDR:.+]] {is_volatile} : !cir.ptr<!u8i>) -> !s32i
+// CIR:   %[[MEMBER_ADDR:.*]] = cir.get_member %{{.*}}[2] {{.*name = "z".*}} : !cir.ptr<!rec_Foo> -> !cir.ptr<!u8i>
+// CIR:   %{{.*}} = cir.get_bitfield align(4) (#bfi_z, %[[MEMBER_ADDR]] {{.*is_volatile.*}} : !cir.ptr<!u8i>) -> !s32i
 
 // LLVM: define {{.*}} i32 @_Z16test_load_field3P3Foo
 // LLVM:   %[[MEMBER_ADDR:.*]] = getelementptr inbounds nuw %struct.Foo, ptr %{{.*}}, i32 0, i32 2
@@ -156,7 +156,7 @@ void A::set_x(int val) volatile {
 }
 
 // CIR: cir.func {{.*}} @_ZNV1A5set_xEi
-// CIR:   %[[MEMBER_ADDR:.*]] = cir.get_member %{{.*}}[0] {name = "x"}
+// CIR:   %[[MEMBER_ADDR:.*]] = cir.get_member %{{.*}}[0] {{.*name = "x".*}} : !cir.ptr<!rec_A> -> !cir.ptr<!s32i>
 // CIR:   cir.store volatile {{.*}} %{{.*}}, %[[MEMBER_ADDR]]
 
 // LLVM: define {{.*}} void @_ZNV1A5set_xEi
@@ -172,7 +172,7 @@ int A::get_x() volatile {
 }
 
 // CIR: cir.func {{.*}} @_ZNV1A5get_xEv
-// CIR:   %[[MEMBER_ADDR:.*]] = cir.get_member %{{.*}}[0] {name = "x"}
+// CIR:   %[[MEMBER_ADDR:.*]] = cir.get_member %{{.*}}[0] {{.*name = "x".*}} : !cir.ptr<!rec_A> -> !cir.ptr<!s32i>
 // CIR:   cir.load volatile {{.*}} %[[MEMBER_ADDR]]
 
 // LLVM: define {{.*}} i32 @_ZNV1A5get_xEv

@@ -37,17 +37,17 @@ Inherits I;
 // LLVM: @I = global %struct.Inherits zeroinitializer, align 4
 
 Inherits I2 {{1,2,3},{1.1, 2.2, 3.3}, 4, 5, 6};
-// CIR: cir.global external @I2 = #cir.const_record<{#cir.int<1> : !s32i, #cir.int<2> : !s32i, #cir.int<3> : !s32i, #cir.fp<1.100000e+00> : !cir.float, #cir.fp<2.200000e+00> : !cir.float, #cir.fp<3.300000e+00> : !cir.float, #cir.int<4> : !s32i, #cir.int<5> : !s32i, #cir.int<6> : !s32i}> : !rec_anon_struct {alignment = 4 : i64}
+// CIR: cir.global external @I2 = #cir.const_record<{#cir.int<1>, #cir.int<2>, #cir.int<3>, #cir.fp<1.100000e+00>, #cir.fp<2.200000e+00>, #cir.fp<3.300000e+00>, #cir.int<4>, #cir.int<5>, #cir.int<6>}> : !rec_anon_struct {alignment = 4 : i64}
 // LLVM: @I2 = global { i32, i32, i32, float, float, float, i32, i32, i32 } { i32 1, i32 2, i32 3, float {{.*}}, float {{.*}}, float {{.*}}, i32 4, i32 5, i32 6 }, align 4
 
 VirtualInherits VI;
 // CIR-BEFORE: cir.global external @VI = ctor : !rec_VirtualInherits {
 // CIR-BEFORE:   %[[GET_GLOB:.*]] = cir.get_global @VI : !cir.ptr<!rec_VirtualInherits>
 // CIR-BEFORE:   cir.call @_ZN15VirtualInheritsC1Ev(%[[GET_GLOB]]) nothrow : (!cir.ptr<!rec_VirtualInherits> {llvm.align = 8 : i64, llvm.dereferenceable = 20 : i64, llvm.nonnull, llvm.noundef}) -> ()
-// CIR-BEFORE: } {alignment = 8 : i64, ast = #cir.var.decl.ast}
+// CIR-BEFORE: } {alignment = 8 : i64, ast = #cir.var.decl.ast, ast_global_lifecycle_identity = {declaration_usr = "c:@VI", priority = 65535 : i64}}
 //
-// CIR-AFTER: cir.global external @VI = #cir.zero : !rec_VirtualInherits {alignment = 8 : i64, ast = #cir.var.decl.ast}
-// CIR-AFTER: cir.func {{.*}}@__cxx_global_var_init() {
+// CIR-AFTER: cir.global external @VI = #cir.zero : !rec_VirtualInherits {alignment = 8 : i64, ast = #cir.var.decl.ast{{.*}}}
+// CIR-AFTER: cir.func {{.*}}@__cxx_global_var_init() {{(.*)}} {
 // CIR-AFTER:   %[[GET_GLOB:.*]] = cir.get_global @VI : !cir.ptr<!rec_VirtualInherits> loc(#loc13)
 // CIR-AFTER:   cir.call @_ZN15VirtualInheritsC1Ev(%[[GET_GLOB]]) nothrow : (!cir.ptr<!rec_VirtualInherits> {llvm.align = 8 : i64, llvm.dereferenceable = 20 : i64, llvm.nonnull, llvm.noundef}) -> ()
 

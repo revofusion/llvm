@@ -248,8 +248,7 @@ mlir::Type CIRGenTypes::convertRecordDeclType(const clang::RecordDecl *rd) {
     if (mlir::StringAttr entryName = entry.getName()) {
       if (auto identity = recordDeclIdentity(cgm, rd); identity.has_value())
         cgm.addRecordDeclIdentity(
-            entryName,
-            mlir::StringAttr::get(&cgm.getMLIRContext(), *identity));
+            entryName, mlir::StringAttr::get(&cgm.getMLIRContext(), *identity));
     }
   }
 
@@ -544,7 +543,7 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
     QualType elemTy = ptrTy->getPointeeType();
     assert(!elemTy->isConstantMatrixType() && "not implemented");
 
-    mlir::Type pointeeType = convertType(elemTy);
+    mlir::Type pointeeType = convertTypeForMem(elemTy);
 
     resultType = builder.getPointerTo(pointeeType, elemTy.getAddressSpace());
     break;
@@ -695,6 +694,20 @@ mlir::Type CIRGenTypes::convertTypeForMem(clang::QualType qualType,
   mlir::Type convertedType = convertType(qualType);
 
   assert(!forBitField && "Bit fields NYI");
+  if (const auto *vecTy = qualType->getAs<clang::VectorType>();
+      vecTy && vecTy->isExtVectorBoolType()) {
+    if (qualType->isPackedVectorBoolType(astContext)) {
+      unsigned numElements = vecTy->getNumElements();
+      unsigned storageWidth = numElements < 8 ? 8 : numElements;
+      return builder.getUIntNTy(storageWidth);
+    }
+
+    // HLSL boolean vectors are not bit-packed. Match classic CodeGen's
+    // vector-of-scalar-memory-representation layout.
+    unsigned elementWidth = astContext.getTypeSize(vecTy->getElementType());
+    mlir::Type elementType = builder.getUIntNTy(elementWidth);
+    return cir::VectorType::get(elementType, vecTy->getNumElements());
+  }
 
   // If this is a bit-precise integer type in a bitfield representation, map
   // this integer to the target-specified size.

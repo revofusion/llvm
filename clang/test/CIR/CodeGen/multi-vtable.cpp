@@ -39,19 +39,7 @@ void Child::MotherKey() {}
 
 // Child vtable
 
-// CIR:      cir.global "private" external @_ZTV5Child = #cir.vtable<{
-// CIR-SAME:     #cir.const_array<[
-// CIR-SAME:         #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-SAME:         #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-SAME:         #cir.global_view<@_ZN5Child9MotherKeyEv> : !cir.ptr<!u8i>,
-// CIR-SAME:         #cir.global_view<@_ZN6Mother12MotherNonKeyEv> : !cir.ptr<!u8i>
-// CIR-SAME:     ]> : !cir.array<!cir.ptr<!u8i> x 4>,
-// CIR-SAME:     #cir.const_array<[
-// CIR-SAME:         #cir.ptr<-8 : i64> : !cir.ptr<!u8i>,
-// CIR-SAME:         #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-SAME:         #cir.global_view<@_ZN6Father9FatherKeyEv> : !cir.ptr<!u8i>
-// CIR-SAME:     ]> : !cir.array<!cir.ptr<!u8i> x 3>
-// CIR-SAME: }> : [[CHILD_VTABLE_TYPE]]
+// CIR:      cir.global "private" external @_ZTV5Child = #cir.vtable<{#cir.const_array<[#cir.ptr<null>, #cir.ptr<null>, #cir.global_view<@_ZN5Child9MotherKeyEv>, #cir.global_view<@_ZN6Mother12MotherNonKeyEv>]> : !cir.array<!cir.ptr<!u8i> x 4>, #cir.const_array<[#cir.ptr<-8 : i64>, #cir.ptr<null>, #cir.global_view<@_ZN6Father9FatherKeyEv>]> : !cir.array<!cir.ptr<!u8i> x 3>}> : !rec_anon_struct
 
 // LLVM:      @_ZTV5Child = global { [4 x ptr], [3 x ptr] } {
 // LLVM-SAME:     [4 x ptr] [
@@ -83,14 +71,7 @@ void Child::MotherKey() {}
 
 // Mother vtable
 
-// CIR:      cir.global "private" external @_ZTV6Mother = #cir.vtable<{
-// CIR-SAME:      #cir.const_array<[
-// CIR-SAME:          #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-SAME:          #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-SAME:          #cir.global_view<@_ZN6Mother9MotherKeyEv> : !cir.ptr<!u8i>,
-// CIR-SAME:          #cir.global_view<@_ZN6Mother12MotherNonKeyEv> : !cir.ptr<!u8i>
-// CIR-SAME:      ]> : !cir.array<!cir.ptr<!u8i> x 4>
-// CIR-SAME: }> : [[MOTHER_VTABLE_TYPE]]
+// CIR:      cir.global "private" external @_ZTV6Mother = #cir.vtable<{#cir.const_array<[#cir.ptr<null>, #cir.ptr<null>, #cir.global_view<@_ZN6Mother9MotherKeyEv>, #cir.global_view<@_ZN6Mother12MotherNonKeyEv>]> : !cir.array<!cir.ptr<!u8i> x 4>}> : !rec_anon_struct1
 
 // LLVM:      @_ZTV6Mother = global { [4 x ptr] } {
 // LLVM-SAME:     [4 x ptr] [
@@ -112,13 +93,7 @@ void Child::MotherKey() {}
 
 // Father vtable
 
-// CIR:      cir.global "private" external @_ZTV6Father = #cir.vtable<{
-// CIR-SAME:     #cir.const_array<[
-// CIR-SAME:         #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-SAME:         #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-SAME:         #cir.global_view<@_ZN6Father9FatherKeyEv> : !cir.ptr<!u8i>
-// CIR-SAME:     ]> : !cir.array<!cir.ptr<!u8i> x 3>
-// CIR-SAME: }> : [[FATHER_VTABLE_TYPE]]
+// CIR:      cir.global "private" external @_ZTV6Father = #cir.vtable<{#cir.const_array<[#cir.ptr<null>, #cir.ptr<null>, #cir.global_view<@_ZN6Father9FatherKeyEv>]> : !cir.array<!cir.ptr<!u8i> x 3>}> : !rec_anon_struct2
 
 // LLVM:      @_ZTV6Father = global { [3 x ptr] } {
 // LLVM-SAME:     [3 x ptr] [

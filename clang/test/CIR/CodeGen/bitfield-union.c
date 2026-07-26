@@ -42,13 +42,13 @@ void f() {
 // CIR:   cir.func {{.*}} @f
 // CIR:    [[ALLOC:%.*]] = cir.alloca "d" align(4) : !cir.ptr<!rec_demo>
 // CIR:    [[ONE:%.*]] = cir.const #cir.int<1> : !s32i
-// CIR:    [[X:%.*]] = cir.get_member [[ALLOC]][0] {name = "x"} : !cir.ptr<!rec_demo> -> !cir.ptr<!s32i>
+// CIR:    [[X:%.*]] = cir.get_member [[ALLOC]][0] {{.*name = "x".*}} : !cir.ptr<!rec_demo> -> !cir.ptr<!s32i>
 // CIR:    cir.store align(4) [[ONE]], [[X]] : !s32i, !cir.ptr<!s32i>
 // CIR:    [[TWO:%.*]] = cir.const #cir.int<2> : !s32i
-// CIR:    [[Y:%.*]] = cir.get_member [[ALLOC]][1] {name = "y"} : !cir.ptr<!rec_demo> -> !cir.ptr<!u8i>
+// CIR:    [[Y:%.*]] = cir.get_member [[ALLOC]][1] {{.*name = "y".*}} : !cir.ptr<!rec_demo> -> !cir.ptr<!u8i>
 // CIR:    [[SET:%.*]] = cir.set_bitfield align(4) (#bfi_y, [[Y]] : !cir.ptr<!u8i>, [[TWO]] : !s32i) -> !s32i
 // CIR:    [[ZERO:%.*]] = cir.const #cir.int<0> : !s32i
-// CIR:    [[Z:%.*]] = cir.get_member [[ALLOC]][2] {name = "z"} : !cir.ptr<!rec_demo> -> !cir.ptr<!u8i>
+// CIR:    [[Z:%.*]] = cir.get_member [[ALLOC]][2] {{.*name = "z".*}} : !cir.ptr<!rec_demo> -> !cir.ptr<!u8i>
 // CIR:    [[SET2:%.*]] = cir.set_bitfield align(4) (#bfi_z, [[Z]] : !cir.ptr<!u8i>, [[ZERO]] : !s32i) -> !s32i
 // CIR:    cir.return
 

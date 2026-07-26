@@ -15,8 +15,8 @@ void test_ternary_temporary(bool c, int x) {
   int result = c ? S().get() : x;
 }
 // CIR-LABEL: @_Z22test_ternary_temporarybi
-// CIR:   %[[TMP:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<!rec_S>
-// CIR:   %[[ACTIVE:.*]] = cir.alloca "cleanup.cond" {{.*}} : !cir.ptr<!cir.bool>
+// CIR:   %[[TMP:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<!rec_S>{{.*}}
+// CIR:   %[[ACTIVE:.*]] = cir.alloca "cleanup.cond" {{.*}} : !cir.ptr<!cir.bool>{{.*}}
 // The cleanup scope wraps the full expression so cleanups run on all exits.
 // CIR:   cir.cleanup.scope {
 // Load condition, then active flag false before the ternary (destructor guard).
@@ -117,10 +117,10 @@ void test_ternary_both_branches(bool c) {
   int result = c ? A().get() : B().get();
 }
 // CIR-LABEL: @_Z26test_ternary_both_branchesb
-// CIR:   %[[TMPA:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<!rec_A>
-// CIR:   %[[ACTA:.*]] = cir.alloca "cleanup.cond" {{.*}} : !cir.ptr<!cir.bool>
-// CIR:   %[[TMPB:.*]] = cir.alloca "ref.tmp1" {{.*}} : !cir.ptr<!rec_B>
-// CIR:   %[[ACTB:.*]] = cir.alloca "cleanup.cond" {{.*}} : !cir.ptr<!cir.bool>
+// CIR:   %[[TMPA:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<!rec_A>{{.*}}
+// CIR:   %[[ACTA:.*]] = cir.alloca "cleanup.cond" {{.*}} : !cir.ptr<!cir.bool>{{.*}}
+// CIR:   %[[TMPB:.*]] = cir.alloca "ref.tmp1" {{.*}} : !cir.ptr<!rec_B>{{.*}}
+// CIR:   %[[ACTB:.*]] = cir.alloca "cleanup.cond" {{.*}} : !cir.ptr<!cir.bool>{{.*}}
 // CIR:   cir.cleanup.scope {
 // Both active flags start false; each branch sets its own to true when it runs.
 // CIR:     %[[COND:.*]] = cir.load {{.*}} : !cir.ptr<!cir.bool>, !cir.bool
@@ -234,10 +234,10 @@ int test_return_ternary(bool c) {
   return c ? A().get() : B().get();
 }
 // CIR-LABEL: @_Z19test_return_ternaryb
-// CIR:   %[[TMPA:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<!rec_A>
-// CIR:   %[[ACTA:.*]] = cir.alloca "cleanup.cond" {{.*}} : !cir.ptr<!cir.bool>
-// CIR:   %[[TMPB:.*]] = cir.alloca "ref.tmp1" {{.*}} : !cir.ptr<!rec_B>
-// CIR:   %[[ACTB:.*]] = cir.alloca "cleanup.cond" {{.*}} : !cir.ptr<!cir.bool>
+// CIR:   %[[TMPA:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<!rec_A>{{.*}}
+// CIR:   %[[ACTA:.*]] = cir.alloca "cleanup.cond" {{.*}} : !cir.ptr<!cir.bool>{{.*}}
+// CIR:   %[[TMPB:.*]] = cir.alloca "ref.tmp1" {{.*}} : !cir.ptr<!rec_B>{{.*}}
+// CIR:   %[[ACTB:.*]] = cir.alloca "cleanup.cond" {{.*}} : !cir.ptr<!cir.bool>{{.*}}
 // CIR:   cir.cleanup.scope {
 // CIR:     %[[COND:.*]] = cir.load {{.*}} : !cir.ptr<!cir.bool>, !cir.bool
 // CIR:     %[[FALSE_A:.*]] = cir.const #false
@@ -725,7 +725,7 @@ void test_lvalue_reload(bool c) {
 // CIR:       cir.yield %[[CALL_F]] : !cir.ptr<!rec_R>
 // CIR:     }) : (!cir.bool) -> !cir.ptr<!rec_R>
 // `.field` GEP and its spill happen inside the cleanup scope body.
-// CIR:     %[[GEP:.*]] = cir.get_member %[[TERN]][0] {name = "field"} : !cir.ptr<!rec_R> -> !cir.ptr<!s32i>
+// CIR:     %[[GEP:.*]] = cir.get_member %[[TERN]][0] {{.*name = "field".*}} : !cir.ptr<!rec_R> -> !cir.ptr<!s32i>
 // CIR:     cir.store {{.*}} %[[GEP]], %[[SPILL]]
 // CIR:     cir.yield
 // CIR:   } cleanup normal {

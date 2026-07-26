@@ -26,7 +26,7 @@ struct S1 s1 = {f1, 0, 1};
 
 void f1(void) {}
 
-// CHECK: cir.global {{.*}} @s1 = #cir.const_record<{#cir.global_view<@f1> : !cir.ptr<!cir.func<()>>, #cir.int<0> : !s32i, #cir.int<1> : !s32i}>
+// CHECK: cir.global {{.*}} @s1 = #cir.const_record<{#cir.global_view<@f1>, #cir.int<0>, #cir.int<1>}>
 
 struct S2 {
   void (*fn_ptr)();
@@ -40,7 +40,7 @@ struct S2 s2 = {f2, 0, 1};
 
 void f2(void) {}
 
-// CHECK: cir.global {{.*}} @s2 = #cir.const_record<{#cir.global_view<@f2> : !cir.ptr<!cir.func<(...)>>, #cir.int<0> : !s32i, #cir.int<1> : !s32i}>
+// CHECK: cir.global {{.*}} @s2 = #cir.const_record<{#cir.global_view<@f2>, #cir.int<0>, #cir.int<1>}>
 
 struct S3 {
   void (*fn_ptr)();
@@ -54,7 +54,7 @@ struct S3 s3 = {f3, 0, 1};
 
 void f3(int x) {}
 
-// CHECK: cir.global {{.*}} @s3 = #cir.const_record<{#cir.global_view<@f3> : !cir.ptr<!cir.func<(...)>>, #cir.int<0> : !s32i, #cir.int<1> : !s32i}>
+// CHECK: cir.global {{.*}} @s3 = #cir.const_record<{#cir.global_view<@f3>, #cir.int<0>, #cir.int<1>}>
 
 struct S4 {
   void (*fn_ptr)();
@@ -68,4 +68,4 @@ void f4(int x);
 // initializer should still match the struct field's function-pointer type.
 struct S4 s4 = {f4, 0, 1};
 
-// CHECK: cir.global {{.*}} @s4 = #cir.const_record<{#cir.global_view<@f4> : !cir.ptr<!cir.func<(...)>>, #cir.int<0> : !s32i, #cir.int<1> : !s32i}>
+// CHECK: cir.global {{.*}} @s4 = #cir.const_record<{#cir.global_view<@f4>, #cir.int<0>, #cir.int<1>}>

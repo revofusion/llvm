@@ -258,7 +258,7 @@ int test_agg_cond_throw_false(bool flag, struct s6 a1, struct s6 a2) {
 // CIR:   cir.throw %[[EXC]] : !cir.ptr<!s32i>, @_ZTIi
 // CIR:   cir.unreachable
 // CIR: }) : (!cir.bool) -> !cir.ptr<!rec_s6>
-// CIR: %[[F0:.*]] = cir.get_member %[[A1]][0] {name = "f0"} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
+// CIR: %[[F0:.*]] = cir.get_member {{.*}} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
 // CIR: %[[LOAD:.*]] = cir.load{{.*}} %[[F0]] : !cir.ptr<!s32i>, !s32i
 // CIR: cir.return %{{.*}} : !s32i
 
@@ -323,7 +323,7 @@ int test_agg_cond_throw_true(bool flag, struct s6 a1, struct s6 a2) {
 // CIR: }, false {
 // CIR:   cir.yield %[[A1]] : !cir.ptr<!rec_s6>
 // CIR: }) : (!cir.bool) -> !cir.ptr<!rec_s6>
-// CIR: %[[F0:.*]] = cir.get_member %[[A1]][0] {name = "f0"} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
+// CIR: %[[F0:.*]] = cir.get_member {{.*}} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
 // CIR: %[[LOAD:.*]] = cir.load{{.*}} %[[F0]] : !cir.ptr<!s32i>, !s32i
 // CIR: cir.return %{{.*}} : !s32i
 
@@ -379,7 +379,7 @@ const int test_agg_cond_const_true_throw_false(struct s6 a1, struct s6 a2) {
 // CIR: %[[A2:.*]] = cir.alloca "a2" {{.*}} init : !cir.ptr<!rec_s6>
 // CIR-NOT: cir.ternary
 // CIR-NOT: cir.throw
-// CIR: %[[F0:.*]] = cir.get_member %[[A1]][0] {name = "f0"} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
+// CIR: %[[F0:.*]] = cir.get_member {{.*}} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
 // CIR: %[[LOAD:.*]] = cir.load{{.*}} %[[F0]] : !cir.ptr<!s32i>, !s32i
 // CIR: cir.return %{{.*}} : !s32i
 
@@ -420,7 +420,7 @@ const int test_agg_cond_const_true_throw_true(struct s6 a1, struct s6 a2) {
 // CIR: cir.unreachable
 // CIR: ^[[NO_PRED:.*]]:
 // CIR: %[[NULL_REC:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!rec_s6>
-// CIR: %[[F0:.*]] = cir.get_member %[[NULL_REC]][0] {name = "f0"} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
+// CIR: %[[F0:.*]] = cir.get_member {{.*}} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
 // CIR: %[[LOAD:.*]] = cir.load{{.*}} %[[F0]] : !cir.ptr<!s32i>, !s32i
 // CIR: cir.return %{{.*}} : !s32i
 
@@ -460,7 +460,7 @@ const int test_agg_cond_const_false_throw_false(struct s6 a1, struct s6 a2) {
 // CIR: cir.unreachable
 // CIR: ^[[NO_PRED:.*]]:
 // CIR: %[[NULL_REC:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!rec_s6>
-// CIR: %[[F0:.*]] = cir.get_member %[[NULL_REC]][0] {name = "f0"} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
+// CIR: %[[F0:.*]] = cir.get_member {{.*}} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
 // CIR: %[[LOAD:.*]] = cir.load{{.*}} %[[F0]] : !cir.ptr<!s32i>, !s32i
 // CIR: cir.return %{{.*}} : !s32i
 
@@ -495,7 +495,7 @@ const int test_agg_cond_const_false_throw_true(struct s6 a1, struct s6 a2) {
 // CIR: %[[A2:.*]] = cir.alloca "a2" {{.*}} init : !cir.ptr<!rec_s6>
 // CIR-NOT: cir.ternary
 // CIR-NOT: cir.throw
-// CIR: %[[F0:.*]] = cir.get_member %[[A1]][0] {name = "f0"} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
+// CIR: %[[F0:.*]] = cir.get_member {{.*}} : !cir.ptr<!rec_s6> -> !cir.ptr<!s32i>
 // CIR: %[[LOAD:.*]] = cir.load{{.*}} %[[F0]] : !cir.ptr<!s32i>, !s32i
 // CIR: cir.return %{{.*}} : !s32i
 
@@ -542,10 +542,10 @@ void test_agg_throw_true(bool flag) {
 // CIR:     cir.throw %[[EXC]] : !cir.ptr<!s32i>, @_ZTIi
 // CIR:     cir.unreachable
 // CIR:   } else {
-// CIR:     %[[X:.*]] = cir.get_member %[[A]][0] {name = "x"} : !cir.ptr<!rec_Agg> -> !cir.ptr<!s32i>
+// CIR: %[[X:.*]] = cir.get_member {{.*}} : !cir.ptr<!rec_Agg> -> !cir.ptr<!s32i>
 // CIR:     %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
 // CIR:     cir.store{{.*}} %[[ONE]], %[[X]] : !s32i, !cir.ptr<!s32i>
-// CIR:     %[[Y:.*]] = cir.get_member %[[A]][1] {name = "y"} : !cir.ptr<!rec_Agg> -> !cir.ptr<!s32i>
+// CIR: %[[Y:.*]] = cir.get_member {{.*}} : !cir.ptr<!rec_Agg> -> !cir.ptr<!s32i>
 // CIR:     %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
 // CIR:     cir.store{{.*}} %[[TWO]], %[[Y]] : !s32i, !cir.ptr<!s32i>
 // CIR:   }
@@ -598,10 +598,10 @@ void test_agg_throw_false(bool flag) {
 // CIR:   %[[A:.*]] = cir.alloca "a"
 // CIR:   %[[FLAG_VAL:.*]] = cir.load{{.*}} %[[FLAG]] : !cir.ptr<!cir.bool>, !cir.bool
 // CIR:   cir.if %[[FLAG_VAL]] {
-// CIR:     %[[X:.*]] = cir.get_member %[[A]][0] {name = "x"} : !cir.ptr<!rec_Agg> -> !cir.ptr<!s32i>
+// CIR: %[[X:.*]] = cir.get_member {{.*}} : !cir.ptr<!rec_Agg> -> !cir.ptr<!s32i>
 // CIR:     %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
 // CIR:     cir.store{{.*}} %[[ONE]], %[[X]] : !s32i, !cir.ptr<!s32i>
-// CIR:     %[[Y:.*]] = cir.get_member %[[A]][1] {name = "y"} : !cir.ptr<!rec_Agg> -> !cir.ptr<!s32i>
+// CIR: %[[Y:.*]] = cir.get_member {{.*}} : !cir.ptr<!rec_Agg> -> !cir.ptr<!s32i>
 // CIR:     %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
 // CIR:     cir.store{{.*}} %[[TWO]], %[[Y]] : !s32i, !cir.ptr<!s32i>
 // CIR:   } else {

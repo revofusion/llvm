@@ -10,7 +10,7 @@ int foo() {
   return e;
 }
 
-// CIR-DAG: cir.global "private" constant cir_private @[[FOO4_P:.*]] = #cir.const_record<{#cir.int<5> : !s32i, #cir.int<10> : !s32i}> : !rec_Point
+// CIR-DAG: cir.global "private" constant cir_private @[[FOO4_P:.*]] = #cir.const_record<{#cir.int<5>, #cir.int<10>}> : !rec_Point
 // LLVM-DAG: @[[FOO4_P:.*]] = private constant %struct.Point { i32 5, i32 10 }
 
 // CIR: %[[RET:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!s32i>

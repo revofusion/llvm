@@ -55,7 +55,7 @@ int use(Derived *d) { return d->b; }
 // CIR:  %[[D_ADDR:.*]] = cir.alloca "d" {{.*}} init : !cir.ptr<!cir.ptr<!rec_Derived>>
 // CIR:  cir.store %[[ARG0]], %[[D_ADDR]]
 // CIR:  %[[D_PTR:.*]] = cir.load align(8) %0
-// CIR:  %[[D_B_ADDR:.*]] = cir.get_member %[[D_PTR]][1] {name = "b"}
+// CIR:  %[[D_B_ADDR:.*]] = cir.get_member %[[D_PTR]][1] {{.*}}name = "b"}
 // CIR:  %[[D_B:.*]] = cir.load align(4) %[[D_B_ADDR]]
 
 // LLVM: define{{.*}} i32 @_Z3useP7Derived
@@ -72,7 +72,7 @@ int use_base() {
 // CIR: cir.func{{.*}} @_Z8use_basev
 // CIR:   %[[D_ADDR:.*]] = cir.alloca "d" {{.*}} : !cir.ptr<!rec_Derived>
 // CIR:   %[[BASE_ADDR:.*]] cir.base_class_addr %[[D_ADDR]] : !cir.ptr<!rec_Derived> nonnull [0] -> !cir.ptr<!rec_Base>
-// CIR:   %[[D_A_ADDR:.*]] = cir.get_member %2[0] {name = "a"} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
+// CIR:  %[[D_A_ADDR:.*]] = cir.get_member %2[0] {{.*}}name = "a"} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
 // CIR:   %[[D_A:.*]] = cir.load align(4) %3 : !cir.ptr<!s32i>, !s32i
 
 // LLVM: define{{.*}} i32 @_Z8use_basev
@@ -92,7 +92,7 @@ int use_base_via_pointer(Derived *d) {
 // CIR:   cir.store %[[ARG0]], %[[D_ADDR]]
 // CIR:   %[[D:.*]] = cir.load align(8) %[[D_ADDR]]
 // CIR:   %[[BASE_ADDR:.*]] = cir.base_class_addr %[[D]] : !cir.ptr<!rec_Derived> nonnull [0] -> !cir.ptr<!rec_Base>
-// CIR:   %[[D_A_ADDR:.*]] = cir.get_member %[[BASE_ADDR]][0] {name = "a"}
+// CIR:  %[[D_A_ADDR:.*]] = cir.get_member %[[BASE_ADDR]][0] {{.*}}name = "a"}
 // CIR:   %[[D_A:.*]] = cir.load align(4) %[[D_A_ADDR]]
 
 // LLVM: define{{.*}} i32 @_Z20use_base_via_pointerP7Derived

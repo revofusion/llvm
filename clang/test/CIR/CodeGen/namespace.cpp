@@ -78,7 +78,7 @@ int f6() {
 
 // CHECK: cir.func{{.*}} @_Z2f6v()
 // CHECK:   cir.get_global @_ZN5test31sE : !cir.ptr<!rec_test33A3AS>
-// CHECK:   cir.get_member %{{.*}}[0] {name = "a"}
+// CHECK:   cir.get_member {{.*}} {{{.*}} name = "a"}
 
 int shadowedFunc() {
   return 3;

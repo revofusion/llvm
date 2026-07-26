@@ -1224,13 +1224,12 @@ void CIRGenFunction::emitNewArrayInitializer(
     CXXConstructorDecl *ctor = cce->getConstructor();
     if (ctor->isTrivial()) {
       // If new expression did not specify value-initialization, then there
-      // is no initialization.
-      if (!cce->requiresZeroInitialization())
+      // is no initialization. Empty classes also need no initialization.
+      if (!cce->requiresZeroInitialization() || ctor->getParent()->isEmpty())
         return;
 
-      cgm.errorNYI(cce->getSourceRange(),
-                   "emitNewArrayInitializer: trivial ctor zero-init");
-      return;
+      if (tryMemsetInitialization())
+        return;
     }
 
     // Store the new Cleanup position for irregular Cleanups.
@@ -1574,9 +1573,14 @@ void CIRGenFunction::emitCXXDeleteExpr(const CXXDeleteExpr *e) {
     auto deleteFn =
         mlir::FlatSymbolRefAttr::get(operatorDeleteFn.getSymNameAttr());
     UsualDeleteParams udp = operatorDelete->getUsualDeleteParams();
+    bool hasAlignmentParameter = isAlignedAllocation(udp.Alignment);
     auto deleteParams = cir::UsualDeleteParamsAttr::get(
-        builder.getContext(), udp.Size, isAlignedAllocation(udp.Alignment),
+        builder.getContext(), udp.Size, hasAlignmentParameter,
         isTypeAwareAllocation(udp.TypeAwareDelete), udp.DestroyingDelete);
+    mlir::IntegerAttr elementAlignment;
+    if (hasAlignmentParameter)
+      elementAlignment =
+          builder.getAlignmentAttr(getContext().getTypeAlignInChars(deleteTy));
 
     mlir::FlatSymbolRefAttr elementDtor;
     bool hasThrowingDtor = false;
@@ -1594,7 +1598,7 @@ void CIRGenFunction::emitCXXDeleteExpr(const CXXDeleteExpr *e) {
 
     cir::DeleteArrayOp::create(builder, ptr.getPointer().getLoc(),
                                ptr.getPointer(), deleteFn, deleteParams,
-                               elementDtor, hasThrowingDtor);
+                               elementAlignment, elementDtor, hasThrowingDtor);
   } else {
     emitObjectDelete(*this, e, ptr, deleteTy);
   }

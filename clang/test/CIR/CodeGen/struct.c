@@ -14,9 +14,9 @@
 // CIR-DAG: !rec_PackedS = !cir.struct<"PackedS" packed {!s32i, !s8i}>
 // CIR-DAG: !rec_PackedAndPaddedS = !cir.struct<"PackedAndPaddedS" packed padded {!s32i, !s8i, !u8i}>
 // CIR-DAG: !rec_NodeS = !cir.struct<"NodeS" {!cir.ptr<!cir.struct<"NodeS">>}>
-// CIR-DAG: !rec_RightS = !cir.struct<"RightS" {!cir.ptr<!cir.struct<"LeftS" {!cir.ptr<!cir.struct<"RightS">>}>>}>
+// CIR-DAG: !rec_RightS = !cir.struct<"RightS" {!cir.ptr<!cir.struct<"LeftS" incomplete>>}>
 // CIR-DAG: !rec_LeftS = !cir.struct<"LeftS" {!cir.ptr<!rec_RightS>}>
-// CIR-DAG: !rec_CycleEnd = !cir.struct<"CycleEnd" {!cir.ptr<!cir.struct<"CycleStart" {!cir.ptr<!cir.struct<"CycleMiddle" {!cir.ptr<!cir.struct<"CycleEnd">>}>>}>>}>
+// CIR-DAG: !rec_CycleEnd = !cir.struct<"CycleEnd" {!cir.ptr<!cir.struct<"CycleStart" incomplete>>}>
 // CIR-DAG: !rec_CycleMiddle = !cir.struct<"CycleMiddle" {!cir.ptr<!rec_CycleEnd>}>
 // CIR-DAG: !rec_CycleStart = !cir.struct<"CycleStart" {!cir.ptr<!rec_CycleMiddle>}>
 // CIR-DAG: !rec_IncompleteArray = !cir.struct<"IncompleteArray" {!cir.array<!s32i x 0>}>
@@ -207,10 +207,10 @@ char f3(int a) {
 // CIR-NEXT:   cir.store{{.*}} %[[ARG_A]], %[[A_ADDR]]
 // CIR-NEXT:   %[[A_VAL:.*]] = cir.load{{.*}} %[[A_ADDR]]
 // CIR-NEXT:   %[[CS:.*]] = cir.get_global @cs
-// CIR-NEXT:   %[[CS_A:.*]] = cir.get_member %[[CS]][0] {name = "a"}
+// CIR-NEXT:   %[[CS_A:.*]] = cir.get_member %[[CS]][0] {{.*}}name = "a"}
 // CIR-NEXT:   cir.store{{.*}} %[[A_VAL]], %[[CS_A]]
 // CIR-NEXT:   %[[CS2:.*]] = cir.get_global @cs
-// CIR-NEXT:   %[[CS_B:.*]] = cir.get_member %[[CS2]][1] {name = "b"}
+// CIR-NEXT:   %[[CS_B:.*]] = cir.get_member %[[CS2]][1] {{.*}}name = "b"}
 // CIR-NEXT:   %[[CS_B_VAL:.*]] = cir.load{{.*}} %[[CS_B]]
 // CIR-NEXT:   cir.store{{.*}} %[[CS_B_VAL]], %[[RETVAL_ADDR]]
 // CIR-NEXT:   %[[RETVAL:.*]] = cir.load{{.*}} %[[RETVAL_ADDR]]
@@ -249,10 +249,10 @@ char f4(int a, struct CompleteS *p) {
 // CIR-NEXT:   cir.store{{.*}} %[[ARG_P]], %[[P_ADDR]]
 // CIR-NEXT:   %[[A_VAL:.*]] = cir.load{{.*}} %[[A_ADDR]]
 // CIR-NEXT:   %[[P:.*]] = cir.load{{.*}} %[[P_ADDR]]
-// CIR-NEXT:   %[[P_A:.*]] = cir.get_member %[[P]][0] {name = "a"}
+// CIR-NEXT:   %[[P_A:.*]] = cir.get_member %[[P]][0] {{.*}}name = "a"}
 // CIR-NEXT:   cir.store{{.*}} %[[A_VAL]], %[[P_A]]
 // CIR-NEXT:   %[[P2:.*]] = cir.load{{.*}} %[[P_ADDR]]
-// CIR-NEXT:   %[[P_B:.*]] = cir.get_member %[[P2]][1] {name = "b"}
+// CIR-NEXT:   %[[P_B:.*]] = cir.get_member %[[P2]][1] {{.*}}name = "b"}
 // CIR-NEXT:   %[[P_B_VAL:.*]] = cir.load{{.*}} %[[P_B]]
 // CIR-NEXT:   cir.store{{.*}} %[[P_B_VAL]], %[[RETVAL_ADDR]]
 // CIR-NEXT:   %[[RETVAL:.*]] = cir.load{{.*}} %[[RETVAL_ADDR]]
@@ -295,7 +295,7 @@ void f5(struct NodeS* a) {
 }
 
 // CIR: cir.func{{.*}} @f5
-// CIR:   %[[NEXT:.*]] = cir.get_member {{%.}}[0] {name = "next"} : !cir.ptr<!rec_NodeS> -> !cir.ptr<!cir.ptr<!rec_NodeS>>
+// CIR:   %[[NEXT:.*]] = cir.get_member {{%.}}[0] {{.*}}name = "next"} : !cir.ptr<!rec_NodeS> -> !cir.ptr<!cir.ptr<!rec_NodeS>>
 // CIR:   cir.store {{.*}}, %[[NEXT]]
 
 // LLVM: define{{.*}} void @f5
@@ -313,9 +313,9 @@ void f6(struct CycleStart *start) {
 }
 
 // CIR: cir.func{{.*}} @f6
-// CIR:   %[[MIDDLE:.*]] = cir.get_member {{.*}}[0] {name = "middle"} : !cir.ptr<!rec_CycleStart> -> !cir.ptr<!cir.ptr<!rec_CycleMiddle>>
-// CIR:   %[[END:.*]] = cir.get_member %{{.*}}[0] {name = "end"} : !cir.ptr<!rec_CycleMiddle> -> !cir.ptr<!cir.ptr<!rec_CycleEnd>>
-// CIR:   %[[START2:.*]] = cir.get_member %{{.*}}[0] {name = "start"} : !cir.ptr<!rec_CycleEnd> -> !cir.ptr<!cir.ptr<!rec_CycleStart>>
+// CIR:   %[[MIDDLE:.*]] = cir.get_member {{.*}}[0] {{.*}}name = "middle"} : !cir.ptr<!rec_CycleStart> -> !cir.ptr<!cir.ptr<!rec_CycleMiddle>>
+// CIR:   %[[END:.*]] = cir.get_member %{{.*}}[0] {{.*}}name = "end"} : !cir.ptr<!rec_CycleMiddle> -> !cir.ptr<!cir.ptr<!rec_CycleEnd>>
+// CIR:   %[[START2:.*]] = cir.get_member %{{.*}}[0] {{.*}}name = "start"} : !cir.ptr<!rec_CycleEnd> -> !cir.ptr<!cir.ptr<!rec_CycleStart>>
 
 // LLVM: define{{.*}} void @f6
 // LLVM:   %[[MIDDLE:.*]] = getelementptr inbounds nuw %struct.CycleStart, ptr %{{.*}}, i32 0, i32 0

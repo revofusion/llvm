@@ -89,12 +89,12 @@ void l0() {
 // CIR:   %[[THIS_ADDR:.*]] = cir.alloca "this" align(8) init : !cir.ptr<!cir.ptr<![[REC_LAM_L0_A]]>>
 // CIR:   cir.store %[[THIS_ARG]], %[[THIS_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]]
-// CIR:   %[[I_ADDR_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "i"}
+// CIR:   %[[I_ADDR_ADDR:.*]] = cir.get_member %[[THIS]][0] {{{.*}}name = "i"{{.*}}}
 // CIR:   %[[I_ADDR:.*]] = cir.load %[[I_ADDR_ADDR]]
 // CIR:   %[[I:.*]] = cir.load align(4) %[[I_ADDR]]
 // CIR:   %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
 // CIR:   %[[I_PLUS_ONE:.*]] = cir.add nsw %[[I]], %[[ONE]]
-// CIR:   %[[I_ADDR_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "i"}
+// CIR:   %[[I_ADDR_ADDR:.*]] = cir.get_member %[[THIS]][0] {{{.*}}name = "i"{{.*}}}
 // CIR:   %[[I_ADDR:.*]] = cir.load %[[I_ADDR_ADDR]]
 // CIR:   cir.store{{.*}} %[[I_PLUS_ONE]], %[[I_ADDR]]
 // CIR:   cir.return
@@ -102,7 +102,7 @@ void l0() {
 // CIR: cir.func {{.*}} @_Z2l0v()
 // CIR:   %[[I:.*]] = cir.alloca "i" {{.*}} : !cir.ptr<!s32i>
 // CIR:   %[[A:.*]] = cir.alloca "a" {{.*}} init : !cir.ptr<![[REC_LAM_L0_A]]>
-// CIR:   %[[I_ADDR:.*]] = cir.get_member %[[A]][0] {name = "i"}
+// CIR:   %[[I_ADDR:.*]] = cir.get_member %[[A]][0] {{{.*}}name = "i"{{.*}}}
 // CIR:   cir.store{{.*}} %[[I]], %[[I_ADDR]]
 // CIR:   cir.call @_ZZ2l0vENK3$_0clEv(%[[A]])
 // CIR:   cir.return
@@ -162,7 +162,7 @@ auto g() {
 // CIR:   %[[I_ADDR:.*]] = cir.alloca "i" {{.*}} init : !cir.ptr<!s32i>
 // CIR:   %[[TWELVE:.*]] = cir.const #cir.int<12> : !s32i
 // CIR:   cir.store{{.*}} %[[TWELVE]], %[[I_ADDR]] : !s32i, !cir.ptr<!s32i>
-// CIR:   %[[I_ADDR_ADDR:.*]] = cir.get_member %[[RETVAL]][0] {name = "i"} : !cir.ptr<![[REC_LAM_G]]> -> !cir.ptr<!cir.ptr<!s32i>>
+// CIR:   %[[I_ADDR_ADDR:.*]] = cir.get_member %[[RETVAL]][0] {{{.*}}name = "i"{{.*}}} : !cir.ptr<![[REC_LAM_G]]> -> !cir.ptr<!cir.ptr<!s32i>>
 // CIR:   cir.store{{.*}} %[[I_ADDR]], %[[I_ADDR_ADDR]] : !cir.ptr<!s32i>, !cir.ptr<!cir.ptr<!s32i>>
 // CIR:   %[[RET:.*]] = cir.load{{.*}} %[[RETVAL]] : !cir.ptr<![[REC_LAM_G]]>, ![[REC_LAM_G]]
 // CIR:   cir.return %[[RET]] : ![[REC_LAM_G]]
@@ -204,7 +204,7 @@ auto g2() {
 // CIR:   %[[I_ADDR:.*]] = cir.alloca "i" {{.*}} init : !cir.ptr<!s32i>
 // CIR:   %[[TWELVE:.*]] = cir.const #cir.int<12> : !s32i
 // CIR:   cir.store{{.*}} %[[TWELVE]], %[[I_ADDR]] : !s32i, !cir.ptr<!s32i>
-// CIR:   %[[I_ADDR_ADDR:.*]] = cir.get_member %[[RETVAL]][0] {name = "i"} : !cir.ptr<![[REC_LAM_G2]]> -> !cir.ptr<!cir.ptr<!s32i>>
+// CIR:   %[[I_ADDR_ADDR:.*]] = cir.get_member %[[RETVAL]][0] {{{.*}}name = "i"{{.*}}} : !cir.ptr<![[REC_LAM_G2]]> -> !cir.ptr<!cir.ptr<!s32i>>
 // CIR:   cir.store{{.*}} %[[I_ADDR]], %[[I_ADDR_ADDR]] : !cir.ptr<!s32i>, !cir.ptr<!cir.ptr<!s32i>>
 // CIR:   %[[RET:.*]] = cir.load{{.*}} %[[RETVAL]] : !cir.ptr<![[REC_LAM_G2]]>, ![[REC_LAM_G2]]
 // CIR:   cir.return %[[RET]] : ![[REC_LAM_G2]]
@@ -238,12 +238,12 @@ int f() {
 // CIR:   cir.store %[[THIS_ARG]], %[[THIS_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]]
 // CIR:   %[[ONE_HUNDRED:.*]] = cir.const #cir.int<100> : !s32i
-// CIR:   %[[I_ADDR_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "i"}
+// CIR:   %[[I_ADDR_ADDR:.*]] = cir.get_member %[[THIS]][0] {{{.*}}name = "i"{{.*}}}
 // CIR:   %[[I_ADDR:.*]] = cir.load %[[I_ADDR_ADDR]]
 // CIR:   %[[I:.*]] = cir.load{{.*}} %[[I_ADDR]]
 // CIR:   %[[I_PLUS_ONE_HUNDRED:.*]] = cir.add nsw %[[I]], %[[ONE_HUNDRED]] : !s32i
 // CIR:   cir.store{{.*}} %[[I_PLUS_ONE_HUNDRED]], %[[I_ADDR]] : !s32i, !cir.ptr<!s32i>
-// CIR:   %[[I_ADDR_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "i"}
+// CIR:   %[[I_ADDR_ADDR:.*]] = cir.get_member %[[THIS]][0] {{{.*}}name = "i"{{.*}}}
 // CIR:   %[[I_ADDR:.*]] = cir.load %[[I_ADDR_ADDR]]
 // CIR:   %[[I:.*]] = cir.load{{.*}} %[[I_ADDR]]
 // CIR:   cir.store{{.*}} %[[I]], %[[RETVAL]]
@@ -331,8 +331,8 @@ struct A {
 // CIR:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!s32i>
 // CIR:   cir.store{{.*}} %[[THIS_ARG]], %[[THIS_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load{{.*}} %[[THIS_ADDR]]
-// CIR:   %[[STRUCT_A:.*]] = cir.get_member %[[THIS]][0] {name = "this"}
-// CIR:   %[[A_A_ADDR:.*]] = cir.get_member %[[STRUCT_A]][0] {name = "a"}
+// CIR:   %[[STRUCT_A:.*]] = cir.get_member %[[THIS]][0] {{{.*}}name = "this"{{.*}}}
+// CIR:   %[[A_A_ADDR:.*]] = cir.get_member %[[STRUCT_A]][0] {{{.*}}name = "a"{{.*}}}
 // CIR:   %[[A_A:.*]] = cir.load{{.*}} %[[A_A_ADDR]]
 // CIR:   cir.store{{.*}} %[[A_A]], %[[RETVAL]]
 // CIR:   %[[RET:.*]] = cir.load{{.*}} %[[RETVAL]]
@@ -359,7 +359,7 @@ struct A {
 // CIR:   %[[LAM_ADDR:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<![[REC_LAM_A]]>
 // CIR:   cir.store %[[THIS_ARG]], %[[THIS_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load deref %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_A>>, !cir.ptr<!rec_A>
-// CIR:   %[[STRUCT_A:.*]] = cir.get_member %[[LAM_ADDR]][0] {name = "this"} : !cir.ptr<![[REC_LAM_A]]> -> !cir.ptr<!rec_A>
+// CIR:   %[[STRUCT_A:.*]] = cir.get_member %[[LAM_ADDR]][0] {{{.*}}name = "this"{{.*}}} : !cir.ptr<![[REC_LAM_A]]> -> !cir.ptr<!rec_A>
 // CIR:   cir.copy %[[THIS]] to %[[STRUCT_A]] : !cir.ptr<!rec_A>
 // CIR:   %[[LAM_RET:.*]] = cir.call @_ZZN1A3fooEvENKUlvE_clEv(%[[LAM_ADDR]])
 // CIR:   cir.store{{.*}} %[[LAM_RET]], %[[RETVAL]]
@@ -395,9 +395,9 @@ struct A {
 // CIR:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!s32i>
 // CIR:   cir.store{{.*}} %[[THIS_ARG]], %[[THIS_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load{{.*}} %[[THIS_ADDR]]
-// CIR:   %[[STRUCT_A_ADDR_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "this"}
+// CIR:   %[[STRUCT_A_ADDR_ADDR:.*]] = cir.get_member %[[THIS]][0] {{{.*}}name = "this"{{.*}}}
 // CIR:   %[[STRUCT_A_ADDR:.*]] = cir.load{{.*}} %[[STRUCT_A_ADDR_ADDR]]
-// CIR:   %[[A_A_ADDR:.*]] = cir.get_member %[[STRUCT_A_ADDR]][0] {name = "a"}
+// CIR:   %[[A_A_ADDR:.*]] = cir.get_member %[[STRUCT_A_ADDR]][0] {{{.*}}name = "a"{{.*}}}
 // CIR:   %[[A_A:.*]] = cir.load{{.*}} %[[A_A_ADDR]]
 // CIR:   cir.store{{.*}} %[[A_A]], %[[RETVAL]]
 // CIR:   %[[RET:.*]] = cir.load{{.*}} %[[RETVAL]]
@@ -425,7 +425,7 @@ struct A {
 // CIR:   %[[LAM_ADDR:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<![[REC_LAM_PTR_A]]>
 // CIR:   cir.store %[[THIS_ARG]], %[[THIS_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_A>>, !cir.ptr<!rec_A>
-// CIR:   %[[A_ADDR_ADDR:.*]] = cir.get_member %[[LAM_ADDR]][0] {name = "this"} : !cir.ptr<![[REC_LAM_PTR_A]]> -> !cir.ptr<!cir.ptr<!rec_A>>
+// CIR:   %[[A_ADDR_ADDR:.*]] = cir.get_member %[[LAM_ADDR]][0] {{{.*}}name = "this"{{.*}}} : !cir.ptr<![[REC_LAM_PTR_A]]> -> !cir.ptr<!cir.ptr<!rec_A>>
 // CIR:   cir.store{{.*}} %[[THIS]], %[[A_ADDR_ADDR]]
 // CIR:   %[[LAM_RET:.*]] = cir.call @_ZZN1A3barEvENKUlvE_clEv(%[[LAM_ADDR]])
 // CIR:   cir.store{{.*}} %[[LAM_RET]], %[[RETVAL]]

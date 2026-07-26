@@ -16,7 +16,7 @@ float function() {
   return a + b;
 }
 
-// CIR-DAG: cir.global "private" constant cir_private @[[FUNC_CONST:.*]] = #cir.const_record<{#cir.int<1> : !s32i, #cir.fp<2.000000e+00> : !cir.float}> : !rec_some_struct
+// CIR-DAG: cir.global "private" constant cir_private @[[FUNC_CONST:.*]] = #cir.const_record<{#cir.int<1>, #cir.fp<2.000000e+00>}> : !rec_some_struct
 // LLVM-DAG: @[[FUNC_CONST:.*]] = private constant %struct.some_struct { i32 1, float 2.000000e+00 }
 
 // CIR-LABEL: cir.func {{.*}} @_Z8functionv() -> (!cir.float {llvm.noundef})
@@ -24,10 +24,10 @@ float function() {
 // CIR:  %[[STRUCT:.+]] = cir.alloca "" {{.*}} init : !cir.ptr<!rec_some_struct>
 // CIR:  %[[CONST:.+]] = cir.get_global @[[FUNC_CONST]] : !cir.ptr<!rec_some_struct>
 // CIR:  cir.copy %[[CONST]] to %[[STRUCT]]
-// CIR:  %[[MEMBER_A:.+]] = cir.get_member %[[STRUCT]][0] {name = "a"} : !cir.ptr<!rec_some_struct> -> !cir.ptr<!s32i>
+// CIR: %[[MEMBER_A:.+]] = cir.get_member %[[STRUCT]][0] {{.*}}name = "a"{{.*}} : !cir.ptr<!rec_some_struct> -> !cir.ptr<!s32i>
 // CIR:  %[[LOAD_A:.+]] = cir.load align(4) %[[MEMBER_A]] : !cir.ptr<!s32i>, !s32i
 // CIR:  %[[CAST_A:.+]] = cir.cast int_to_float %[[LOAD_A]] : !s32i -> !cir.float
-// CIR:  %[[MEMBER_B:.+]] = cir.get_member %[[STRUCT]][1] {name = "b"} : !cir.ptr<!rec_some_struct> -> !cir.ptr<!cir.float>
+// CIR: %[[MEMBER_B:.+]] = cir.get_member %[[STRUCT]][1] {{.*}}name = "b"{{.*}} : !cir.ptr<!rec_some_struct> -> !cir.ptr<!cir.float>
 // CIR:  %[[LOAD_B:.+]] = cir.load align(4) %[[MEMBER_B]] : !cir.ptr<!cir.float>, !cir.float
 // CIR:  %[[ADD:.+]] = cir.fadd %[[CAST_A]], %[[LOAD_B]] : !cir.float
 // CIR:  cir.store %[[ADD]], %[[RETVAL]] : !cir.float, !cir.ptr<!cir.float>

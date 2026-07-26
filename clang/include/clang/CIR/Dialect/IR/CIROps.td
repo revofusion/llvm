@@ -4221,6 +4221,9 @@ def CIR_DeleteArrayOp : CIR_Op<"delete_array"> {
     The `delete_params` attribute describes the parameters needed by the
     operator delete call.
 
+    The `element_alignment` attribute preserves the required AST alignment of
+    the destroyed base element type in bytes for an aligned delete call.
+
     The `element_dtor` attribute, when present, specifies the destructor to call
     on each array element before deallocation.
 
@@ -4232,6 +4235,7 @@ def CIR_DeleteArrayOp : CIR_Op<"delete_array"> {
     CIR_PointerType:$address,
     FlatSymbolRefAttr:$delete_fn,
     CIR_UsualDeleteParamsAttr:$delete_params,
+    OptionalAttr<IntValidAlignment<I64Attr>>:$element_alignment,
     OptionalAttr<FlatSymbolRefAttr>:$element_dtor,
     UnitProp:$dtor_may_throw
   );
@@ -4241,6 +4245,7 @@ def CIR_DeleteArrayOp : CIR_Op<"delete_array"> {
                    "mlir::FlatSymbolRefAttr":$delete_fn,
                    "cir::UsualDeleteParamsAttr":$delete_params), [{
       build($_builder, $_state, address, delete_fn, delete_params,
+            /*element_alignment=*/mlir::IntegerAttr{},
             /*element_dtor=*/mlir::FlatSymbolRefAttr{},
             /*dtor_may_throw=*/false);
     }]>

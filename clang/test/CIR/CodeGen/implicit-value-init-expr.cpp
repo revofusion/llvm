@@ -77,13 +77,13 @@ void test_aggregate() {
 
 // CIR: cir.func {{.*}} @_ZN3FooC2Ev(
 // CIR:   %[[THIS:.*]] = cir.load %{{.*}}
-// CIR:   %[[BAR:.*]] = cir.get_member %[[THIS]][0] {name = "bar_"} : !cir.ptr<!rec_Foo> -> !cir.ptr<!cir.array<!s32i x 5>>
+// CIR: %[[BAR:.*]] = cir.get_member %[[THIS]][0] {{.*name = "bar_".*}} : !cir.ptr<!rec_Foo> -> !cir.ptr<!cir.array<!s32i x 5>>
 // CIR:   %[[ZERO:.*]] = cir.const #cir.zero : !cir.array<!s32i x 5>
 // CIR:   cir.store{{.*}} %[[ZERO]], %[[BAR]] : !cir.array<!s32i x 5>, !cir.ptr<!cir.array<!s32i x 5>>
-// CIR:   %[[DBAR:.*]] = cir.get_member %[[THIS]][1] {name = "dbar_"} : !cir.ptr<!rec_Foo> -> !cir.ptr<!cir.array<!cir.double x 5>>
+// CIR:   %[[DBAR:.*]] = cir.get_member %[[THIS]][1] {{.*name = "dbar_".*}} : !cir.ptr<!rec_Foo> -> !cir.ptr<!cir.array<!cir.double x 5>>
 // CIR:   %[[ZERO:.*]] = cir.const #cir.zero : !cir.array<!cir.double x 5>
 // CIR:   cir.store{{.*}} %[[ZERO]], %[[DBAR]] : !cir.array<!cir.double x 5>, !cir.ptr<!cir.array<!cir.double x 5>>
-// CIR:   %[[SBAR:.*]] = cir.get_member %[[THIS]][2] {name = "sbar_"} : !cir.ptr<!rec_Foo> -> !cir.ptr<!cir.array<!rec_S x 5>>
+// CIR:   %[[SBAR:.*]] = cir.get_member %[[THIS]][2] {{.*name = "sbar_".*}} : !cir.ptr<!rec_Foo> -> !cir.ptr<!cir.array<!rec_S x 5>>
 // CIR:   %[[ZERO:.*]] = cir.const #cir.zero : !cir.array<!rec_S x 5>
 // CIR:   cir.store{{.*}} %[[ZERO]], %[[SBAR]] : !cir.array<!rec_S x 5>, !cir.ptr<!cir.array<!rec_S x 5>>
 // CIR:   cir.return

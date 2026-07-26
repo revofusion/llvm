@@ -125,31 +125,31 @@ namespace gh61567 {
 }
 
 // LLVM-DAG: [[A1:@.*a1.*]] = internal constant [[STRUCT_A]] { i8 3, double 2.000000e+00 }, align 8
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZL2a1 = #cir.const_record<{#cir.int<3> : !s8i, #cir.fp<2.000000e+00> : !cir.double}> : ![[STRUCT_A]] {alignment = 8 : i64}
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZL2a1 = #cir.const_record<{#cir.int<3>, #cir.fp<2.000000e+00>}> : !rec_A {alignment = 8 : i64}
 constexpr A a1(3.1, 2.0);
 // LLVM-DAG: [[A2:@.*a2.*]] = internal constant [[STRUCT_A]] { i8 99, double 0.000000e+00 }, align 8
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZL2a2 = #cir.const_record<{#cir.int<99> : !s8i, #cir.fp<0.000000e+00> : !cir.double}> : ![[STRUCT_A]] {alignment = 8 : i64}
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZL2a2 = #cir.const_record<{#cir.int<99>, #cir.fp<0.000000e+00>}> : !rec_A {alignment = 8 : i64}
 constexpr auto a2 = static_cast<A>('c');
 // LLVM-DAG: [[B1:@.*b1.*]] = internal constant [[STRUCT_B]] { [[STRUCT_A]] { i8 99, double 0.000000e+00 }, i32 0 }, align 8
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZL2b1 = #cir.const_record<{#cir.const_record<{#cir.int<99> : !s8i, #cir.fp<0.000000e+00> : !cir.double}> : ![[STRUCT_A]], #cir.int<0> : !s32i}> : ![[STRUCT_B]] {alignment = 8 : i64}
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZL2b1 = #cir.const_record<{#cir.const_record<{#cir.int<99>, #cir.fp<0.000000e+00>}> : !rec_A, #cir.int<0>}> : !rec_B {alignment = 8 : i64}
 constexpr B b1(A('c'));
 // LLVM-DAG: [[C1:@.*c1.*]] = internal constant { [[STRUCT_A]], i32, [4 x i8], i8, double, i32 } { [[STRUCT_A]] { i8 99, double 0.000000e+00 }, i32 0, [4 x i8] {{.*}}, i8 3, double 2.000000e+00, i32 0 }, align
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZL2c1 = #cir.const_record<{#cir.const_record<{#cir.int<99> : !s8i, #cir.fp<0.000000e+00> : !cir.double}> : ![[STRUCT_A]], #cir.int<0> : !s32i, #cir.const_array<[#cir.zero : !u8i, #cir.zero : !u8i, #cir.zero : !u8i, #cir.zero : !u8i]> : !cir.array<!u8i x 4>, #cir.int<3> : !s8i, #cir.fp<2.000000e+00> : !cir.double, #cir.int<0> : !s32i}>
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZL2c1 = #cir.const_record<{#cir.const_record<{#cir.int<99>, #cir.fp<0.000000e+00>}> : !rec_A, #cir.int<0>, #cir.const_array<[#cir.zero, #cir.zero, #cir.zero, #cir.zero]>, #cir.int<3>, #cir.fp<2.000000e+00>, #cir.int<0>}> : !rec_anon_struct {alignment = 8 : i64}
 constexpr C c1(b1, a1);
 // LLVM-DAG: [[U1:@.*]] = internal constant {{.*}} { [[STRUCT_A]] { i8 1, double 1.000000e+00 } }, align 8
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZL2u1 = #cir.const_record<{#cir.const_record<{#cir.int<1> : !s8i, #cir.fp<1.000000e+00> : !cir.double}> : ![[STRUCT_A]]}> : !{{.*}}{alignment = 8 : i64}
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZL2u1 = #cir.const_record<{#cir.const_record<{#cir.int<1>, #cir.fp<1.000000e+00>}> : !rec_A}> : !rec_anon_struct1 {alignment = 8 : i64}
 constexpr U u1(A(1, 1));
 // LLVM-DAG: [[D1:@.*d1.*]] = internal constant { [[STRUCT_A]], [[STRUCT_A]], [8 x i8], [[STRUCT_A]] } { [[STRUCT_A]] { i8 2, double 2.000000e+00 }, [[STRUCT_A]] { i8 2, double 2.000000e+00 }, [8 x i8] {{.*}}, [[STRUCT_A]] zeroinitializer }, align 8
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZL2d1 = #cir.const_record<{#cir.const_record<{#cir.int<2> : !s8i, #cir.fp<2.000000e+00> : !cir.double}> : ![[STRUCT_A]], #cir.const_record<{#cir.int<2> : !s8i, #cir.fp<2.000000e+00> : !cir.double}> : ![[STRUCT_A]], #cir.const_array<[#cir.zero : !u8i, #cir.zero : !u8i, #cir.zero : !u8i, #cir.zero : !u8i, #cir.zero : !u8i, #cir.zero : !u8i, #cir.zero : !u8i, #cir.zero : !u8i]> : !cir.array<!u8i x 8>, #cir.zero : ![[STRUCT_A]]}>
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZL2d1 = #cir.const_record<{#cir.const_record<{#cir.int<2>, #cir.fp<2.000000e+00>}> : !rec_A, #cir.const_record<{#cir.int<2>, #cir.fp<2.000000e+00>}> : !rec_A, #cir.const_array<[#cir.zero, #cir.zero, #cir.zero, #cir.zero, #cir.zero, #cir.zero, #cir.zero, #cir.zero]>, #cir.zero : !rec_A}> : !rec_anon_struct2 {alignment = 8 : i64}
 constexpr D d1(A(2, 2));
 // LLVM-DAG: [[ARR1:@.*arr1.*]] = internal constant [3 x i32] [i32 1, i32 2, i32 0], align 4
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZL4arr1 = #cir.const_array<[#cir.int<1> : !s32i, #cir.int<2> : !s32i, #cir.int<0> : !s32i]> : !cir.array<!s32i x 3> {alignment = 4 : i64}
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZL4arr1 = #cir.const_array<[#cir.int<1>, #cir.int<2>, #cir.int<0>]> : !cir.array<!s32i x 3> {alignment = 4 : i64}
 constexpr int arr1[3](1, 2);
 // LLVM-DAG: [[ARR4:@.*arr4.*]] = internal constant [1 x i32] [i32 1], align 4
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZL4arr4 = #cir.const_array<[#cir.int<1> : !s32i]> : !cir.array<!s32i x 1> {alignment = 4 : i64}
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZL4arr4 = #cir.const_array<[#cir.int<1>]> : !cir.array<!s32i x 1> {alignment = 4 : i64}
 constexpr int arr4[](1);
 // LLVM-DAG: [[ARR5:@.*arr5.*]] = internal constant [2 x i32] [i32 2, i32 0], align 4
-// CIR-DAG: cir.global "private" constant internal dso_local @_ZL4arr5 = #cir.const_array<[#cir.int<2> : !s32i, #cir.int<0> : !s32i]> : !cir.array<!s32i x 2> {alignment = 4 : i64}
+// CIR-DAG: cir.global "private" constant internal dso_local @_ZL4arr5 = #cir.const_array<[#cir.int<2>, #cir.int<0>]> : !cir.array<!s32i x 2> {alignment = 4 : i64}
 constexpr int arr5[2](2);
 
 // LLVM: define dso_local {{.*}} @{{.*foo1.*}}
@@ -212,27 +212,27 @@ C foo3() {
 // CIR: %[[B_TMP:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<![[STRUCT_B]]>
 // CIR: %[[A_TMP:.*]] = cir.alloca "ref.tmp1" {{.*}} : !cir.ptr<![[STRUCT_A]]>
 // CIR: %[[C_BASE:.*]] = cir.base_class_addr %[[C2_ALLOCA]] : !cir.ptr<![[STRUCT_C]]> nonnull [0] -> !cir.ptr<![[STRUCT_B]]>
-// CIR: %[[GET_A:.*]] = cir.get_member %[[B_TMP]][0] {name = "a"} : !cir.ptr<![[STRUCT_B]]> -> !cir.ptr<![[STRUCT_A]]>
-// CIR: %[[GET_I:.*]] = cir.get_member %[[GET_A]][0] {name = "i"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
+// CIR: %[[GET_A:.*]] = cir.get_member %[[B_TMP]][0] {{.*name = "a".*}} : !cir.ptr<![[STRUCT_B]]> -> !cir.ptr<![[STRUCT_A]]>
+// CIR: %[[GET_I:.*]] = cir.get_member %[[GET_A]][0] {{.*name = "i".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
 // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s8i
 // CIR: cir.store{{.*}} %[[ONE:.*]], %[[GET_I]] : !s8i, !cir.ptr<!s8i>
-// CIR: %[[GET_J:.*]] = cir.get_member %[[GET_A]][1] {name = "j"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
+// CIR: %[[GET_J:.*]] = cir.get_member %[[GET_A]][1] {{.*name = "j".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
 // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
 // CIR: %[[ONE_F:.*]] = cir.cast int_to_float %[[ONE]] : !s32i -> !cir.double
 // CIR: cir.store{{.*}} %[[ONE_F]], %[[GET_J]] : !cir.double, !cir.ptr<!cir.double>
-// CIR: %[[GET_B:.*]] = cir.get_member %[[B_TMP]][1] {name = "b"} : !cir.ptr<![[STRUCT_B]]> -> !cir.ptr<!s32i>
+// CIR: %[[GET_B:.*]] = cir.get_member %[[B_TMP]][1] {{.*name = "b".*}} : !cir.ptr<![[STRUCT_B]]> -> !cir.ptr<!s32i>
 // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
 // CIR: cir.store{{.*}} %[[ONE]], %[[GET_B]] : !s32i, !cir.ptr<!s32i>
 // CIR: cir.copy %[[B_TMP]] to %[[C_BASE]] : !cir.ptr<![[STRUCT_B]]>
 // CIR: %[[C_BASE_A:.*]] = cir.base_class_addr %[[C2_ALLOCA]] : !cir.ptr<![[STRUCT_C]]> nonnull [24] -> !cir.ptr<![[STRUCT_A]]>
-// CIR: %[[GET_I:.*]] = cir.get_member %[[A_TMP]][0] {name = "i"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
+// CIR: %[[GET_I:.*]] = cir.get_member %[[A_TMP]][0] {{.*name = "i".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
 // CIR: %[[NINETYSEVEN:.*]] = cir.const #cir.int<97> : !s8i
 // CIR: cir.store{{.*}} %[[NINETYSEVEN]], %[[GET_I]] : !s8i, !cir.ptr<!s8i>
-// CIR: %[[GET_J:.*]] = cir.get_member %[[A_TMP]][1] {name = "j"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
+// CIR: %[[GET_J:.*]] = cir.get_member %[[A_TMP]][1] {{.*name = "j".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
 // CIR: %[[ZERO_F:.*]] = cir.const #cir.fp<0
 // CIR: cir.store{{.*}} %[[ZERO_F]], %[[GET_J]] : !cir.double, !cir.ptr<!cir.double>
 // CIR: cir.copy %[[A_TMP]] to %[[C_BASE_A]] : !cir.ptr<![[STRUCT_A]]>
-// CIR: %[[GET_C:.*]] = cir.get_member %[[C2_ALLOCA]][2] {name = "c"} : !cir.ptr<![[STRUCT_C]]> -> !cir.ptr<!s32i>
+// CIR: %[[GET_C:.*]] = cir.get_member %[[C2_ALLOCA]][2] {{.*name = "c".*}} : !cir.ptr<![[STRUCT_C]]> -> !cir.ptr<!s32i>
 // CIR: %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
 // CIR: cir.store{{.*}} %[[TWO]], %[[GET_C]] : !s32i, !cir.ptr<!s32i>
 void foo4() {
@@ -259,7 +259,7 @@ U foo5() {
 // CIR-LABEL: cir.func no_inline dso_local @_Z4foo61A(
 // CIR: %[[A_ALLOCA:.*]] = cir.alloca "a" align(8) init : !cir.ptr<![[STRUCT_A]]>
 // CIR: %[[RET_ALLOCA:.*]] = cir.alloca "__retval" align(8) : !cir.ptr<![[UNION_U]]>
-// CIR: %[[GET_A:.*]] = cir.get_member %[[RET_ALLOCA:.*]][1] {name = "a"} : !cir.ptr<![[UNION_U]]> -> !cir.ptr<![[STRUCT_A]]>
+// CIR: %[[GET_A:.*]] = cir.get_member %[[RET_ALLOCA:.*]][1] {{.*name = "a".*}} : !cir.ptr<![[UNION_U]]> -> !cir.ptr<![[STRUCT_A]]>
 // CIR: cir.copy %[[A_ALLOCA]] to %[[GET_A:.*]] : !cir.ptr<![[STRUCT_A]]>
 U foo6(A a) {
   return U(a);
@@ -285,27 +285,27 @@ U foo6(A a) {
 // LLVM-NEXT: ret void
 // CIR-LABEL; cir.func no_inline dso_local @_Z4foo7v()
 // CIR: %[[D_ALLOCA:.*]] = cir.alloca "d" align(8) init : !cir.ptr<![[STRUCT_D]]>
-// CIR: %[[GET_A:.*]] = cir.get_member %[[D_ALLOCA]][0] {name = "a"} : !cir.ptr<![[STRUCT_D]]> -> !cir.ptr<![[STRUCT_A]]>
-// CIR: %[[GET_I:.*]] = cir.get_member %[[GET_A]][0] {name = "i"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
+// CIR: %[[GET_A:.*]] = cir.get_member %[[D_ALLOCA]][0] {{.*name = "a".*}} : !cir.ptr<![[STRUCT_D]]> -> !cir.ptr<![[STRUCT_A]]>
+// CIR: %[[GET_I:.*]] = cir.get_member %[[GET_A]][0] {{.*name = "i".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
 // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s8i
 // CIR: cir.store align(8) %[[ONE]], %[[GET_I]] : !s8i, !cir.ptr<!s8i>
-// CIR: %[[GET_J:.*]] = cir.get_member %[[GET_A]][1] {name = "j"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
+// CIR: %[[GET_J:.*]] = cir.get_member %[[GET_A]][1] {{.*name = "j".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
 // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
 // CIR: %[[ONE_F:.*]] = cir.cast int_to_float %[[ONE]] : !s32i -> !cir.double
 // CIR: cir.store align(8) %[[ONE_F]], %[[GET_J]] : !cir.double, !cir.ptr<!cir.double>
-// CIR: %[[GET_B:.*]] = cir.get_member %[[D_ALLOCA]][1] {name = "b"} : !cir.ptr<![[STRUCT_D]]> -> !cir.ptr<![[STRUCT_A]]>
-// CIR: %[[GET_I:.*]] = cir.get_member %[[GET_B]][0] {name = "i"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
+// CIR: %[[GET_B:.*]] = cir.get_member %[[D_ALLOCA]][1] {{.*name = "b".*}} : !cir.ptr<![[STRUCT_D]]> -> !cir.ptr<![[STRUCT_A]]>
+// CIR: %[[GET_I:.*]] = cir.get_member %[[GET_B]][0] {{.*name = "i".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
 // CIR: %[[ELEVEN:.*]] = cir.const #cir.int<11> : !s8i
 // CIR: cir.store align(8) %[[ELEVEN]], %[[GET_I]] : !s8i, !cir.ptr<!s8i>
-// CIR: %[[GET_J:.*]] = cir.get_member %[[GET_B]][1] {name = "j"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
+// CIR: %[[GET_J:.*]] = cir.get_member %[[GET_B]][1] {{.*name = "j".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
 // CIR: %[[ELEVEN:.*]] = cir.const #cir.int<11> : !s32i
 // CIR: %[[ELEVEN_F:.*]] = cir.cast int_to_float %[[ELEVEN]] : !s32i -> !cir.double
 // CIR: cir.store align(8) %[[ELEVEN_F]], %[[GET_J]] : !cir.double, !cir.ptr<!cir.double>
-// CIR: %[[GET_C:.*]] = cir.get_member %[[D_ALLOCA]][3] {name = "c"} : !cir.ptr<![[STRUCT_D]]> -> !cir.ptr<![[STRUCT_A]]>
-// CIR: %[[GET_I:.*]] = cir.get_member %[[GET_C]][0] {name = "i"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
+// CIR: %[[GET_C:.*]] = cir.get_member %[[D_ALLOCA]][3] {{.*name = "c".*}} : !cir.ptr<![[STRUCT_D]]> -> !cir.ptr<![[STRUCT_A]]>
+// CIR: %[[GET_I:.*]] = cir.get_member %[[GET_C]][0] {{.*name = "i".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
 // CIR: %[[ONE_ELEVEN:.*]] = cir.const #cir.int<111> : !s8i
 // CIR: cir.store align(8) %[[ONE_ELEVEN]], %[[GET_I]] : !s8i, !cir.ptr<!s8i>
-// CIR: %[[GET_J:.*]] = cir.get_member %[[GET_C]][1] {name = "j"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
+// CIR: %[[GET_J:.*]] = cir.get_member %[[GET_C]][1] {{.*name = "j".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
 // CIR: %[[ONE_ELEVEN:.*]] = cir.const #cir.int<111> : !s32i
 // CIR: %[[ONE_ELEVEN_F:.*]] = cir.cast int_to_float %[[ONE_ELEVEN]] : !s32i -> !cir.double
 // CIR: cir.store align(8) %[[ONE_ELEVEN_F]], %[[GET_J]] : !cir.double, !cir.ptr<!cir.double>
@@ -339,22 +339,22 @@ D foo8() {
 // LLVM-NEXT: [[C:%.*]] = getelementptr {{.*}}[[STRUCT_D]], ptr [[D]], i32 0, i32 3
 // CIR-LABEL: cir.func no_inline dso_local @_Z4foo9v()
 // CIR: %[[D_ALLOCA:.*]] = cir.alloca "d" align(8) init : !cir.ptr<![[STRUCT_D]]>
-// CIR: %[[GET_A:.*]] = cir.get_member %[[D_ALLOCA]][0] {name = "a"} : !cir.ptr<![[STRUCT_D]]> -> !cir.ptr<![[STRUCT_A]]>
-// CIR: %[[GET_I:.*]] = cir.get_member %[[GET_A]][0] {name = "i"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
+// CIR: %[[GET_A:.*]] = cir.get_member %[[D_ALLOCA]][0] {{.*name = "a".*}} : !cir.ptr<![[STRUCT_D]]> -> !cir.ptr<![[STRUCT_A]]>
+// CIR: %[[GET_I:.*]] = cir.get_member %[[GET_A]][0] {{.*name = "i".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
 // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s8i
 // CIR: cir.store align(8) %[[ONE]], %[[GET_I]] : !s8i, !cir.ptr<!s8i>
-// CIR: %[[GET_J:.*]] = cir.get_member %[[GET_A]][1] {name = "j"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
+// CIR: %[[GET_J:.*]] = cir.get_member %[[GET_A]][1] {{.*name = "j".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
 // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
 // CIR: %[[ONE_F:.*]] = cir.cast int_to_float %[[ONE]] : !s32i -> !cir.double
 // CIR: cir.store align(8) %[[ONE_F]], %[[GET_J]] : !cir.double, !cir.ptr<!cir.double>
-// CIR: %[[GET_B:.*]] = cir.get_member %[[D_ALLOCA]][1] {name = "b"} : !cir.ptr<![[STRUCT_D]]> -> !cir.ptr<![[STRUCT_A]]>
-// CIR: %[[GET_I:.*]] = cir.get_member %[[GET_B]][0] {name = "i"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
+// CIR: %[[GET_B:.*]] = cir.get_member %[[D_ALLOCA]][1] {{.*name = "b".*}} : !cir.ptr<![[STRUCT_D]]> -> !cir.ptr<![[STRUCT_A]]>
+// CIR: %[[GET_I:.*]] = cir.get_member %[[GET_B]][0] {{.*name = "i".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
 // CIR: %[[TWO:.*]] = cir.const #cir.int<2> : !s8i
 // CIR: cir.store align(8) %[[TWO]], %[[GET_I]] : !s8i, !cir.ptr<!s8i>
-// CIR: %[[GET_J:.*]] = cir.get_member %[[GET_B]][1] {name = "j"} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
+// CIR: %[[GET_J:.*]] = cir.get_member %[[GET_B]][1] {{.*name = "j".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
 // CIR: %[[FP_2:.*]] = cir.const #cir.fp<2
 // CIR: cir.store align(8) %[[FP_2]], %[[GET_J]] : !cir.double, !cir.ptr<!cir.double>
-// CIR: %[[GET_C:.*]] = cir.get_member %[[D_ALLOCA]][3] {name = "c"} : !cir.ptr<![[STRUCT_D]]> -> !cir.ptr<![[STRUCT_A]]>
+// CIR: %[[GET_C:.*]] = cir.get_member %[[D_ALLOCA]][3] {{.*name = "c".*}} : !cir.ptr<![[STRUCT_D]]> -> !cir.ptr<![[STRUCT_A]]>
 // CIR: %[[ZERO:.*]] = cir.const #cir.zero : ![[STRUCT_A]]
 // CIR: cir.store align(8) %[[ZERO]], %[[GET_C]] : ![[STRUCT_A]], !cir.ptr<![[STRUCT_A]]>
 void foo9() {
@@ -553,10 +553,10 @@ void foo17() {
 // LLVM: ret void
 // CIR: cir.func {{.*}}@_Z5foo18v()
 // CIR: %[[E_ALLOCA:.*]] = cir.alloca "e" {{.*}} init : !cir.ptr<![[STRUCT_E]]>
-// CIR: %[[GET_A:.*]] = cir.get_member %[[E_ALLOCA]][0] {name = "a"} : !cir.ptr<![[STRUCT_E]]> -> !cir.ptr<!s32i>
+// CIR: %[[GET_A:.*]] = cir.get_member %[[E_ALLOCA]][0] {{.*name = "a".*}} : !cir.ptr<![[STRUCT_E]]> -> !cir.ptr<!s32i>
 // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
 // CIR: cir.store{{.*}} %[[ONE]], %[[GET_A]] : !s32i, !cir.ptr<!s32i>
-// CIR: %[[GET_FN:.*]] = cir.get_member %[[E_ALLOCA]][1] {name = "fn"} : !cir.ptr<![[STRUCT_E]]> -> !cir.ptr<!cir.ptr<!s8i>>
+// CIR: %[[GET_FN:.*]] = cir.get_member %[[E_ALLOCA]][1] {{.*name = "fn".*}} : !cir.ptr<![[STRUCT_E]]> -> !cir.ptr<!cir.ptr<!s8i>>
 // CIR: %[[GET_STR:.*]] = cir.const #cir.global_view<@
 // CIR: cir.store{{.*}} %[[GET_STR]], %[[GET_FN]] : !cir.ptr<!s8i>, !cir.ptr<!cir.ptr<!s8i>>
 void foo18() {
@@ -572,7 +572,7 @@ void foo18() {
 // LLVM: ret void
 // CIR: cir.func no_inline dso_local @_Z5foo19v() attributes {{{.*}}nothrow} {
 // CIR: %[[G_ALLOCA:.*]] = cir.alloca "g" {{.*}} init : !cir.ptr<![[STRUCT_G]]>
-// CIR: %[[GET_A:.*]] = cir.get_member %[[G_ALLOCA]][0] {name = "a"} : !cir.ptr<![[STRUCT_G]]> -> !cir.ptr<!s32i>
+// CIR: %[[GET_A:.*]] = cir.get_member %[[G_ALLOCA]][0] {{.*name = "a".*}} : !cir.ptr<![[STRUCT_G]]> -> !cir.ptr<!s32i>
 // CIR: %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
 // CIR: cir.store{{.*}} %[[TWO]], %[[GET_A]] : !s32i, !cir.ptr<!s32i>
 // CIR: %[[G_TO_CHAR:.*]] = cir.cast bitcast %[[G_ALLOCA]] : !cir.ptr<![[STRUCT_G]]> -> !cir.ptr<!u8i>
@@ -634,7 +634,7 @@ namespace gh61145 {
   // CIR: cir.call @_ZN7gh611453VecC1Ev(%[[V_ALLOCA]])
   // CIR: %[[S2_TO_VEC:.*]] = cir.cast bitcast %[[TMP_ALLOCA]] : !cir.ptr<![[STRUCT_S2]]> -> !cir.ptr<![[STRUCT_VEC]]>
   // CIR: cir.call @_ZN7gh611453VecC1EOS0_(%[[S2_TO_VEC]], %[[V_ALLOCA]])
-  // CIR: %[[GET_C:.*]] = cir.get_member %[[TMP_ALLOCA]][1] {name = "c"} : !cir.ptr<![[STRUCT_S2]]> -> !cir.ptr<!s8i>
+  // CIR: %[[GET_C:.*]] = cir.get_member %[[TMP_ALLOCA]][1] {{.*name = "c".*}} : !cir.ptr<![[STRUCT_S2]]> -> !cir.ptr<!s8i>
   // CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s8i
   // CIR: cir.store{{.*}} %[[ZERO]], %[[GET_C]] : !s8i, !cir.ptr<!s8i>
   template <int I>
@@ -659,10 +659,10 @@ namespace gh62266 {
   // LLVM-NEXT: ret void
   // CIR-LABEL: cir.func {{.*}}@_ZN7gh622665foo20Ev()
   // CIR: %[[TMP_ALLOCA:.*]] = cir.alloca "h" {{.*}} init : !cir.ptr<![[STRUCT_H]]>
-  // CIR: %[[GET_I:.*]] = cir.get_member %[[TMP_ALLOCA]][0] {name = "i"} : !cir.ptr<![[STRUCT_H]]> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_I:.*]] = cir.get_member %[[TMP_ALLOCA]][0] {{.*name = "i".*}} : !cir.ptr<![[STRUCT_H]]> -> !cir.ptr<!s32i>
   // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
   // CIR: cir.store{{.*}} %[[ONE]], %[[GET_I]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_J:.*]] = cir.get_member %[[TMP_ALLOCA]][1] {name = "j"} : !cir.ptr<![[STRUCT_H]]> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_J:.*]] = cir.get_member %[[TMP_ALLOCA]][1] {{.*name = "j".*}} : !cir.ptr<![[STRUCT_H]]> -> !cir.ptr<!s32i>
   // CIR: %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
   // CIR: cir.store{{.*}} %[[TWO]], %[[GET_J]] : !s32i, !cir.ptr<!s32i>
   // CIR: cir.return
@@ -686,10 +686,10 @@ namespace gh61567 {
   // CIR-LABEL: cir.func {{.*}}@_ZN7gh615675foo21Ev()
   // CIR: %[[TMP_ALLOCA:.*]] = cir.alloca "agg.tmp.ensured" {{.*}} : !cir.ptr<![[STRUCT_I]]>
   // CIR: %[[INT_TMP:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<!s32i>
-  // CIR: %[[GET_A:.*]] = cir.get_member %[[TMP_ALLOCA]][0] {name = "a"} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_A:.*]] = cir.get_member %[[TMP_ALLOCA]][0] {{.*name = "a".*}} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!s32i>
   // CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
   // CIR: cir.store{{.*}} %[[ZERO]], %[[GET_A]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_R:.*]] = cir.get_member %[[TMP_ALLOCA]][1] {name = "r"} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!cir.ptr<!s32i>>
+  // CIR: %[[GET_R:.*]] = cir.get_member %[[TMP_ALLOCA]][1] {{.*name = "r".*}} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!cir.ptr<!s32i>>
   // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
   // CIR: cir.store{{.*}} %[[ONE]], %[[INT_TMP]] : !s32i, !cir.ptr<!s32i>
   // CIR: cir.store{{.*}} %[[INT_TMP]], %[[GET_R]] : !cir.ptr<!s32i>, !cir.ptr<!cir.ptr<!s32i>>
@@ -710,10 +710,10 @@ namespace gh61567 {
   // CIR-LABEL: cir.func {{.*}}@_ZN7gh615675foo22Ev()
   // CIR: %[[TMP_ALLOCA:.*]] = cir.alloca "agg.tmp.ensured" {{.*}} : !cir.ptr<![[STRUCT_I]]>
   // CIR: %[[INT_TMP:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<!s32i>
-  // CIR: %[[GET_A:.*]] = cir.get_member %[[TMP_ALLOCA]][0] {name = "a"} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_A:.*]] = cir.get_member %[[TMP_ALLOCA]][0] {{.*name = "a".*}} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!s32i>
   // CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
   // CIR: cir.store{{.*}} %[[ZERO]], %[[GET_A]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_R:.*]] = cir.get_member %[[TMP_ALLOCA]][1] {name = "r"} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!cir.ptr<!s32i>>
+  // CIR: %[[GET_R:.*]] = cir.get_member %[[TMP_ALLOCA]][1] {{.*name = "r".*}} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!cir.ptr<!s32i>>
   // CIR: %[[GET_CALL:.*]] = cir.call @_ZN7gh615675foo20Ev() : () -> (!s32i {llvm.noundef})
   // CIR: cir.store{{.*}} %[[GET_CALL]], %[[INT_TMP]] : !s32i, !cir.ptr<!s32i>
   // CIR: cir.store{{.*}} %[[INT_TMP]], %[[GET_R]] : !cir.ptr<!s32i>, !cir.ptr<!cir.ptr<!s32i>>
@@ -729,13 +729,13 @@ namespace gh61567 {
   // LLVM-NEXT: [[R:%.*]] = getelementptr {{.*}}[[STRUCT_I]], ptr [[AGG_TMP_ENSURED]], i32 0, i32 1
   // LLVM-NEXT: store ptr [[I_ADDR]], ptr [[R]], align 8
   // LLVM-NEXT: ret void
-  // CIR-LABEL: cir.func no_inline dso_local @_ZN7gh615675foo23Ei(%arg0: !s32i {llvm.noundef}
+  // CIR-LABEL: cir.func no_inline dso_local @_ZN7gh615675foo23Ei(%arg0: !s32i {{.*}}llvm.noundef}
   // CIR: %[[I_ALLOCA:.*]] = cir.alloca "i" {{.*}} init : !cir.ptr<!s32i>
   // CIR: %[[TMP_ALLOCA:.*]] = cir.alloca "agg.tmp.ensured" {{.*}} : !cir.ptr<![[STRUCT_I]]>
-  // CIR: %[[GET_A:.*]] = cir.get_member %[[TMP_ALLOCA]][0] {name = "a"} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_A:.*]] = cir.get_member %[[TMP_ALLOCA]][0] {{.*name = "a".*}} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!s32i>
   // CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
   // CIR: cir.store{{.*}} %[[ZERO]], %[[GET_A]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_R:.*]] = cir.get_member %[[TMP_ALLOCA]][1] {name = "r"} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!cir.ptr<!s32i>>
+  // CIR: %[[GET_R:.*]] = cir.get_member %[[TMP_ALLOCA]][1] {{.*name = "r".*}} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!cir.ptr<!s32i>>
   // CIR: cir.store{{.*}} %[[I_ALLOCA]], %[[GET_R]] : !cir.ptr<!s32i>, !cir.ptr<!cir.ptr<!s32i>>
   void foo23(int i) {
     I(0, static_cast<int&&>(i));
@@ -753,10 +753,10 @@ namespace gh61567 {
   // CIR-LABEL: cir.func {{.*}}@_ZN7gh615675foo24Ev()
   // CIR: %[[TMP_ALLOCA:.*]] = cir.alloca "agg.tmp.ensured" {{.*}} : !cir.ptr<![[STRUCT_I]]>
   // CIR: %[[INT_TMP:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<!s32i>
-  // CIR: %[[GET_A:.*]] = cir.get_member %[[TMP_ALLOCA:.*]][0] {name = "a"} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_A:.*]] = cir.get_member %[[TMP_ALLOCA:.*]][0] {{.*name = "a".*}} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!s32i>
   // CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
   // CIR: cir.store{{.*}} %[[ZERO]], %[[GET_A]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_R:.*]] = cir.get_member %[[TMP_ALLOCA:.*]][1] {name = "r"} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!cir.ptr<!s32i>>
+  // CIR: %[[GET_R:.*]] = cir.get_member %[[TMP_ALLOCA:.*]][1] {{.*name = "r".*}} : !cir.ptr<![[STRUCT_I]]> -> !cir.ptr<!cir.ptr<!s32i>>
   // CIR: %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
   // CIR: cir.store{{.*}} %[[TWO]], %[[INT_TMP]] : !s32i, !cir.ptr<!s32i>
   // CIR: cir.store{{.*}} %[[INT_TMP]], %[[GET_R]] : !cir.ptr<!s32i>, !cir.ptr<!cir.ptr<!s32i>>

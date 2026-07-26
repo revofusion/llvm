@@ -1,6 +1,6 @@
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++20 -fclangir -emit-cir -mmlir -mlir-print-ir-before=cir-cxxabi-lowering %s -o %t.cir 2> %t-before.cir
 // RUN: FileCheck --input-file=%t-before.cir -check-prefix=CIR-BEFORE %s
-// RUN: FileCheck --input-file=%t.cir --check-prefix=CIR %s
+// RUN: FileCheck --input-file=%t.cir --check-prefix=CIR --implicit-check-not=cir.delete_array %s
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++20 -fclangir -emit-llvm %s -o %t-cir.ll
 // RUN: FileCheck --input-file=%t-cir.ll --check-prefix=LLVM %s
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++20 -emit-llvm %s -o %t.ll
@@ -27,7 +27,7 @@ void test_delete_array(int *ptr) {
 // CIR:     cir.cleanup.scope {
 // CIR:       cir.yield
 // CIR:     } cleanup normal {
-// CIR:       cir.call @_ZdaPv(%[[VOID_PTR]]) nothrow
+// CIR:       cir.call @_ZdaPv(%[[VOID_PTR]]) nothrow : (!cir.ptr<!void>) -> ()
 // CIR:       cir.yield
 // CIR:     }
 // CIR:   }
@@ -77,7 +77,7 @@ void test_simple_delete_array(SimpleArrDelete *ptr) {
 // CIR:     cir.cleanup.scope {
 // CIR:       cir.yield
 // CIR:     } cleanup normal {
-// CIR:       cir.call @_ZN15SimpleArrDeletedaEPv(%[[VOID_PTR]]) nothrow
+// CIR:       cir.call @_ZN15SimpleArrDeletedaEPv(%[[VOID_PTR]]) nothrow : (!cir.ptr<!void>) -> ()
 // CIR:       cir.yield
 // CIR:     }
 // CIR:   }
@@ -102,6 +102,11 @@ void test_simple_delete_array(SimpleArrDelete *ptr) {
 // OGCG: [[ARR_DELETE_END]]:
 
 typedef __typeof(sizeof(int)) size_t;
+namespace std {
+enum class align_val_t : size_t {};
+}
+
+typedef int OverAlignedVector __attribute__((vector_size(32)));
 
 struct SizedArrayDelete {
   void operator delete[](void *, size_t);
@@ -137,7 +142,7 @@ void test_sized_array_delete(SizedArrayDelete *ptr) {
 // CIR:       %[[ARRAY_SIZE:.*]] = cir.mul %[[ELEM_SIZE]], %[[NUM_ELEM]] : !u64i
 // CIR:       %[[COOKIE_SIZE:.*]] = cir.const #cir.int<8> : !u64i
 // CIR:       %[[TOTAL_SIZE:.*]] = cir.add %[[ARRAY_SIZE]], %[[COOKIE_SIZE]] : !u64i
-// CIR:       cir.call @_ZN16SizedArrayDeletedaEPvm(%[[VOID_PTR]], %[[TOTAL_SIZE]]) nothrow
+// CIR:       cir.call @_ZN16SizedArrayDeletedaEPvm(%[[VOID_PTR]], %[[TOTAL_SIZE]]) nothrow : (!cir.ptr<!void>, !u64i) -> ()
 // CIR:       cir.yield
 // CIR:     }
 // CIR:   }
@@ -168,6 +173,121 @@ void test_sized_array_delete(SizedArrayDelete *ptr) {
 // OGCG:   call void @_ZN16SizedArrayDeletedaEPvm(ptr {{.*}} %[[ALLOC_PTR]], i64 {{.*}} %[[TOTAL_SIZE]])
 // OGCG:   br label %[[DELETE_END]]
 // OGCG: [[DELETE_END]]:
+
+struct alignas(64) Aligned {
+  void operator delete[](void *, std::align_val_t);
+  OverAlignedVector member;
+};
+void test_aligned_array_delete(Aligned *ptr) {
+  delete[] ptr;
+}
+
+// CIR-BEFORE-LABEL: cir.func {{.*}} @_Z25test_aligned_array_deleteP7Aligned
+// CIR-BEFORE:   %[[PTR:.*]] = cir.load{{.*}} %{{.*}}
+// CIR-BEFORE:   %[[NOT_NULL:.*]] = cir.cmp ne %[[PTR]], %{{.*}}
+// CIR-BEFORE:   cir.if %[[NOT_NULL]] {
+// CIR-BEFORE:     cir.delete_array %[[PTR]] : !cir.ptr<!rec_Aligned> {
+// CIR-BEFORE-SAME:       delete_fn = @_ZN7AligneddaEPvSt11align_val_t,
+// CIR-BEFORE-SAME:       delete_params = #cir.usual_delete_params<alignment = true>,
+// CIR-BEFORE-SAME:       element_alignment = 64 : i64}
+// CIR-BEFORE:   }
+
+// CIR-LABEL: cir.func {{.*}} @_Z25test_aligned_array_deleteP7Aligned
+// CIR:   %[[PTR:.*]] = cir.load{{.*}} %{{.*}}
+// CIR:   %[[NOT_NULL:.*]] = cir.cmp ne %[[PTR]], %{{.*}}
+// CIR:   cir.if %[[NOT_NULL]] {
+// CIR:     %[[VOID_PTR:.*]] = cir.cast bitcast %[[PTR]] : !cir.ptr<!rec_Aligned> -> !cir.ptr<!void>
+// CIR:     cir.cleanup.scope {
+// CIR:       cir.yield
+// CIR:     } cleanup normal {
+// CIR:       %[[ALIGNMENT:.*]] = cir.const #cir.int<64> : !u64i
+// CIR:       cir.call @_ZN7AligneddaEPvSt11align_val_t(%[[VOID_PTR]], %[[ALIGNMENT]]) nothrow : (!cir.ptr<!void>, !u64i) -> ()
+// CIR:       cir.yield
+// CIR:     }
+// CIR:   }
+
+// LLVM-LABEL: define {{.*}} void @_Z25test_aligned_array_deleteP7Aligned
+// LLVM:   %[[PTR:.*]] = load ptr, ptr %{{.*}}
+// LLVM:   %[[NOT_NULL:.*]] = icmp ne ptr %[[PTR]], null
+// LLVM:   br i1 %[[NOT_NULL]], label %[[DELETE_NOTNULL:.*]], label %[[DELETE_END:.*]]
+// LLVM: [[DELETE_NOTNULL]]:
+// LLVM:   call void @_ZN7AligneddaEPvSt11align_val_t(ptr{{[^,]*}} %[[PTR]], i64{{[^,]*}} 64)
+// LLVM:   br label %[[DELETE_END]]
+
+// OGCG-LABEL: define {{.*}} void @_Z25test_aligned_array_deleteP7Aligned
+// OGCG:   %[[PTR:.*]] = load ptr, ptr %{{.*}}
+// OGCG:   %[[IS_NULL:.*]] = icmp eq ptr %[[PTR]], null
+// OGCG:   br i1 %[[IS_NULL]], label %{{.*}}, label %[[DELETE_NOTNULL:.*]]
+// OGCG: [[DELETE_NOTNULL]]:
+// OGCG:   call void @_ZN7AligneddaEPvSt11align_val_t(ptr{{[^,]*}} %[[PTR]], i64{{[^,]*}} 64)
+
+struct SizedAligned {
+  void operator delete[](void *, size_t, std::align_val_t);
+  OverAlignedVector member;
+};
+void test_sized_aligned(SizedAligned *ptr) {
+  delete[] ptr;
+}
+
+// CIR-BEFORE-LABEL: cir.func {{.*}} @_Z18test_sized_alignedP12SizedAligned
+// CIR-BEFORE:   %[[PTR:.*]] = cir.load{{.*}} %{{.*}}
+// CIR-BEFORE:   %[[NOT_NULL:.*]] = cir.cmp ne %[[PTR]], %{{.*}}
+// CIR-BEFORE:   cir.if %[[NOT_NULL]] {
+// CIR-BEFORE:     cir.delete_array %[[PTR]] : !cir.ptr<!rec_SizedAligned> {
+// CIR-BEFORE-SAME:       delete_fn = @_ZN12SizedAligneddaEPvmSt11align_val_t,
+// CIR-BEFORE-SAME:       delete_params = #cir.usual_delete_params<size = true, alignment = true>,
+// CIR-BEFORE-SAME:       element_alignment = 32 : i64}
+// CIR-BEFORE:   }
+
+// CIR-LABEL: cir.func {{.*}} @_Z18test_sized_alignedP12SizedAligned
+// CIR:   %[[PTR:.*]] = cir.load{{.*}} %{{.*}}
+// CIR:   %[[NOT_NULL:.*]] = cir.cmp ne %[[PTR]], %{{.*}}
+// CIR:   cir.if %[[NOT_NULL]] {
+// CIR:     %[[BYTE_PTR:.*]] = cir.cast bitcast %[[PTR]] : !cir.ptr<!rec_SizedAligned> -> !cir.ptr<!u8i>
+// CIR:     %[[NEG_COOKIE:.*]] = cir.const #cir.int<-32> : !s64i
+// CIR:     %[[ALLOC_BYTE_PTR:.*]] = cir.ptr_stride %[[BYTE_PTR]], %[[NEG_COOKIE]] : (!cir.ptr<!u8i>, !s64i) -> !cir.ptr<!u8i>
+// CIR:     %[[VOID_PTR:.*]] = cir.cast bitcast %[[ALLOC_BYTE_PTR]] : !cir.ptr<!u8i> -> !cir.ptr<!void>
+// CIR:     %[[COUNT_OFFSET:.*]] = cir.const #cir.int<24> : !s64i
+// CIR:     %[[COUNT_BYTE_PTR:.*]] = cir.ptr_stride %[[ALLOC_BYTE_PTR]], %[[COUNT_OFFSET]] : (!cir.ptr<!u8i>, !s64i) -> !cir.ptr<!u8i>
+// CIR:     %[[COOKIE_PTR:.*]] = cir.cast bitcast %[[COUNT_BYTE_PTR]] : !cir.ptr<!u8i> -> !cir.ptr<!u64i>
+// CIR:     %[[NUM_ELEM:.*]] = cir.load align(8) %[[COOKIE_PTR]] : !cir.ptr<!u64i>, !u64i
+// CIR:     cir.cleanup.scope {
+// CIR:       cir.yield
+// CIR:     } cleanup normal {
+// CIR:       %[[ELEM_SIZE:.*]] = cir.const #cir.int<32> : !u64i
+// CIR:       %[[ARRAY_SIZE:.*]] = cir.mul %[[ELEM_SIZE]], %[[NUM_ELEM]] : !u64i
+// CIR:       %[[COOKIE_SIZE:.*]] = cir.const #cir.int<32> : !u64i
+// CIR:       %[[TOTAL_SIZE:.*]] = cir.add %[[ARRAY_SIZE]], %[[COOKIE_SIZE]] : !u64i
+// CIR:       %[[ALIGNMENT:.*]] = cir.const #cir.int<32> : !u64i
+// CIR:       cir.call @_ZN12SizedAligneddaEPvmSt11align_val_t(%[[VOID_PTR]], %[[TOTAL_SIZE]], %[[ALIGNMENT]]) nothrow : (!cir.ptr<!void>, !u64i, !u64i) -> ()
+// CIR:       cir.yield
+// CIR:     }
+// CIR:   }
+
+// LLVM-LABEL: define {{.*}} void @_Z18test_sized_alignedP12SizedAligned
+// LLVM:   %[[PTR:.*]] = load ptr, ptr %{{.*}}
+// LLVM:   %[[NOT_NULL:.*]] = icmp ne ptr %[[PTR]], null
+// LLVM:   br i1 %[[NOT_NULL]], label %[[DELETE_NOTNULL:.*]], label %[[DELETE_END:.*]]
+// LLVM: [[DELETE_NOTNULL]]:
+// LLVM:   %[[ALLOC_PTR:.*]] = getelementptr i8, ptr %[[PTR]], i64 -32
+// LLVM:   %[[COUNT_PTR:.*]] = getelementptr i8, ptr %[[ALLOC_PTR]], i64 24
+// LLVM:   %[[NUM_ELEM:.*]] = load i64, ptr %[[COUNT_PTR]], align 8
+// LLVM:   %[[ARRAY_SIZE:.*]] = mul i64 32, %[[NUM_ELEM]]
+// LLVM:   %[[TOTAL_SIZE:.*]] = add i64 %[[ARRAY_SIZE]], 32
+// LLVM:   call void @_ZN12SizedAligneddaEPvmSt11align_val_t(ptr{{[^,]*}} %[[ALLOC_PTR]], i64{{[^,]*}} %[[TOTAL_SIZE]], i64{{[^,]*}} 32)
+// LLVM:   br label %[[DELETE_END]]
+
+// OGCG-LABEL: define {{.*}} void @_Z18test_sized_alignedP12SizedAligned
+// OGCG:   %[[PTR:.*]] = load ptr, ptr %{{.*}}
+// OGCG:   %[[IS_NULL:.*]] = icmp eq ptr %[[PTR]], null
+// OGCG:   br i1 %[[IS_NULL]], label %{{.*}}, label %[[DELETE_NOTNULL:.*]]
+// OGCG: [[DELETE_NOTNULL]]:
+// OGCG:   %[[ALLOC_PTR:.*]] = getelementptr inbounds i8, ptr %[[PTR]], i64 -32
+// OGCG:   %[[COUNT_PTR:.*]] = getelementptr inbounds i8, ptr %[[ALLOC_PTR]], i64 24
+// OGCG:   %[[NUM_ELEM:.*]] = load i64, ptr %[[COUNT_PTR]], align 8
+// OGCG:   %[[ARRAY_SIZE:.*]] = mul i64 32, %[[NUM_ELEM]]
+// OGCG:   %[[TOTAL_SIZE:.*]] = add i64 %[[ARRAY_SIZE]], 32
+// OGCG:   call void @_ZN12SizedAligneddaEPvmSt11align_val_t(ptr{{[^,]*}} %[[ALLOC_PTR]], i64{{[^,]*}} %[[TOTAL_SIZE]], i64{{[^,]*}} 32)
 
 struct Destructed {
   ~Destructed();

@@ -8,8 +8,8 @@
 // __attribute__((nonnull)) on individual parameter.
 void take_nonnull(int *p) __attribute__((nonnull(1)));
 void take_nonnull(int *p) { *p = 42; }
-// CIR: cir.func {{.*}} @take_nonnull(%arg0: !cir.ptr<!s32i>
-// CIR-SAME: {llvm.nonnull, llvm.noundef}
+// CIR: cir.func {{.*}} @take_nonnull(
+// CIR-SAME: %arg0: !cir.ptr<!s32i> {{.*llvm.nonnull.*}}
 // LLVM: define {{.*}} void @take_nonnull(ptr noundef nonnull %{{.*}})
 // OGCG: define {{.*}} void @take_nonnull(ptr noundef nonnull %{{.*}})
 
@@ -17,7 +17,7 @@ void take_nonnull(int *p) { *p = 42; }
 __attribute__((nonnull)) void take_all_nonnull(int *a, int *b);
 void take_all_nonnull(int *a, int *b) { *a = *b; }
 // CIR: cir.func {{.*}} @take_all_nonnull(
-// CIR-SAME: %arg0: !cir.ptr<!s32i> {llvm.nonnull, llvm.noundef}
-// CIR-SAME: %arg1: !cir.ptr<!s32i> {llvm.nonnull, llvm.noundef}
+// CIR-SAME: %arg0: !cir.ptr<!s32i> {{[^%]*llvm.nonnull[^%]*}},
+// CIR-SAME: %arg1: !cir.ptr<!s32i> {{.*llvm.nonnull.*}}
 // LLVM: define {{.*}} void @take_all_nonnull(ptr noundef nonnull %{{.*}}, ptr noundef nonnull %{{.*}})
 // OGCG: define {{.*}} void @take_all_nonnull(ptr noundef nonnull %{{.*}}, ptr noundef nonnull %{{.*}})

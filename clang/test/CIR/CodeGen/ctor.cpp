@@ -55,8 +55,8 @@ void bar() {
 // CHECK-NEXT:   cir.store %arg0, %[[THIS_ADDR]]
 // CHECK-NEXT:   cir.store %arg1, %[[N_ADDR]]
 // CHECK-NEXT:   %[[THIS:.*]] = cir.load{{.*}} %[[THIS_ADDR]]
-// CHECK-NEXT:   %[[N:.*]] = cir.load{{.*}} %[[N_ADDR]]
-// CHECK-NEXT:   %[[A_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "a"}
+// CHECK-NEXT:   %[[N:.*]] = cir.load {{.*}}%[[N_ADDR]]
+// CHECK-NEXT:   %[[A_ADDR:.*]] = cir.get_member %[[THIS]]{{.*}} {{[^:]*}}name = "a"{{[^:]*}} : {{.*}} -> !cir.ptr<!s32i> {{.*}}
 // CHECK-NEXT:   cir.store{{.*}} %[[N]], %[[A_ADDR]]
 // CHECK-NEXT:   cir.return
 
@@ -85,8 +85,8 @@ void bam() {
 // CHECK-NEXT:   cir.store %arg0, %[[THIS_ADDR]]
 // CHECK-NEXT:   cir.store %arg1, %[[N_ADDR]]
 // CHECK-NEXT:   %[[THIS:.*]] = cir.load{{.*}} %[[THIS_ADDR]]
-// CHECK-NEXT:   %[[N:.*]] = cir.load{{.*}} %[[N_ADDR]]
-// CHECK-NEXT:   %[[A_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "a"}
+// CHECK-NEXT:   %[[N:.*]] = cir.load {{.*}}%[[N_ADDR]]
+// CHECK-NEXT:   %[[A_ADDR:.*]] = cir.get_member %[[THIS]]{{.*}} {{[^:]*}}name = "a"{{[^:]*}} : {{.*}} -> !cir.ptr<!s32i> {{.*}}
 // CHECK-NEXT:   cir.store{{.*}} %[[N]], %[[A_ADDR]]
 // CHECK-NEXT:   cir.return
 
@@ -127,7 +127,7 @@ void init_member() {
 // CHECK-NEXT:   %[[THIS_ADDR:.*]] = cir.alloca "this" {{.*}} init
 // CHECK-NEXT:   cir.store %arg0, %[[THIS_ADDR]]
 // CHECK-NEXT:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]]
-// CHECK-NEXT:   %[[A_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "a"}
+// CHECK-NEXT:   %[[A_ADDR:.*]] = cir.get_member %[[THIS]]{{.*}} {{[^:]*}}name = "a"{{[^:]*}} : {{.*}} -> !cir.ptr<!s32i> {{.*}}
 // CHECK-NEXT:   %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
 // CHECK-NEXT:   cir.store align(4) %[[ZERO]], %[[A_ADDR]]
 // CHECK-NEXT:   cir.return
@@ -160,7 +160,7 @@ void init_param_member() {
 // CHECK-NEXT:   cir.store %arg0, %[[THIS_ADDR]]
 // CHECK-NEXT:   cir.store %arg1, %[[N_ADDR]]
 // CHECK-NEXT:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]]
-// CHECK-NEXT:   %[[A_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "a"}
+// CHECK-NEXT:   %[[A_ADDR:.*]] = cir.get_member %[[THIS]]{{.*}} {{[^:]*}}name = "a"{{[^:]*}} : {{.*}} -> !cir.ptr<!s32i> {{.*}}
 // CHECK-NEXT:   %[[N:.*]] = cir.load{{.*}} %[[N_ADDR]]
 // CHECK-NEXT:   cir.store{{.*}} %[[N]], %[[A_ADDR]]
 // CHECK-NEXT:   cir.return
@@ -201,9 +201,9 @@ void init_union() {
 // CHECK-NEXT:   %[[THIS_ADDR:.*]] = cir.alloca "this" {{.*}} init
 // CHECK-NEXT:   cir.store %arg0, %[[THIS_ADDR]]
 // CHECK-NEXT:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]]
-// CHECK-NEXT:   %[[AU1_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = ""}
-// CHECK-NEXT:   %[[AU2_ADDR:.*]] = cir.get_member %[[AU1_ADDR]][1] {name = ""}
-// CHECK-NEXT:   %[[C_ADDR:.*]] = cir.get_member %[[AU2_ADDR]][1] {name = "c"}
+// CHECK-NEXT:   %[[AU1_ADDR:.*]] = cir.get_member %[[THIS]]{{.*}} {{.*}} : {{.*}} {{.*}}
+// CHECK-NEXT:   %[[AU2_ADDR:.*]] = cir.get_member %[[AU1_ADDR]]{{.*}} {{.*}} : {{.*}} {{.*}}
+// CHECK-NEXT:   %[[C_ADDR:.*]] = cir.get_member %[[AU2_ADDR]]{{.*}} {{[^:]*}}name = "c"{{[^:]*}} : {{.*}} {{.*}}
 // CHECK-NEXT:   %[[ZERO:.*]] = cir.const #cir.fp<0.000000e+00>
 // CHECK-NEXT:   cir.store{{.*}} %[[ZERO]], %[[C_ADDR]]
 // CHECK-NEXT:   cir.return
@@ -239,7 +239,7 @@ void test_derived() {
 // CHECK-NEXT:   cir.store %arg0, %[[THIS_ADDR]]
 // CHECK-NEXT:   cir.store %arg1, %[[VAL_ADDR]]
 // CHECK-NEXT:   %[[THIS:.*]] = cir.load{{.*}} %[[THIS_ADDR]]
-// CHECK-NEXT:   %[[A_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "a"}
+// CHECK-NEXT:   %[[A_ADDR:.*]] = cir.get_member %[[THIS]]{{.*}} {{[^:]*}}name = "a"{{[^:]*}} : {{.*}} -> !cir.ptr<!s32i> {{.*}}
 // CHECK-NEXT:   %[[VAL:.*]] = cir.load{{.*}} %[[VAL_ADDR]]
 // CHECK-NEXT:   cir.store{{.*}} %[[VAL]], %[[A_ADDR]]
 // CHECK-NEXT:   cir.return
@@ -291,7 +291,7 @@ void test_derived2() {
 // CHECK-NEXT:   cir.store %arg0, %[[THIS_ADDR]]
 // CHECK-NEXT:   cir.store %arg1, %[[VAL_ADDR]]
 // CHECK-NEXT:   %[[THIS:.*]] = cir.load{{.*}} %[[THIS_ADDR]]
-// CHECK-NEXT:   %[[B_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "b"}
+// CHECK-NEXT:   %[[B_ADDR:.*]] = cir.get_member %[[THIS]]{{.*}} {{[^:]*}}name = "b"{{[^:]*}} : {{.*}} {{.*}}
 // CHECK-NEXT:   %[[VAL:.*]] = cir.load{{.*}} %[[VAL_ADDR]]
 // CHECK-NEXT:   cir.store{{.*}} %[[VAL]], %[[B_ADDR]]
 // CHECK-NEXT:   cir.return
@@ -315,7 +315,7 @@ void test_derived2() {
 // CHECK-NEXT:   %[[BASE2:.*]] = cir.base_class_addr %[[THIS]] : !cir.ptr<!rec_Derived2> nonnull [4] -> !cir.ptr<!rec_Base2>
 // CHECK-NEXT:   %[[VAL2:.*]] = cir.load{{.*}} %[[VAL2_ADDR]]
 // CHECK-NEXT:   cir.call @_ZN5Base2C2Ei(%[[BASE2]], %[[VAL2]])
-// CHECK-NEXT:   %[[C_ADDR:.*]] = cir.get_member %[[THIS]][2] {name = "c"}
+// CHECK-NEXT:   %[[C_ADDR:.*]] = cir.get_member %[[THIS]]{{.*}} {{[^:]*}}name = "c"{{[^:]*}} : {{.*}} {{.*}}
 // CHECK-NEXT:   %[[VAL3:.*]] = cir.load{{.*}} %[[VAL3_ADDR]]
 // CHECK-NEXT:   cir.store{{.*}} %[[VAL3]], %[[C_ADDR]]
 // CHECK-NEXT:   cir.return

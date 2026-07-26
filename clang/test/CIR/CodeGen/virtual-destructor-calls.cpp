@@ -51,7 +51,7 @@ B::~B() { }
 
 // Complete (D1) dtor for B: just an alias because there are no virtual bases.
 
-// CIR: cir.func{{.*}} @_ZN1BD1Ev(!cir.ptr<!rec_B>) alias(@_ZN1BD2Ev)
+// CIR: cir.func{{.*}} @_ZN1BD1Ev(!cir.ptr<!rec_B> {{.*}}) alias(@_ZN1BD2Ev)
 // This is defined above for LLVM and OGCG.
 
 // Deleting (D0) dtor for B: defers to the complete dtor but also calls operator delete.
@@ -90,7 +90,7 @@ C::~C() { }
 
 // Complete (D1) dtor for C: just an alias because there are no virtual bases.
 
-// CIR: cir.func{{.*}} @_ZN1CD1Ev(!cir.ptr<!rec_C>) alias(@_ZN1CD2Ev)
+// CIR: cir.func{{.*}} @_ZN1CD1Ev(!cir.ptr<!rec_C> {{.*}}) alias(@_ZN1CD2Ev)
 // This is defined above for LLVM and OGCG.
 
 

@@ -17,13 +17,13 @@ vec3 ret_vec3() {
   // CIR-LABEL: ret_vec3
   // CIR: %[[RET_ALLOCA:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!rec_vec3>
   // CIR: %[[GET_ANON:.*]] = cir.get_member %[[RET_ALLOCA]][0] {name = ""}
-  // CIR: %[[GET_X:.*]] = cir.get_member %[[GET_ANON]][0] {name = "x"}
+  // CIR: %[[GET_X:.*]] = cir.get_member %[[GET_ANON]][0] {{.*name = "x".*}} : !cir.ptr<!rec_anon2E0> -> !cir.ptr<!cir.double>
   // CIR: %[[FIVE:.*]] = cir.const #cir.fp<5.{{.*}}> : !cir.double
   // CIR: cir.store{{.*}} %[[FIVE]], %[[GET_X]]
-  // CIR: %[[GET_Y:.*]] = cir.get_member %[[GET_ANON]][1] {name = "y"}
+  // CIR: %[[GET_Y:.*]] = cir.get_member %[[GET_ANON]][1] {{.*name = "y".*}} : !cir.ptr<!rec_anon2E0> -> !cir.ptr<!cir.double>
   // CIR: %[[ZERO:.*]] = cir.const #cir.fp<0.{{.*}}> : !cir.double
   // CIR: cir.store{{.*}} %[[ZERO]], %[[GET_Y]]
-  // CIR: %[[GET_Z:.*]] = cir.get_member %[[GET_ANON]][2] {name = "z"}
+  // CIR: %[[GET_Z:.*]] = cir.get_member %[[GET_ANON]][2] {{.*name = "z".*}} : !cir.ptr<!rec_anon2E0> -> !cir.ptr<!cir.double>
   // CIR: %[[ZERO:.*]] = cir.const #cir.fp<0.{{.*}}> : !cir.double
   // CIR: cir.store{{.*}} %[[ZERO]], %[[GET_Z]]
 
@@ -55,7 +55,7 @@ struct outer ret_outer() {
   // CIR-LABEL: ret_outer
   // CIR: %[[RET_ALLOCA:.*]] = cir.alloca "__retval" {{.*}} init : !cir.ptr<!rec_outer>
   // CIR: %[[BITCAST:.*]] = cir.cast bitcast %0 : !cir.ptr<!rec_outer> -> !cir.ptr<!{{.*}}>
-  // CIR: %[[RECORD:.*]] = cir.const #cir.const_record<{#cir.zero : !{{.*}}, #cir.int<1> : !s32i, #cir.const_array<[#cir.zero : !u8i, #cir.zero : !u8i, #cir.zero : !u8i, #cir.zero : !u8i]> : !cir.array<!u8i x 4>}> 
+  // CIR: %[[RECORD:.*]] = cir.const #cir.const_record<{#cir.zero : !rec_anon_struct, #cir.int<1>, #cir.const_array<[#cir.zero, #cir.zero, #cir.zero, #cir.zero]>}> : !rec_anon_struct1
   // CIR: cir.store {{.*}}%[[RECORD]], %[[BITCAST]] 
 
   // LLVM-LABEL: ret_outer

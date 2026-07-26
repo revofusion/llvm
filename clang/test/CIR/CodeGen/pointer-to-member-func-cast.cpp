@@ -33,13 +33,14 @@ bool memfunc_to_bool(void (Foo::*func)(int)) {
 
 // CIR-AFTER:     cir.func {{.*}} @_Z15memfunc_to_boolM3FooFviE
 // CIR-AFTER:       %[[FUNC:.*]] = cir.load{{.*}} %{{.*}} : !cir.ptr<!rec_anon_struct>, !rec_anon_struct
-// CIR-AFTER:       %[[NULL_VAL:.*]] = cir.const #cir.int<0> : !s64i
-// CIR-AFTER:       %[[FUNC_PTR:.*]] = cir.extract_member %[[FUNC]][0] : !rec_anon_struct -> !s64i
-// CIR-AFTER:       %[[BOOL_VAL:.*]] = cir.cmp ne %[[FUNC_PTR]], %[[NULL_VAL]] : !s64i
+// CIR-AFTER:       %[[NULL_ADJ:.*]] = cir.const #cir.int<0> : !s64i
+// CIR-AFTER:       %[[NULL_FUNC:.*]] = cir.const #cir.int<0> : !u64i
+// CIR-AFTER:       %[[FUNC_PTR:.*]] = cir.extract_member %[[FUNC]][0] : !rec_anon_struct -> !u64i
+// CIR-AFTER:       %[[BOOL_VAL:.*]] = cir.cmp ne %[[FUNC_PTR]], %[[NULL_FUNC]] : !u64i
 // CIR-AFTER-ARM:   %[[ONE:.*]] = cir.const #cir.int<1> : !s64i
 // CIR-AFTER-ARM:   %[[ADJ:.*]] = cir.extract_member %[[FUNC]][1] : !rec_anon_struct -> !s64i
 // CIR-AFTER-ARM:   %[[AND:.*]] = cir.and %[[ADJ]], %[[ONE]] : !s64i
-// CIR-AFTER-ARM:   %[[NOT_VIRTUAL:.*]] = cir.cmp ne %[[AND]], %[[NULL_VAL]] : !s64i
+// CIR-AFTER-ARM:   %[[NOT_VIRTUAL:.*]] = cir.cmp ne %[[AND]], %[[NULL_ADJ]] : !s64i
 // CIR-AFTER-ARM:   %[[TMP:.*]] = cir.or %[[BOOL_VAL]], %[[NOT_VIRTUAL]] : !cir.bool
 // CIR-AFTER-X86-NOT: cir.extract_member
 // CIR-AFTER-X86-NOT: cir.and

@@ -125,10 +125,10 @@ __device__ _BitInt(36) c;
 
 // Check the fatbin wrapper struct: { magic, version, ptr to fatbin, null }, with section.
 // CIR: cir.global constant cir_private @__cuda_fatbin_wrapper = #cir.const_record<{
-// CIR-SAME: #cir.int<1180844977> : !s32i,
-// CIR-SAME: #cir.int<1> : !s32i,
-// CIR-SAME: #cir.global_view<@__cuda_fatbin_str> : !cir.ptr<!void>,
-// CIR-SAME: #cir.ptr<null> : !cir.ptr<!void>
+// CIR-SAME: #cir.int<1180844977>,
+// CIR-SAME: #cir.int<1>,
+// CIR-SAME: #cir.global_view<@__cuda_fatbin_str>,
+// CIR-SAME: #cir.ptr<null>
 // CIR-SAME: }> : !rec_anon_struct {section = ".nvFatBinSegment"}
 
 // Check the GPU binary handle global.
@@ -251,10 +251,10 @@ __device__ _BitInt(36) c;
 // 0x48495046 = 1212764230.
 // HIP-CIR: cir.global "private" constant cir_private @__hip_fatbin_str = #cir.const_array<"GPU binary would be here." : !cir.array<!u8i x 25>> : !cir.array<!u8i x 25> {alignment = 8 : i64, section = ".hip_fatbin"}
 // HIP-CIR: cir.global constant cir_private @__hip_fatbin_wrapper = #cir.const_record<{
-// HIP-CIR-SAME: #cir.int<1212764230> : !s32i,
-// HIP-CIR-SAME: #cir.int<1> : !s32i,
-// HIP-CIR-SAME: #cir.global_view<@__hip_fatbin_str> : !cir.ptr<!void>,
-// HIP-CIR-SAME: #cir.ptr<null> : !cir.ptr<!void>
+// HIP-CIR-SAME: #cir.int<1212764230>,
+// HIP-CIR-SAME: #cir.int<1>,
+// HIP-CIR-SAME: #cir.global_view<@__hip_fatbin_str>,
+// HIP-CIR-SAME: #cir.ptr<null>
 // HIP-CIR-SAME: }> : !rec_anon_struct {section = ".hipFatBinSegment"}
 
 // HIP-CIR: cir.global "private" internal @__hip_gpubin_handle = #cir.ptr<null> : !cir.ptr<!cir.ptr<!void>>

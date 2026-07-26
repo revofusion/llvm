@@ -29,11 +29,11 @@ void initalizer_list_with_two_pointers_layout() {
 // CIR: %[[ARR_ELEM_2_PTR:.*]] = cir.ptr_stride %[[ARR_PTR]], %[[CONST_S64_2]] : (!cir.ptr<!s32i>, !s64i) -> !cir.ptr<!s32i>
 // CIR: %[[CONST_S32_30:.*]] = cir.const #cir.int<30> : !s32i
 // CIR: cir.store {{.*}} %[[CONST_S32_30]], %[[ARR_ELEM_2_PTR]] : !s32i, !cir.ptr<!s32i>
-// CIR: %[[BEGIN_PTR:.*]] = cir.get_member %[[A_ADDR]][0] {name = "__begin_"} : !cir.ptr<!rec_std3A3Ainitializer_list3Cint3E> -> !cir.ptr<!cir.ptr<!s32i>
+// CIR: %[[BEGIN_PTR:.*]] = cir.get_member %[[A_ADDR]][0] {{.*name = "__begin_".*}} : !cir.ptr<!rec_std3A3Ainitializer_list3Cint3E> -> !cir.ptr<!cir.ptr<!s32i>>
 // CIR: %[[ARR_BEGIN_PTR:.*]] = cir.cast bitcast %[[BEGIN_PTR]] : !cir.ptr<!cir.ptr<!s32i>> -> !cir.ptr<!cir.ptr<!cir.array<!s32i x 3>>>
 // CIR: cir.store {{.*}} %[[ARR_ADDR]], %[[ARR_BEGIN_PTR]] : !cir.ptr<!cir.array<!s32i x 3>>, !cir.ptr<!cir.ptr<!cir.array<!s32i x 3>>>
 // CIR: %[[CONST_U64_3:.*]] = cir.const #cir.int<3> : !u64i
-// CIR: %[[END_PTR:.*]] = cir.get_member %[[A_ADDR]][1] {name = "__end_"} : !cir.ptr<!rec_std3A3Ainitializer_list3Cint3E> -> !cir.ptr<!cir.ptr<!s32i>>
+// CIR: %[[END_PTR:.*]] = cir.get_member %[[A_ADDR]][1] {{.*name = "__end_".*}} : !cir.ptr<!rec_std3A3Ainitializer_list3Cint3E> -> !cir.ptr<!cir.ptr<!s32i>>
 // CIR: %[[ARR_END:.*]] = cir.ptr_stride %[[ARR_ADDR]], %[[CONST_U64_3]] : (!cir.ptr<!cir.array<!s32i x 3>>, !u64i) -> !cir.ptr<!cir.array<!s32i x 3>>
 // CIR: %[[ARR_END_PTR:.*]] = cir.cast bitcast %[[END_PTR]] : !cir.ptr<!cir.ptr<!s32i>> -> !cir.ptr<!cir.ptr<!cir.array<!s32i x 3>>>
 // CIR: cir.store {{.*}} %[[ARR_END]], %[[ARR_END_PTR]] : !cir.ptr<!cir.array<!s32i x 3>>, !cir.ptr<!cir.ptr<!cir.array<!s32i x 3>>>

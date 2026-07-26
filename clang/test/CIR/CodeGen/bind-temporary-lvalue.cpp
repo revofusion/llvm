@@ -20,7 +20,7 @@ int f() { return getS().x; }
 // CIR:   %[[CALL:.*]] = cir.call @_Z4getSv() : () -> !rec_S
 // CIR:   cir.store{{.*}} %[[CALL]], %[[TMP]]
 // CIR:   cir.cleanup.scope {
-// CIR:     %[[X:.*]] = cir.get_member %[[TMP]][0] {name = "x"} : !cir.ptr<!rec_S> -> !cir.ptr<!s32i>
+// CIR:     %[[X:.*]] = cir.get_member %[[TMP]][0] {{.*name = "x".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!s32i>
 // CIR:     %[[VAL:.*]] = cir.load{{.*}} %[[X]] : !cir.ptr<!s32i>, !s32i
 // CIR:     cir.store{{.*}} %[[VAL]], %[[RET]]
 // CIR:   } cleanup normal {

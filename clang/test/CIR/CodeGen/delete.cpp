@@ -16,7 +16,7 @@ void test_sized_delete(SizedDelete *x) {
 }
 
 // SizedDelete::operator delete(void*, unsigned long)
-// CIR:  cir.func private @_ZN11SizedDeletedlEPvm(!cir.ptr<!void> {llvm.noundef}, !u64i {llvm.noundef})
+// CIR:  cir.func private @_ZN11SizedDeletedlEPvm(!cir.ptr<!void> {{.*llvm.noundef.*}}, !u64i {{.*llvm.noundef.*}})
 // LLVM: declare void @_ZN11SizedDeletedlEPvm(ptr noundef, i64 noundef)
 
 // CIR: cir.func {{.*}} @_Z17test_sized_deleteP11SizedDelete
@@ -76,24 +76,24 @@ Container::~Container() { delete contents; }
 // LLVM: define linkonce_odr void @_ZN8ContentsD2Ev
 
 // operator delete(void*, unsigned long)
-// CIR: cir.func {{.*}} @_ZdlPvm(!cir.ptr<!void> {llvm.noundef}, !u64i {llvm.noundef})
+// CIR: cir.func {{.*}} @_ZdlPvm(!cir.ptr<!void> {{.*llvm.noundef.*}}, !u64i {{.*llvm.noundef.*}})
 // LLVM: declare void @_ZdlPvm(ptr noundef, i64 noundef)
 
 // Container::~Container()
 // CIR: cir.func {{.*}} @_ZN9ContainerD2Ev
 // CIR:   %[[THIS:.*]] = cir.load %{{.*}}
-// CIR:   %[[CONTENTS_PTR_ADDR:.*]] = cir.get_member %[[THIS]][0] {name = "contents"} : !cir.ptr<!rec_Container> -> !cir.ptr<!cir.ptr<!rec_Contents>>
+// CIR:   %[[CONTENTS_PTR_ADDR:.*]] = cir.get_member %[[THIS]][0] {{.*name = "contents".*}} : !cir.ptr<!rec_Container> -> !cir.ptr<!cir.ptr<!rec_Contents>>
 // CIR:   %[[CONTENTS_PTR:.*]] = cir.load{{.*}} %[[CONTENTS_PTR_ADDR]]
 // CIR:   %[[NULL:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!rec_Contents>
 // CIR:   %[[NOT_NULL:.*]] = cir.cmp ne %[[CONTENTS_PTR]], %[[NULL]] : !cir.ptr<!rec_Contents>
 // CIR:   cir.if %[[NOT_NULL]] {
 // CIR:     cir.cleanup.scope {
-// CIR:       cir.call @_ZN8ContentsD2Ev(%[[CONTENTS_PTR]]) nothrow : (!cir.ptr<!rec_Contents> {llvm.align = 1 : i64, llvm.dereferenceable = 1 : i64, llvm.nonnull, llvm.noundef}) -> ()
+// CIR:       cir.call @_ZN8ContentsD2Ev(%[[CONTENTS_PTR]]) nothrow : (!cir.ptr<!rec_Contents> {{.*}}) -> ()
 // CIR:       cir.yield
 // CIR:     } cleanup normal {
 // CIR:       %[[CONTENTS_CAST:.*]] = cir.cast bitcast %[[CONTENTS_PTR]] : !cir.ptr<!rec_Contents> -> !cir.ptr<!void>
 // CIR:       %[[OBJ_SIZE:.*]] = cir.const #cir.int<1> : !u64i
-// CIR:       cir.call @_ZdlPvm(%[[CONTENTS_CAST]], %[[OBJ_SIZE]]) nothrow {builtin} : (!cir.ptr<!void> {llvm.noundef}, !u64i {llvm.noundef}) -> ()
+// CIR:       cir.call @_ZdlPvm(%[[CONTENTS_CAST]], %[[OBJ_SIZE]]) nothrow {builtin} : (!cir.ptr<!void> {{.*}}, !u64i {{.*}}) -> ()
 // CIR:       cir.yield
 // CIR:     }
 // CIR:   }

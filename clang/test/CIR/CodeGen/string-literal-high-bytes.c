@@ -12,5 +12,5 @@ char high_bytes[] = "\x80\xff\x7f";
 
 unsigned char ubytes[4] = {0x80, 0xff, 0x01, 0x7f};
 
-// CIR: cir.global external @ubytes = #cir.const_array<[#cir.int<128> : !u8i, #cir.int<255> : !u8i, #cir.int<1> : !u8i, #cir.int<127> : !u8i]> : !cir.array<!u8i x 4>
+// CIR: cir.global external @ubytes = #cir.const_array<[#cir.int<128>, #cir.int<255>, #cir.int<1>, #cir.int<127>]> : !cir.array<!u8i x 4>
 // LLVM: @ubytes = global [4 x i8] c"\80\FF\01\7F"

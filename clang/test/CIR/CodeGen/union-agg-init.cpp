@@ -14,14 +14,14 @@ typedef union vec3 {
 extern "C" vec3 ret_vec3() {
   // CIR-LABEL: ret_vec3
   // CIR: %[[RET_ALLOCA:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!rec_vec3>
-  // CIR: %[[GET_ANON:.*]] = cir.get_member %[[RET_ALLOCA]][0] {name = ""}
-  // CIR: %[[GET_X:.*]] = cir.get_member %[[GET_ANON]][0] {name = "x"}
+  // CIR: %[[GET_ANON:.*]] = cir.get_member %[[RET_ALLOCA]][0] {{.*name = "".*}} : !cir.ptr<!rec_vec3> -> !cir.ptr<!rec_anon2E0>
+  // CIR: %[[GET_X:.*]] = cir.get_member %[[GET_ANON]][0] {{.*name = "x".*}} : !cir.ptr<!rec_anon2E0> -> !cir.ptr<!cir.double>
   // CIR: %[[FIVE:.*]] = cir.const #cir.fp<5.{{.*}}> : !cir.double
   // CIR: cir.store{{.*}} %[[FIVE]], %[[GET_X]]
-  // CIR: %[[GET_Y:.*]] = cir.get_member %[[GET_ANON]][1] {name = "y"}
+  // CIR: %[[GET_Y:.*]] = cir.get_member %[[GET_ANON]][1] {{.*name = "y".*}} : !cir.ptr<!rec_anon2E0> -> !cir.ptr<!cir.double>
   // CIR: %[[ZERO:.*]] = cir.const #cir.fp<0.{{.*}}> : !cir.double
   // CIR: cir.store{{.*}} %[[ZERO]], %[[GET_Y]]
-  // CIR: %[[GET_Z:.*]] = cir.get_member %[[GET_ANON]][2] {name = "z"}
+  // CIR: %[[GET_Z:.*]] = cir.get_member %[[GET_ANON]][2] {{.*name = "z".*}} : !cir.ptr<!rec_anon2E0> -> !cir.ptr<!cir.double>
   // CIR: %[[ZERO:.*]] = cir.const #cir.fp<0.{{.*}}> : !cir.double
   // CIR: cir.store{{.*}} %[[ZERO]], %[[GET_Z]]
 
@@ -44,7 +44,7 @@ typedef union Trivial {
 extern "C" Trivial ret_trivial() { return {}; }
   // CIR-LABEL: ret_trivial
   // CIR: %[[RET_ALLOCA:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!rec_Trivial>
-  // CIR: %[[GET_A:.*]] = cir.get_member %[[RET_ALLOCA]][0] {name = "a"}
+  // CIR: %[[GET_A:.*]] = cir.get_member %[[RET_ALLOCA]][0] {{.*name = "a".*}} : !cir.ptr<!rec_Trivial> -> !cir.ptr<!s32i>
   // CIR: %[[ZERO:.*]] = cir.const #cir.int<0>
   // CIR: cir.store{{.*}} %[[ZERO]], %[[GET_A]]
 

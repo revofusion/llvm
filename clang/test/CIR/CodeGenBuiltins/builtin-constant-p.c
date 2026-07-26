@@ -14,7 +14,7 @@ struct foo { int x, y; };
 int y;
 struct foo f = (struct foo){ __builtin_constant_p(y), 42 };
 
-// CIR: cir.global external @f = #cir.const_record<{#cir.int<0> : !s32i, #cir.int<42> : !s32i}> : !rec_foo
+// CIR: cir.global external @f = #cir.const_record<{#cir.int<0>, #cir.int<42>}> : !rec_foo {{.*}}
 // LLVM: @f = global %struct.foo { i32 0, i32 42 }
 // OGCG: @f = global %struct.foo { i32 0, i32 42 }
 

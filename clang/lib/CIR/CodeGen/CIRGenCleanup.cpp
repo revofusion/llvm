@@ -170,8 +170,7 @@ void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
   const CXXDestructorDecl *destructor = temporary->getDestructor();
   if (!function || !destructor)
     return;
-  if (begin.isInvalid() || end.isInvalid() ||
-      end.getRawEncoding() < begin.getRawEncoding()) {
+  if (begin.isInvalid() || end.isInvalid()) {
     cgm.errorNYI(binding->getSourceRange(),
                  "temporary identity has invalid source provenance");
     return;
@@ -307,24 +306,29 @@ void CIRGenFunction::setCXXAutomaticObjectIdentity(const VarDecl *variable,
   if (!canonicalVariable)
     return;
 
+  // The canonical declaration, rather than its USR or source spelling, owns
+  // this association while CIRGen is running. In particular, separate
+  // declarations introduced by repeated macro expansions can have the same
+  // spelling location, while repeated cleanup emission for one declaration
+  // must remain idempotent.
+  auto [identityOwner, inserted] = automaticObjectIdentityDecls.try_emplace(
+      alloca.getOperation(), canonicalVariable);
+  if (!inserted) {
+    if (!identityOwner->second || identityOwner->second == canonicalVariable)
+      return;
+
+    // Multiple NRVO candidates may legitimately share the return allocation.
+    // The alloca's singular metadata slot cannot identify either object
+    // without conflating them, so follow the attribute contract and omit it.
+    // Their distinct cleanup scopes and NRVO flags remain intact.
+    identityOwner->second = nullptr;
+    alloca->removeAttr("ast_automatic_object_identity");
+    return;
+  }
+
   llvm::SmallString<256> declarationUSR;
   if (clang::index::generateUSRForDecl(canonicalVariable, declarationUSR))
     return;
-
-  // Cleanup emission may visit the same declaration more than once while
-  // building normal and exceptional paths. That is idempotent. Distinct
-  // declarations sharing one return slot are ambiguous and fail loudly.
-  if (mlir::DictionaryAttr existing =
-          alloca.getAstAutomaticObjectIdentityAttr()) {
-    if (mlir::StringAttr existingUSR =
-            existing.getAs<mlir::StringAttr>("declaration_usr");
-        existingUSR && existingUSR.getValue() == declarationUSR) {
-      return;
-    }
-    cgm.errorNYI(variable->getSourceRange(),
-                 "conflicting automatic cleanup declaration identities");
-    return;
-  }
 
   auto function = mlir::dyn_cast_or_null<cir::FuncOp>(curFn);
   SourceLocation begin = variable->getBeginLoc();
@@ -875,21 +879,19 @@ static void setupCleanupBlockDeactivation(CIRGenFunction &cgf,
   Address var = scope.getActiveFlag();
   if (!var.isValid()) {
     mlir::Location loc = builder.getUnknownLoc();
-
-    var = cgf.createTempAllocaWithoutCast(builder.getBoolTy(), CharUnits::One(),
-                                          loc, "cleanup.isactive");
-    scope.setActiveFlag(var);
-
     assert(dominatingIP && "no existing variable and no dominating IP!");
 
     if (cgf.isInConditionalBranch()) {
-      mlir::Value val = builder.getBool(true, loc);
-      cgf.setBeforeOutermostConditional(val, var);
+      // The cleanup only becomes active when this arm executes.
+      var = cgf.createCleanupActiveFlag();
     } else {
+      var = cgf.createTempAllocaWithoutCast(
+          builder.getBoolTy(), CharUnits::One(), loc, "cleanup.isactive");
       mlir::OpBuilder::InsertionGuard guard(builder);
       builder.setInsertionPoint(dominatingIP);
       builder.createFlagStore(loc, true, var.getPointer());
     }
+    scope.setActiveFlag(var);
   }
 
   // The code above sets the `isActive` flag to `true` as its initial state

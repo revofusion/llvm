@@ -24,8 +24,8 @@ int init(S* s) {
 //CIR: cir.func {{.*}} @init
 //CIR:   [[TMP0:%.*]] = cir.alloca "s" align(8) init : !cir.ptr<!cir.ptr<!rec_S>>
 //CIR:   [[TMP1:%.*]] = cir.load align(8) [[TMP0]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
-//CIR:   [[TMP2:%.*]] = cir.get_member [[TMP1]][0] {name = "c"} : !cir.ptr<!rec_S> -> !cir.ptr<!u32i>
-//CIR:   [[TMP3:%.*]] = cir.get_bitfield align(4) (#bfi_c, [[TMP2]] : !cir.ptr<!u32i>) -> !s32i
+//CIR:   [[TMP2:%.*]] = cir.get_member [[TMP1]][0] {{.*}}name = "c"} : !cir.ptr<!rec_S> -> !cir.ptr<!u32i>
+//CIR:   [[TMP3:%.*]] = cir.get_bitfield align(4) (#bfi_c, [[TMP2]] {{.*}}) -> !s32i
 
 //LLVM: define dso_local i32 @init
 //LLVM:   [[TMP0:%.*]] = alloca ptr, i64 1, align 8
@@ -55,7 +55,7 @@ void load(S* s) {
 // CIR:    %[[PTR0:.*]] = cir.alloca "s" {{.*}} init : !cir.ptr<!cir.ptr<!rec_S>>
 // CIR:    %[[CONST1:.*]] = cir.const #cir.int<-4> : !s32i
 // CIR:    %[[VAL0:.*]] = cir.load align(8) %[[PTR0]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
-// CIR:    %[[GET0:.*]] = cir.get_member %[[VAL0]][0] {name = "a"} : !cir.ptr<!rec_S> -> !cir.ptr<!u32i>
+// CIR:    %[[GET0:.*]] = cir.get_member %[[VAL0]][0] {{.*}}name = "a"} : !cir.ptr<!rec_S> -> !cir.ptr<!u32i>
 // CIR:    %[[SET0:.*]] = cir.set_bitfield align(4) (#bfi_a, %[[GET0]] : !cir.ptr<!u32i>, %[[CONST1]] : !s32i) -> !s32i
 
 // LLVM: define dso_local void @load{{.*}}{{.*}}
@@ -76,7 +76,7 @@ void load(S* s) {
 // field 'b'
 // CIR:    %[[CONST2:.*]] = cir.const #cir.int<42> : !s32i
 // CIR:    %[[VAL1:.*]] = cir.load align(8) %[[PTR0]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
-// CIR:    %[[GET1:.*]] = cir.get_member %[[VAL1]][0] {name = "b"} : !cir.ptr<!rec_S> -> !cir.ptr<!u32i>
+// CIR:    %[[GET1:.*]] = cir.get_member %[[VAL1]][0] {{.*}}name = "b"} : !cir.ptr<!rec_S> -> !cir.ptr<!u32i>
 // CIR:    %[[SET1:.*]] = cir.set_bitfield align(4) (#bfi_b, %[[GET1]] : !cir.ptr<!u32i>, %[[CONST2]] : !s32i) -> !s32i
 
 // LLVM:  %[[PTR1:.*]] = load ptr
@@ -95,7 +95,7 @@ void load(S* s) {
 // field 'c'
 // CIR:    %[[CONST3:.*]] = cir.const #cir.int<-12345> : !s32i
 // CIR:    %[[VAL2:.*]] = cir.load align(8) %[[PTR0]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
-// CIR:    %[[GET2:.*]] = cir.get_member %[[VAL2]][0] {name = "c"} : !cir.ptr<!rec_S> -> !cir.ptr<!u32i>
+// CIR:    %[[GET2:.*]] = cir.get_member %[[VAL2]][0] {{.*}}name = "c"} : !cir.ptr<!rec_S> -> !cir.ptr<!u32i>
 // CIR:    %[[SET2:.*]] = cir.set_bitfield align(4) (#bfi_c, %[[GET2]] : !cir.ptr<!u32i>, %[[CONST3]] : !s32i) -> !s32i
 
 // LLVM:  %[[PTR2:.*]] = load ptr

@@ -21,7 +21,7 @@ extern "C" void construct() {
 
 // CIR-LABEL: construct()
 // CIR-NEXT: %[[WC_ALLOCA:.*]] = cir.alloca {{.*}} : !cir.ptr<!rec_WithCtor>
-// CIR-NEXT: %[[CONST_VAL:.*]] = cir.const #cir.const_record<{#cir.int<4> : !s32i, #cir.int<10> : !s64i, #cir.const_record<{#cir.int<5> : !s32i}> : !rec_HasVal}>
+// CIR-NEXT: %[[CONST_VAL:.*]] = cir.const #cir.const_record<{#cir.int<4>, #cir.int<10>, #cir.const_record<{#cir.int<5>}> : !rec_HasVal}> : !rec_anon_struct{{.*}}
 // CIR-NEXT: %[[BITCAST:.*]] = cir.cast bitcast %[[WC_ALLOCA]]
 // CIR-NEXT: cir.store{{.*}}%[[CONST_VAL]], %[[BITCAST]]
 

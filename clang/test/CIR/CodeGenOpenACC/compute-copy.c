@@ -658,7 +658,7 @@ void acc_compute_members() {
 
 #pragma acc serial copy(localStruct.scalarMember)
   ;
-  // CHECK-NEXT: %[[GETMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][0] {name = "scalarMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!s32i>
+  // CHECK-NEXT: %[[GETMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][0] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!s32i>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETMEMBER]] : !cir.ptr<!s32i>) -> !cir.ptr<!s32i> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.scalarMember"}
   // CHECK-NEXT: acc.serial dataOperands(%[[COPYIN1]] : !cir.ptr<!s32i>) {
   // CHECK-NEXT: acc.yield
@@ -667,7 +667,7 @@ void acc_compute_members() {
 
 #pragma acc kernels copy(localStruct.arrayMember)
   ;
-  // CHECK-NEXT: %[[GETARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][1] {name = "arrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][1] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETARRAYMEMBER]] : !cir.ptr<!cir.array<!s32i x 5>>) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.arrayMember"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.terminator
@@ -682,7 +682,7 @@ void acc_compute_members() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS:.*]]  = acc.bounds lowerbound(%[[TWO_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64) 
-  // CHECK-NEXT: %[[GETARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][1] {name = "arrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][1] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETARRAYMEMBER]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS]]) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.arrayMember[2]"} 
   // CHECK-NEXT: acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.yield 
@@ -698,7 +698,7 @@ void acc_compute_members() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS:.*]]  = acc.bounds lowerbound(%[[ONE_CAST]] : si32) extent(%[[TWO_CAST]] : si32) stride(%[[ONE_CONST]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][1] {name = "arrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][1] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETARRAYMEMBER]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS]]) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.arrayMember[1:2]"} 
   // CHECK-NEXT: acc.serial dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.yield 
@@ -713,7 +713,7 @@ void acc_compute_members() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS:.*]]  = acc.bounds lowerbound(%[[ONE_CAST]] : si32) upperbound(%[[FOUR_CONST]] : i64) stride(%[[ONE_CONST]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][1] {name = "arrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][1] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETARRAYMEMBER]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS]]) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.arrayMember[1:]"} 
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.terminator
@@ -728,7 +728,7 @@ void acc_compute_members() {
   // CHECK-NEXT: %[[ZERO_CONST2:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS:.*]]  = acc.bounds lowerbound(%[[ZERO_CONST]] : i64) extent(%[[TWO_CAST]] : si32) stride(%[[ONE_CONST]] : i64) startIdx(%[[ZERO_CONST2]] : i64)
-  // CHECK-NEXT: %[[GETARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][1] {name = "arrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
+  // CHECK-NEXT: %[[GETARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][1] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!s32i x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETARRAYMEMBER]] : !cir.ptr<!cir.array<!s32i x 5>>) bounds(%[[BOUNDS]]) -> !cir.ptr<!cir.array<!s32i x 5>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.arrayMember[:2]"} 
   // CHECK-NEXT: acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!s32i x 5>>) {
   // CHECK-NEXT: acc.yield 
@@ -737,7 +737,7 @@ void acc_compute_members() {
 
 #pragma acc serial copy(localStruct.twoDArrayMember)
   ;
-  // CHECK-NEXT: %[[GET2DARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][2] {name = "twoDArrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
+  // CHECK-NEXT: %[[GET2DARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][2] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GET2DARRAYMEMBER]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.twoDArrayMember"} 
   // CHECK-NEXT: acc.serial dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) {
   // CHECK-NEXT: acc.yield 
@@ -758,7 +758,7 @@ void acc_compute_members() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS2:.*]] = acc.bounds lowerbound(%[[THREE_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GET2DARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][2] {name = "twoDArrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
+  // CHECK-NEXT: %[[GET2DARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][2] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GET2DARRAYMEMBER]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) bounds(%[[BOUNDS1]], %[[BOUNDS2]]) -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.twoDArrayMember[3][2]"} 
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) {
   // CHECK-NEXT: acc.terminator
@@ -781,7 +781,7 @@ void acc_compute_members() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS2:.*]] = acc.bounds lowerbound(%[[ONE_CAST]] : si32) extent(%[[THREE_CAST]] : si32) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GET2DARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][2] {name = "twoDArrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
+  // CHECK-NEXT: %[[GET2DARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][2] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GET2DARRAYMEMBER]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) bounds(%[[BOUNDS1]], %[[BOUNDS2]]) -> !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.twoDArrayMember[1:3][1:1]"} 
   // CHECK-NEXT: acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!cir.array<!s16i x 3> x 5>>) {
   // CHECK-NEXT: acc.yield
@@ -790,7 +790,7 @@ void acc_compute_members() {
 
 #pragma acc serial copy(localStruct.ptrArrayMember)
   ;
-  // CHECK-NEXT: %[[GETPTRARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][3] {name = "ptrArrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>>
+  // CHECK-NEXT: %[[GETPTRARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][3] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETPTRARRAYMEMBER]] : !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>>) -> !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.ptrArrayMember"}
   // CHECK-NEXT: acc.serial dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>>) {
   // CHECK-NEXT:  acc.yield
@@ -811,7 +811,7 @@ void acc_compute_members() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS2:.*]] = acc.bounds lowerbound(%[[THREE_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETPTRARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][3] {name = "ptrArrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>>
+  // CHECK-NEXT: %[[GETPTRARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][3] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETPTRARRAYMEMBER]] : !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>>) bounds(%[[BOUNDS1]], %[[BOUNDS2]]) -> !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.ptrArrayMember[3][2]"}
   // CHECK-NEXT: acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>>) {
   // CHECK-NEXT:  acc.terminator
@@ -834,7 +834,7 @@ void acc_compute_members() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS2:.*]] = acc.bounds lowerbound(%[[ONE_CAST]] : si32) extent(%[[THREE_CAST]] : si32) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETPTRARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][3] {name = "ptrArrayMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>>
+  // CHECK-NEXT: %[[GETPTRARRAYMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][3] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>>
   // CHECK-NEXT: %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETPTRARRAYMEMBER]] : !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>>) bounds(%[[BOUNDS1]], %[[BOUNDS2]]) -> !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.ptrArrayMember[1:3][1:1]"}
   // CHECK-NEXT: acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.array<!cir.ptr<!cir.float> x 5>>) {
   // CHECK-NEXT:  acc.yield
@@ -843,7 +843,7 @@ void acc_compute_members() {
 
 #pragma acc serial copy(localStruct.ptrPtrMember)
   ;
-  // CHECK-NEXT: %[[GETPTRPTRMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][4] {name = "ptrPtrMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>>
+  // CHECK-NEXT: %[[GETPTRPTRMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][4] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>>
   // CHECK-NEXT:  %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETPTRPTRMEMBER]] : !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>>) -> !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.ptrPtrMember"}
   // CHECK-NEXT:  acc.serial dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>>) {
   // CHECK-NEXT:  acc.yield
@@ -864,7 +864,7 @@ void acc_compute_members() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS2:.*]] = acc.bounds lowerbound(%[[THREE_CAST]] : si32) extent(%[[ONE_CONST]] : i64) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETPTRPTRMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][4] {name = "ptrPtrMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>>
+  // CHECK-NEXT: %[[GETPTRPTRMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][4] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>>
   // CHECK-NEXT:  %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETPTRPTRMEMBER]] : !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>>) bounds(%[[BOUNDS1]], %[[BOUNDS2]]) -> !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.ptrPtrMember[3][2]"}
   // CHECK-NEXT:  acc.kernels dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>>) {
   // CHECK-NEXT:  acc.terminator
@@ -887,7 +887,7 @@ void acc_compute_members() {
   // CHECK-NEXT: %[[ZERO_CONST:.*]] = arith.constant 0 : i64
   // CHECK-NEXT: %[[ONE_CONST2:.*]] = arith.constant 1 : i64
   // CHECK-NEXT: %[[BOUNDS2:.*]] = acc.bounds lowerbound(%[[ONE_CAST]] : si32) extent(%[[THREE_CAST]] : si32) stride(%[[ONE_CONST2]] : i64) startIdx(%[[ZERO_CONST]] : i64)
-  // CHECK-NEXT: %[[GETPTRPTRMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][4] {name = "ptrPtrMember"} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>>
+  // CHECK-NEXT: %[[GETPTRPTRMEMBER:.*]] = cir.get_member %[[LOCALSTRUCT]][4] {{.*}} : !cir.ptr<!rec_StructTy> -> !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>>
   // CHECK-NEXT:  %[[COPYIN1:.*]] = acc.copyin varPtr(%[[GETPTRPTRMEMBER]] : !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>>) bounds(%[[BOUNDS1]], %[[BOUNDS2]]) -> !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>> {dataClause = #acc<data_clause acc_copy>, name = "localStruct.ptrPtrMember[1:3][1:1]"}
   // CHECK-NEXT:  acc.parallel dataOperands(%[[COPYIN1]] : !cir.ptr<!cir.ptr<!cir.ptr<!cir.double>>>) {
   // CHECK-NEXT:  acc.yield

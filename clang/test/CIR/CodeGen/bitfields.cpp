@@ -38,8 +38,8 @@ int load_field(S* s) {
 // CIR: cir.func {{.*}} @_Z10load_field
 // CIR:   [[TMP0:%.*]] = cir.alloca "s" {{.*}} init : !cir.ptr<!cir.ptr<!rec_S>>
 // CIR:   [[TMP1:%.*]] = cir.load{{.*}} [[TMP0]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
-// CIR:   [[TMP2:%.*]] = cir.get_member [[TMP1]][0] {name = "c"} : !cir.ptr<!rec_S> -> !cir.ptr<!u64i>
-// CIR:   [[TMP3:%.*]] = cir.get_bitfield align(4) (#bfi_c, [[TMP2]] : !cir.ptr<!u64i>) -> !s32i
+// CIR:   [[TMP2:%.*]] = cir.get_member [[TMP1]][0] {{.*name = "c".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!u64i>
+// CIR:   [[TMP3:%.*]] = cir.get_bitfield align(4) (#bfi_c, [[TMP2]] {{.*ast_cast_expr.*}} : !cir.ptr<!u64i>) -> !s32i
 
 // LLVM: define dso_local noundef i32 @_Z10load_fieldP1S
 // LLVM:   [[TMP0:%.*]] = alloca ptr, i64 1, align 8
@@ -66,7 +66,7 @@ void store_field() {
 // CIR: cir.func {{.*}} @_Z11store_field
 // CIR:   [[TMP0:%.*]] = cir.alloca {{.*}} : !cir.ptr<!rec_S>
 // CIR:   [[TMP1:%.*]] = cir.const #cir.int<3> : !s32i
-// CIR:   [[TMP2:%.*]] = cir.get_member [[TMP0]][0] {name = "a"} : !cir.ptr<!rec_S> -> !cir.ptr<!u64i>
+// CIR:   [[TMP2:%.*]] = cir.get_member [[TMP0]][0] {{.*name = "a".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!u64i>
 // CIR:   cir.set_bitfield align(4) (#bfi_a, [[TMP2]] : !cir.ptr<!u64i>, [[TMP1]] : !s32i)
 
 // LLVM: define dso_local void @_Z11store_fieldv
@@ -92,10 +92,10 @@ void store_bitfield_to_bitfield(S* s) {
 // CIR:   [[TMP0:%.*]] = cir.alloca "s" align(8) init : !cir.ptr<!cir.ptr<!rec_S>>
 // CIR:   [[TMP1:%.*]] = cir.const #cir.int<3> : !s32i
 // CIR:   [[TMP2:%.*]] = cir.load align(8) [[TMP0]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
-// CIR:   [[TMP3:%.*]] = cir.get_member [[TMP2]][0] {name = "b"} : !cir.ptr<!rec_S> -> !cir.ptr<!u64i>
-// CIR:   [[TMP4:%.*]] = cir.set_bitfield align(4) (#bfi_b, [[TMP3]] : !cir.ptr<!u64i>, [[TMP1]] : !s32i) -> !s32i
+// CIR:   [[TMP3:%.*]] = cir.get_member [[TMP2]][0] {{.*name = "b".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!u64i>
+// CIR:   [[TMP4:%.*]] = cir.set_bitfield align(4) (#bfi_b, [[TMP3]] : !cir.ptr<!u64i>, [[TMP1]] : !s32i) {{.*ast_cast_expr.*}} -> !s32i
 // CIR:   [[TMP5:%.*]] = cir.load align(8) [[TMP0]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
-// CIR:   [[TMP6:%.*]] = cir.get_member [[TMP5]][0] {name = "a"} : !cir.ptr<!rec_S> -> !cir.ptr<!u64i>
+// CIR:   [[TMP6:%.*]] = cir.get_member [[TMP5]][0] {{.*name = "a".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!u64i>
 // CIR:   [[TMP7:%.*]] = cir.set_bitfield align(4) (#bfi_a, [[TMP6]] : !cir.ptr<!u64i>, [[TMP4]] : !s32i) -> !s32i
 
 // LLVM: define dso_local void @_Z26store_bitfield_to_bitfieldP1S

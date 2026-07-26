@@ -59,7 +59,7 @@ module  {
 // CHECK: cir.global external @p1 = #cir.ptr<null> : !cir.ptr<!rec_S>
 // CHECK: cir.global external @p2 = #cir.ptr<null> : !cir.ptr<!rec_U>
 // CHECK: cir.global external @p3 = #cir.ptr<null> : !cir.ptr<!rec_C>
-// CHECK: cir.global external @arr = #cir.const_record<{#cir.int<1> : !s32i, #cir.int<2> : !s32i, #cir.zero : !cir.array<!s32i x 8>}> : !rec_anon_struct
+// CHECK: cir.global external @arr = #cir.const_record<{#cir.int<1>, #cir.int<2>, #cir.zero}> : !rec_anon_struct
 
   // Dummy function to use types and force them to be printed.
   cir.func @useTypes(%arg0: !rec_Node,
@@ -92,7 +92,7 @@ cir.func @struct_extract_member_test() {
 }
 
 // CHECK: cir.func{{.*}} @struct_extract_member_test() {
-// CHECK: %[[RECORD:.*]] = cir.const #cir.const_record<{#cir.int<1> : !u8i, #cir.int<2> : !u16i, #cir.int<3> : !u32i}> : !rec_Sc
+// CHECK: %[[RECORD:.*]] = cir.const #cir.const_record<{#cir.int<1>, #cir.int<2>, #cir.int<3>}> : !rec_Sc
 // CHECK: %[[ELEM_0:.*]] = cir.extract_member %[[RECORD]][0] : !rec_Sc -> !u8i
 // CHECK: cir.return
 // CHECK: }

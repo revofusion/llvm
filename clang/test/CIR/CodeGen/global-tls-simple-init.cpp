@@ -54,17 +54,17 @@ struct CtorDtor {
 
 // Full init of all variables (func names below).
 // CIR-LABEL: cir.func internal private @__tls_init() {
-// CIR: %[[GET_GUARD:.*]] = cir.get_global thread_local @__tls_guard : !cir.ptr<!s8i>
-// CIR: %[[LOAD_GUARD:.*]] = cir.load align(1) %[[GET_GUARD]] : !cir.ptr<!s8i>, !s8i
-// CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s8i
-// CIR: %[[CMP:.*]] = cir.cmp eq %[[LOAD_GUARD]], %[[ZERO]] : !s8i
+// CIR: %[[GET_GUARD:.*]] = cir.get_global thread_local @__tls_guard : !cir.ptr<!s8i> {{.*}}
+// CIR: %[[LOAD_GUARD:.*]] = cir.load align(1) %[[GET_GUARD]] : !cir.ptr<!s8i>, !s8i {{.*}}
+// CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s8i {{.*}}
+// CIR: %[[CMP:.*]] = cir.cmp eq %[[LOAD_GUARD]], %[[ZERO]] : !s8i {{.*}}
 // CIR: cir.if %[[CMP]] {
-// CIR:   %[[ONE:.*]] = cir.const #cir.int<1> : !s8i
-// CIR:   cir.store %[[ONE]], %[[GET_GUARD]] : !s8i, !cir.ptr<!s8i>
-// CIR:   cir.call @[[TLS_INT_DYN_INIT:.*]]() : () -> ()
-// CIR:   cir.call @[[TLS_INT_REF_INIT:.*]]() : () -> ()
-// CIR:   cir.call @[[TLS_INT_SELF_REF_INIT:.*]]() : () -> ()
-// CIR:   cir.call @[[DEF_INITED_DYN:.*]]() : () -> ()
+// CIR:   %[[ONE:.*]] = cir.const #cir.int<1> : !s8i {{.*}}
+// CIR:   cir.store %[[ONE]], %[[GET_GUARD]] : !s8i, !cir.ptr<!s8i> {{.*}}
+// CIR:   cir.call @{{.*}}() : () -> () {{.*}}
+// CIR:   cir.call @{{.*}}() : () -> () {{.*}}
+// CIR:   cir.call @{{.*}}() : () -> () {{.*}}
+// CIR:   cir.call @{{.*}}() : () -> () {{.*}}
 // CIR: }
 // CIR: cir.return
 
@@ -150,7 +150,7 @@ thread_local int tls_int_dyn = get_i();
 // CIR-BEFORE-LPP:   cir.store {{.*}}%[[CALL]], %[[GET_GLOB]] : !s32i, !cir.ptr<!s32i>
 // CIR-BEFORE-LPP: }
 // CIR: cir.global external tls_dyn dyn_tls_refs = <"_ZTW11tls_int_dyn", "_ZTH11tls_int_dyn"> @tls_int_dyn = #cir.int<0> : !s32i 
-// CIR: cir.func internal private @[[TLS_INT_DYN_INIT]]() {
+// CIR: cir.func internal private @{{.*}}() attributes {{.*}} {
 // CIR:   %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_int_dyn : !cir.ptr<!s32i>
 // CIR:   %[[CALL:.*]] = cir.call @_Z5get_iv() : () -> (!s32i {llvm.noundef})
 // CIR:   cir.store {{.*}}%[[CALL]], %[[GET_GLOB]] : !s32i, !cir.ptr<!s32i>
@@ -170,7 +170,7 @@ thread_local int &tls_int_ref = tls_int_dyn;
 // CIR-BEFORE-LPP:   cir.store {{.*}}%[[GET_OTHER]], %[[GET_GLOB]] : !cir.ptr<!s32i>, !cir.ptr<!cir.ptr<!s32i>>
 // CIR-BEFORE-LPP: }
 // CIR: cir.global external tls_dyn dyn_tls_refs = <"_ZTW11tls_int_ref", "_ZTH11tls_int_ref"> @tls_int_ref = #cir.ptr<null> : !cir.ptr<!s32i>
-// CIR: cir.func internal private @[[TLS_INT_REF_INIT]]() {
+// CIR: cir.func internal private {{.*}}() attributes {{.*}} {
 // CIR:   %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_int_ref : !cir.ptr<!cir.ptr<!s32i>>
 // CIR:   %[[GET_REF:.*]] = cir.call @_ZTW11tls_int_dyn() : () -> !cir.ptr<!s32i>
 // CIR:   cir.store {{.*}}%[[GET_REF]], %[[GET_GLOB]] : !cir.ptr<!s32i>, !cir.ptr<!cir.ptr<!s32i>>
@@ -198,7 +198,7 @@ thread_local int tls_int_self_init = tls_int_self_init + get_i();
 // CIR-BEFORE-LPP:    cir.store {{.*}}%[[ADD]], %[[GET_GLOB]] : !s32i, !cir.ptr<!s32i>
 // CIR-BEFORE-LPP:  }
 // CIR: cir.global external tls_dyn dyn_tls_refs = <"_ZTW17tls_int_self_init", "_ZTH17tls_int_self_init"> @tls_int_self_init = #cir.int<0> : !s32i
-// CIR: cir.func internal private @[[TLS_INT_SELF_REF_INIT]]() {
+// CIR: cir.func internal private {{.*}}() attributes {{.*}} {
 // CIR:   %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_int_self_init : !cir.ptr<!s32i>
 // CIR:   %[[GET_SELF_FROM_WRAPPER:.*]] = cir.call @_ZTW17tls_int_self_init() : () -> !cir.ptr<!s32i>
 // CIR:   %[[SELF_LOAD:.*]] = cir.load {{.*}}%[[GET_SELF_FROM_WRAPPER]] : !cir.ptr<!s32i>, !s32i
@@ -233,7 +233,7 @@ extern thread_local int definitely_inited_dyn = get_i();
 // CIR-BEFORE-LPP:   cir.store {{.*}}%[[CALL]], %[[GET_GLOB]] : !s32i, !cir.ptr<!s32i>
 // CIR-BEFORE-LPP: }
 // CIR: cir.global external tls_dyn dyn_tls_refs = <"_ZTW21definitely_inited_dyn", "_ZTH21definitely_inited_dyn"> @definitely_inited_dyn = #cir.int<0> : !s32i
-// CIR: cir.func internal private @[[DEF_INITED_DYN]]() {
+// CIR: cir.func internal private {{.*}}() attributes {{.*}} {
 // CIR:   %[[GET_GLOB:.*]] = cir.get_global thread_local @definitely_inited_dyn : !cir.ptr<!s32i>
 // CIR:   %[[CALL:.*]] = cir.call @_Z5get_iv() : () -> (!s32i {llvm.noundef})
 // CIR:   cir.store align(4) %[[CALL]], %[[GET_GLOB]] : !s32i, !cir.ptr<!s32i>

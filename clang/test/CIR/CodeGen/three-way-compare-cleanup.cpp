@@ -37,7 +37,7 @@ auto three_way_cmp_with_temp(int a) {
 // CIR:           %[[SEL1:.*]] = cir.select if %[[CMP_LT]] then %[[LT]] else %[[GT]]
 // CIR:           %[[CMP_EQ:.*]] = cir.cmp eq %[[CONV]], %[[ZERO]]
 // CIR:           %[[RESULT:.*]] = cir.select if %[[CMP_EQ]] then %[[EQ]] else %[[SEL1]]
-// CIR:           %[[FIELD:.*]] = cir.get_member {{.*}}[0] {name = "v"}
+// CIR:           %[[FIELD:.*]] = cir.get_member %[[RETVAL:.*]][0] {{.*name = "v".*}} : !cir.ptr<!rec_std3A3Astrong_ordering> -> !cir.ptr<!s32i>
 // CIR:           cir.store {{.*}} %[[RESULT]], %[[FIELD]]
 // CIR:           cir.yield
 // CIR:         } cleanup normal {

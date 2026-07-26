@@ -19,11 +19,11 @@ void element_expr_from_gl() {
 // CIR: %[[Y_ADDR:.*]] = cir.alloca "y" {{.*}} init : !cir.ptr<!s32i>
 // CIR: %[[TMP_A:.*]] = cir.load {{.*}} %[[A_ADDR]] : !cir.ptr<!cir.vector<4 x !s32i>>, !cir.vector<4 x !s32i>
 // CIR: %[[CONST_0:.*]] = cir.const #cir.int<0> : !s64i
-// CIR: %[[ELEM_0:.*]] = cir.vec.extract %[[TMP_A]][%[[CONST_0]] : !s64i] : !cir.vector<4 x !s32i>
+// CIR: %[[ELEM_0:.*]] = cir.vec.extract %{{.*}}[%{{.*}} : !s64i] {{.*}} : !cir.vector<4 x !s32i>
 // CIR: cir.store {{.*}} %[[ELEM_0]], %[[X_ADDR]] : !s32i, !cir.ptr<!s32i>
 // CIR: %[[TMP_A:.*]] = cir.load {{.*}} %[[A_ADDR]] : !cir.ptr<!cir.vector<4 x !s32i>>, !cir.vector<4 x !s32i>
 // CIR: %[[CONST_1:.*]] = cir.const #cir.int<1> : !s64i
-// CIR: %[[ELEM_1:.*]] = cir.vec.extract %[[TMP_A]][%[[CONST_1]] : !s64i] : !cir.vector<4 x !s32i>
+// CIR: %[[ELEM_1:.*]] = cir.vec.extract %{{.*}}[%{{.*}} : !s64i] {{.*}} : !cir.vector<4 x !s32i>
 // CIR: cir.store {{.*}} %[[ELEM_1]], %[[Y_ADDR]] : !s32i, !cir.ptr<!s32i>
 
 // LLVM: %[[A_ADDR:.*]] = alloca <4 x i32>, i64 1, align 16
@@ -96,12 +96,12 @@ void element_expr_from_pointer() {
 // CIR: %[[TMP_A_PTR:.*]] = cir.load {{.*}} %[[A_ADDR]] : !cir.ptr<!cir.ptr<!cir.vector<4 x !s32i>>>, !cir.ptr<!cir.vector<4 x !s32i>>
 // CIR: %[[TMP_A:.*]] = cir.load {{.*}} %[[TMP_A_PTR]] : !cir.ptr<!cir.vector<4 x !s32i>>, !cir.vector<4 x !s32i>
 // CIR: %[[CONST_0:.*]] = cir.const #cir.int<0> : !s64i
-// CIR: %[[ELEM_0:.*]] = cir.vec.extract %[[TMP_A]][%[[CONST_0]] : !s64i] : !cir.vector<4 x !s32i>
+// CIR: %[[ELEM_0:.*]] = cir.vec.extract %{{.*}}[%{{.*}} : !s64i] {{.*}} : !cir.vector<4 x !s32i>
 // CIR: cir.store {{.*}} %[[ELEM_0]], %[[X_ADDR]] : !s32i, !cir.ptr<!s32i>
 // CIR: %[[TMP_A_PTR:.*]] = cir.load {{.*}} %[[A_ADDR]] : !cir.ptr<!cir.ptr<!cir.vector<4 x !s32i>>>, !cir.ptr<!cir.vector<4 x !s32i>>
 // CIR: %[[TMP_A:.*]] = cir.load {{.*}} %[[TMP_A_PTR:.*]] : !cir.ptr<!cir.vector<4 x !s32i>>, !cir.vector<4 x !s32i>
 // CIR: %[[CONST_1:.*]] = cir.const #cir.int<1> : !s64i
-// CIR: %[[ELEM_1:.*]] = cir.vec.extract %[[TMP_A]][%[[CONST_1]] : !s64i] : !cir.vector<4 x !s32i>
+// CIR: %[[ELEM_1:.*]] = cir.vec.extract %{{.*}}[%{{.*}} : !s64i] {{.*}} : !cir.vector<4 x !s32i>
 // CIR: cir.store {{.*}} %[[ELEM_1]], %[[Y_ADDR]] : !s32i, !cir.ptr<!s32i>
 
 // LLVM: %[[A_ADDR:.*]] = alloca ptr, i64 1, align 8
@@ -412,7 +412,7 @@ void non_simple_base() {
 // CIR: %[[B_ADDR:.*]] = cir.alloca "b" {{.*}} init : !cir.ptr<!s32i>
 // CIR: %[[TMP_A:.*]] = cir.load {{.*}} %[[A_ADDR]] : !cir.ptr<!cir.vector<4 x !s32i>>, !cir.vector<4 x !s32i>
 // CIR: %[[CONST_0:.*]] = cir.const #cir.int<0> : !s64i
-// CIR: %[[RESULT:.*]] = cir.vec.extract %[[TMP_A]][%[[CONST_0]] : !s64i] : !cir.vector<4 x !s32i>
+// CIR: %[[RESULT:.*]] = cir.vec.extract %{{.*}}[%{{.*}} : !s64i] {{.*}} : !cir.vector<4 x !s32i>
 // CIR: cir.store {{.*}} %[[RESULT]], %[[B_ADDR]] : !s32i, !cir.ptr<!s32i>
 
 // LLVM: %[[A_ADDR:.*]] = alloca <4 x i32>

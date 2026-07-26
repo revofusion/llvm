@@ -471,18 +471,18 @@ void aggr_exact() {
   // CIR: %[[SIZE:.*]] = cir.const #cir.int<16> : !u64i
   // CIR: %[[ALLOC:.*]] = cir.call @_Znam(%[[SIZE]]) {allocsize = array<i32: 0>, builtin} : (!u64i {llvm.noundef}) -> (!cir.ptr<!void> {llvm.nonnull, llvm.noundef})
   // CIR: %[[ALLOC_CAST:.*]] = cir.cast bitcast %[[ALLOC]] : !cir.ptr<!void> -> !cir.ptr<!rec_Aggr>
-  // CIR: %[[GET_A:.*]] = cir.get_member %[[ALLOC_CAST]][0] {name = "a"} : !cir.ptr<!rec_Aggr> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_A:.*]] = cir.get_member %[[ALLOC_CAST]][0] {{.*name = "a".*}} : !cir.ptr<!rec_Aggr> -> !cir.ptr<!s32i>
   // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
   // CIR: cir.store {{.*}} %[[ONE]], %[[GET_A]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_B:.*]] = cir.get_member %[[ALLOC_CAST]][1] {name = "b"} : !cir.ptr<!rec_Aggr> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_B:.*]] = cir.get_member %[[ALLOC_CAST]][1] {{.*name = "b".*}} : !cir.ptr<!rec_Aggr> -> !cir.ptr<!s32i>
   // CIR: %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
   // CIR: cir.store {{.*}} %[[TWO]], %[[GET_B]] : !s32i, !cir.ptr<!s32i>
   // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
   // CIR: %[[ELT1:.*]] = cir.ptr_stride %[[ALLOC_CAST]], %[[ONE]] : (!cir.ptr<!rec_Aggr>, !s32i) -> !cir.ptr<!rec_Aggr>
-  // CIR: %[[GET_A:.*]] = cir.get_member %[[ELT1]][0] {name = "a"} : !cir.ptr<!rec_Aggr> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_A:.*]] = cir.get_member %[[ELT1]][0] {{.*name = "a".*}} : !cir.ptr<!rec_Aggr> -> !cir.ptr<!s32i>
   // CIR: %[[THREE:.*]] = cir.const #cir.int<3> : !s32i
   // CIR: cir.store {{.*}} %[[THREE]], %[[GET_A]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_B:.*]] = cir.get_member %[[ELT1]][1] {name = "b"} : !cir.ptr<!rec_Aggr> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_B:.*]] = cir.get_member %[[ELT1]][1] {{.*name = "b".*}} : !cir.ptr<!rec_Aggr> -> !cir.ptr<!s32i>
   // CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
   // CIR: cir.store {{.*}} %[[ZERO]], %[[GET_B]] : !s32i, !cir.ptr<!s32i>
   // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -520,18 +520,18 @@ void aggr_sufficient(int n) {
   // CIR: %[[SIZE:.*]] = cir.select if %[[N_LT_OR_OF]] then %[[NEG_ONE]] else %[[N_BYTES]] : (!cir.bool, !u64i, !u64i) -> !u64i
   // CIR: %[[ALLOC:.*]] = cir.call @_Znam(%[[SIZE]]) {allocsize = array<i32: 0>, builtin} : (!u64i {llvm.noundef}) -> (!cir.ptr<!void> {llvm.nonnull, llvm.noundef})
   // CIR: %[[ALLOC_CAST:.*]] = cir.cast bitcast %[[ALLOC]] : !cir.ptr<!void> -> !cir.ptr<!rec_Aggr2E0>
-  // CIR: %[[GET_A:.*]] = cir.get_member %[[ALLOC_CAST]][0] {name = "a"} : !cir.ptr<!rec_Aggr2E0> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_A:.*]] = cir.get_member %[[ALLOC_CAST]][0] {{.*name = "a".*}} : !cir.ptr<!rec_Aggr2E0> -> !cir.ptr<!s32i>
   // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
   // CIR: cir.store {{.*}} %[[ONE]], %[[GET_A]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_B:.*]] = cir.get_member %[[ALLOC_CAST]][1] {name = "b"} : !cir.ptr<!rec_Aggr2E0> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_B:.*]] = cir.get_member %[[ALLOC_CAST]][1] {{.*name = "b".*}} : !cir.ptr<!rec_Aggr2E0> -> !cir.ptr<!s32i>
   // CIR: %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
   // CIR: cir.store {{.*}} %[[TWO]], %[[GET_B]] : !s32i, !cir.ptr<!s32i>
   // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
   // CIR: %[[ELT1:.*]] = cir.ptr_stride %[[ALLOC_CAST]], %[[ONE]] : (!cir.ptr<!rec_Aggr2E0>, !s32i) -> !cir.ptr<!rec_Aggr2E0>
-  // CIR: %[[GET_A:.*]] = cir.get_member %[[ELT1]][0] {name = "a"} : !cir.ptr<!rec_Aggr2E0> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_A:.*]] = cir.get_member %[[ELT1]][0] {{.*name = "a".*}} : !cir.ptr<!rec_Aggr2E0> -> !cir.ptr<!s32i>
   // CIR: %[[THREE:.*]] = cir.const #cir.int<3> : !s32i
   // CIR: cir.store {{.*}} %[[THREE]], %[[GET_A]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_B:.*]] = cir.get_member %[[ELT1]][1] {name = "b"} : !cir.ptr<!rec_Aggr2E0> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_B:.*]] = cir.get_member %[[ELT1]][1] {{.*name = "b".*}} : !cir.ptr<!rec_Aggr2E0> -> !cir.ptr<!s32i>
   // CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
   // CIR: cir.store {{.*}} %[[ZERO]], %[[GET_B]] : !s32i, !cir.ptr<!s32i>
   // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
@@ -592,24 +592,24 @@ void unknown_bound() {
   // CIR: %[[SIZE:.*]] = cir.const #cir.int<24> : !u64i
   // CIR: %[[ALLOC:.*]] = cir.call @_Znam(%[[SIZE]]) {allocsize = array<i32: 0>, builtin} : (!u64i {llvm.noundef}) -> (!cir.ptr<!void> {llvm.nonnull, llvm.noundef})
   // CIR: %[[ALLOC_AGG:.*]] = cir.cast bitcast %[[ALLOC]] : !cir.ptr<!void> -> !cir.ptr<!rec_Aggr2E1>
-  // CIR: %[[GET_X:.*]] = cir.get_member %[[ALLOC_AGG]][0] {name = "x"} : !cir.ptr<!rec_Aggr2E1> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_X:.*]] = cir.get_member %[[ALLOC_AGG]][0] {{.*name = "x".*}} : !cir.ptr<!rec_Aggr2E1> -> !cir.ptr<!s32i>
   // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
   // CIR: cir.store {{.*}} %[[ONE]], %[[GET_X]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_Y:.*]] = cir.get_member %[[ALLOC_AGG]][1] {name = "y"} : !cir.ptr<!rec_Aggr2E1> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_Y:.*]] = cir.get_member %[[ALLOC_AGG]][1] {{.*name = "y".*}} : !cir.ptr<!rec_Aggr2E1> -> !cir.ptr<!s32i>
   // CIR: %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
   // CIR: cir.store {{.*}} %[[TWO]], %[[GET_Y]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_Z:.*]] = cir.get_member %[[ALLOC_AGG]][2] {name = "z"} : !cir.ptr<!rec_Aggr2E1> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_Z:.*]] = cir.get_member %[[ALLOC_AGG]][2] {{.*name = "z".*}} : !cir.ptr<!rec_Aggr2E1> -> !cir.ptr<!s32i>
   // CIR: %[[THREE:.*]] = cir.const #cir.int<3> : !s32i
   // CIR: cir.store {{.*}} %[[THREE]], %[[GET_Z]] : !s32i, !cir.ptr<!s32i>
   // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
   // CIR: %[[ELT1:.*]] = cir.ptr_stride %[[ALLOC_AGG]], %[[ONE]] : (!cir.ptr<!rec_Aggr2E1>, !s32i) -> !cir.ptr<!rec_Aggr2E1>
-  // CIR: %[[GET_X:.*]] = cir.get_member %[[ELT1]][0] {name = "x"} : !cir.ptr<!rec_Aggr2E1> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_X:.*]] = cir.get_member %[[ELT1]][0] {{.*name = "x".*}} : !cir.ptr<!rec_Aggr2E1> -> !cir.ptr<!s32i>
   // CIR: %[[FOUR:.*]] = cir.const #cir.int<4> : !s32i
   // CIR: cir.store {{.*}} %[[FOUR]], %[[GET_X]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_Y:.*]] = cir.get_member %[[ELT1]][1] {name = "y"} : !cir.ptr<!rec_Aggr2E1> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_Y:.*]] = cir.get_member %[[ELT1]][1] {{.*name = "y".*}} : !cir.ptr<!rec_Aggr2E1> -> !cir.ptr<!s32i>
   // CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
   // CIR: cir.store {{.*}} %[[ZERO]], %[[GET_Y]] : !s32i, !cir.ptr<!s32i>
-  // CIR: %[[GET_Z:.*]] = cir.get_member %[[ELT1]][2] {name = "z"} : !cir.ptr<!rec_Aggr2E1> -> !cir.ptr<!s32i>
+  // CIR: %[[GET_Z:.*]] = cir.get_member %[[ELT1]][2] {{.*name = "z".*}} : !cir.ptr<!rec_Aggr2E1> -> !cir.ptr<!s32i>
   // CIR: %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
   // CIR: cir.store {{.*}} %[[ZERO]], %[[GET_Z]] : !s32i, !cir.ptr<!s32i>
   // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i

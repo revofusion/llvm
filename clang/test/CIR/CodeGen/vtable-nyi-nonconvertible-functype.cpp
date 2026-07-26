@@ -21,13 +21,7 @@ struct S1 {
 
 void S1::key() {}
 
-// CIR:  @_ZTV2S1 = #cir.vtable<{
-// CIR-SAME: #cir.const_array<[
-// CIR-SAME:   #cir.ptr<null> : !cir.ptr<!u8i>, 
-// CIR-SAME:   #cir.global_view<@_ZTI2S1> : !cir.ptr<!u8i>,
-// CIR-SAME:   #cir.global_view<@_ZN2S13keyEv> : !cir.ptr<!u8i>,
-// CIR-SAME:   #cir.global_view<@_ZN2S19badReturnEv> : !cir.ptr<!u8i>]> :
-// CIR-SAME: !cir.array<!cir.ptr<!u8i> x 4>}>
+// CIR:  @_ZTV2S1 = #cir.vtable<{#cir.const_array<[#cir.ptr<null>, #cir.global_view<@_ZTI2S1>, #cir.global_view<@_ZN2S13keyEv>, #cir.global_view<@_ZN2S19badReturnEv>]> : !cir.array<!cir.ptr<!u8i> x 4>}>
 
 // LLVM: @_ZTV2S1 = {{.*}}{ [4 x ptr] } { [4 x ptr] [
 // LLVM-SAME: ptr null, 
@@ -43,13 +37,7 @@ struct S2 {
 };
 
 void S2::key() {}
-// CIR: @_ZTV2S2 = #cir.vtable<{
-// CIR-SAME: #cir.const_array<[
-// CIR-SAME:    #cir.ptr<null> : !cir.ptr<!u8i>,
-// CIR-SAME:    #cir.global_view<@_ZTI2S2> : !cir.ptr<!u8i>,
-// CIR-SAME:    #cir.global_view<@_ZN2S23keyEv> : !cir.ptr<!u8i>,
-// CIR-SAME:    #cir.global_view<@_ZN2S28badParamE6Param2> : !cir.ptr<!u8i>]> :
-// CIR-SAME: !cir.array<!cir.ptr<!u8i> x 4>}>
+// CIR: @_ZTV2S2 = #cir.vtable<{#cir.const_array<[#cir.ptr<null>, #cir.global_view<@_ZTI2S2>, #cir.global_view<@_ZN2S23keyEv>, #cir.global_view<@_ZN2S28badParamE6Param2>]> : !cir.array<!cir.ptr<!u8i> x 4>}>
 
 // LLVM: @_ZTV2S2 = {{.*}}{ [4 x ptr] } { [4 x ptr] [
 // LLVM-SAME: ptr null, 
@@ -58,9 +46,9 @@ void S2::key() {}
 // LLVM-SAME: ptr @_ZN2S28badParamE6Param2] }
 
 
-// CIR: cir.func private @_ZN2S19badReturnEv(!cir.ptr<!rec_S1> {llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull, llvm.noundef}) -> !rec_Ret1
+// CIR: cir.func private @_ZN2S19badReturnEv(!cir.ptr<!rec_S1> {cir.ast_source_type = {{.*}}, llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull, llvm.noundef}) -> !rec_Ret1
 // LLVMCIR: declare %struct.Ret1 @_ZN2S19badReturnEv(ptr noundef nonnull align 8 dereferenceable(8))
 // OGCG: declare void @_ZN2S19badReturnEv()
-// CIR: cir.func private @_ZN2S28badParamE6Param2(!cir.ptr<!rec_S2> {llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull, llvm.noundef}, !rec_Param2)
+// CIR: cir.func private @_ZN2S28badParamE6Param2(!cir.ptr<!rec_S2> {cir.ast_source_type = {{.*}}, llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull, llvm.noundef}, !rec_Param2 {cir.ast_source_type = {{.*}}})
 // LLVMCIR: declare void @_ZN2S28badParamE6Param2(ptr noundef nonnull align 8 dereferenceable(8), %struct.Param2)
 // OGCG: declare void @_ZN2S28badParamE6Param2() unnamed_addr

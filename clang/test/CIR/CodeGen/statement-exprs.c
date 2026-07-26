@@ -9,7 +9,7 @@ int f19(void) {
   return ({ 3;;4; });
 }
 
-// CIR-DAG: cir.global "private" constant cir_private @[[TEST3_S:.*]] = #cir.const_record<{#cir.int<1> : !s32i}> : !rec_S
+// CIR-DAG: cir.global "private" constant cir_private @[[TEST3_S:.*]] = #cir.const_record<{#cir.int<1>}> : !rec_S
 // LLVM-DAG: @[[TEST3_S:.*]] = private constant %struct.S { i32 1 }
 
 // CIR: cir.func {{.*}} @f19() -> !s32i
@@ -238,7 +238,7 @@ int test3() { return ({ struct S s = {1}; s; }).x; }
 // CIR:     cir.copy %[[CONST]] to %[[S]] : !cir.ptr<!rec_S>
 // CIR:     cir.copy %[[S]] to %[[REF_TMP0]] : !cir.ptr<!rec_S>
 // CIR:   }
-// CIR:   %[[GEP_X_TMP:.+]] = cir.get_member %[[REF_TMP0]][0] {name = "x"} : !cir.ptr<!rec_S> -> !cir.ptr<!s32i>
+// CIR:   %[[GEP_X_TMP:.+]] = cir.get_member %[[REF_TMP0]][0] {{.*name = "x".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!s32i>
 // CIR:   %[[XVAL:.+]] = cir.load {{.*}} %[[GEP_X_TMP]] : !cir.ptr<!s32i>, !s32i
 // CIR:   cir.store{{.*}} %[[XVAL]], %[[RETVAL]] : !s32i, !cir.ptr<!s32i>
 // CIR:   %[[RES:.+]] = cir.load %[[RETVAL]] : !cir.ptr<!s32i>, !s32i

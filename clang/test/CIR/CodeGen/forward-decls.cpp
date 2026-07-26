@@ -11,7 +11,7 @@
 
 // CHECK1: ![[INC_STRUCT:.+]] = !cir.struct<"IncompleteStruct" incomplete>
 struct IncompleteStruct;
-// CHECK1: testIncompleteStruct(%arg0: !cir.ptr<![[INC_STRUCT]]>
+// CHECK1: testIncompleteStruct(%arg0: !cir.ptr<![[INC_STRUCT]]>{{.*}})
 void testIncompleteStruct(struct IncompleteStruct *s) {};
 
 
@@ -25,7 +25,7 @@ void testIncompleteStruct(struct IncompleteStruct *s) {};
 // This means it will initially be created as incomplete, then completed.
 
 // CHECK2: ![[COMPLETE:.+]] = !cir.struct<"ForwardDeclaredStruct" {!s32i}>
-// CHECK2: testForwardDeclaredStruct(%arg0: !cir.ptr<![[COMPLETE]]>
+// CHECK2: testForwardDeclaredStruct(%arg0: !cir.ptr<![[COMPLETE]]>{{.*}})
 struct ForwardDeclaredStruct;
 void testForwardDeclaredStruct(struct ForwardDeclaredStruct *fds) {};
 struct ForwardDeclaredStruct {
@@ -47,11 +47,11 @@ struct RecursiveStruct {
   int value;
   struct RecursiveStruct *next;
 };
-// CHECK3: testRecursiveStruct(%arg0: !cir.ptr<![[STRUCT]]>
+// CHECK3: testRecursiveStruct(%arg0: !cir.ptr<![[STRUCT]]>{{.*}})
 void testRecursiveStruct(struct RecursiveStruct *arg) {
-  // CHECK3: %[[#NEXT:]] = cir.get_member %{{.+}}[1] {name = "next"} : !cir.ptr<![[STRUCT]]> -> !cir.ptr<!cir.ptr<![[STRUCT]]>>
+  // CHECK3: %[[#NEXT:]] = cir.get_member %{{.+}}[1] {{.*name = "next".*}} : !cir.ptr<![[STRUCT]]> -> !cir.ptr<!cir.ptr<![[STRUCT]]>>
   // CHECK3: %[[#DEREF:]] = cir.load{{.*}} %[[#NEXT]] : !cir.ptr<!cir.ptr<![[STRUCT]]>>, !cir.ptr<![[STRUCT]]>
-  // CHECK3: cir.get_member %[[#DEREF]][0] {name = "value"} : !cir.ptr<![[STRUCT]]> -> !cir.ptr<!s32i>
+  // CHECK3: cir.get_member %[[#DEREF]][0] {{.*name = "value".*}} : !cir.ptr<![[STRUCT]]> -> !cir.ptr<!s32i>
   arg->next->value;
 }
 
@@ -67,8 +67,8 @@ void testRecursiveStruct(struct RecursiveStruct *arg) {
 // in recursive type, each struct is expanded until there are no more recursive
 // types, or all the recursive types are self references.
 
-// CHECK4: ![[B:.+]] = !cir.struct<"StructNodeB" {!s32i, !cir.ptr<!cir.struct<"StructNodeA" {!s32i, !cir.ptr<!cir.struct<"StructNodeB">>}
-// CHECK4: ![[A:.+]] = !cir.struct<"StructNodeA" {!s32i, !cir.ptr<![[B]]>}>
+// CHECK4: ![[B:.+]] = !cir.struct<"StructNodeB" {!s32i, !cir.ptr<!cir.struct<"StructNodeA" incomplete>>}>
+// CHECK4: ![[A:.+]] = !cir.struct<"StructNodeA" {!s32i, !cir.ptr<!rec_StructNodeB>}>
 struct StructNodeB;
 struct StructNodeA {
   int value;
@@ -80,11 +80,11 @@ struct StructNodeB {
 };
 
 void testIndirectSelfReference(struct StructNodeA arg) {
-  // CHECK4: %[[#V1:]] = cir.get_member %{{.+}}[1] {name = "next"} : !cir.ptr<![[A]]> -> !cir.ptr<!cir.ptr<![[B]]>>
-  // CHECK4: %[[#V2:]] = cir.load{{.*}} %[[#V1]] : !cir.ptr<!cir.ptr<![[B]]>>, !cir.ptr<![[B]]>
-  // CHECK4: %[[#V3:]] = cir.get_member %[[#V2]][1] {name = "next"} : !cir.ptr<![[B]]> -> !cir.ptr<!cir.ptr<![[A]]>>
+// CHECK4: %[[#V1:]] = cir.get_member %{{.+}}[1] {{.*}} : !cir.ptr<![[A]]> -> !cir.ptr<!cir.ptr<![[B]]>>
+// CHECK4: %[[#V2:]] = cir.load{{.*}} %[[#V1]] : !cir.ptr<!cir.ptr<![[B]]>>, !cir.ptr<![[B]]>
+// CHECK4: %[[#V3:]] = cir.get_member %[[#V2]][1] {{.*}} : !cir.ptr<![[B]]> -> !cir.ptr<!cir.ptr<![[A]]>>
   // CHECK4: %[[#V4:]] = cir.load{{.*}} %[[#V3]] : !cir.ptr<!cir.ptr<![[A]]>>, !cir.ptr<![[A]]>
-  // CHECK4: cir.get_member %[[#V4]][0] {name = "value"} : !cir.ptr<![[A]]> -> !cir.ptr<!s32i>
+// CHECK4: cir.get_member %{{.+}}[0] {{.*}} : !cir.ptr<!rec_StructNodeA> -> !cir.ptr<!s32i>
   arg.next->next->value;
 }
 
@@ -96,12 +96,12 @@ void testIndirectSelfReference(struct StructNodeA arg) {
 // RUN: FileCheck --check-prefix=CHECK5 --input-file=%t/complex_struct.cir %s
 
 // A sizeable complex struct just to double check that stuff is working.
-// CHECK5: !cir.struct<"anon.0" {!cir.ptr<!cir.struct<"A" {!cir.struct<"anon.0">, !cir.struct<"B" {!cir.ptr<!cir.struct<"B">>, !cir.struct<"C" {!cir.ptr<!cir.struct<"A">>, !cir.ptr<!cir.struct<"B">>, !cir.ptr<!cir.struct<"C">>}>, !cir.union<"anon.1" {!cir.ptr<!cir.struct<"A">>, !cir.struct<"anon.2" {!cir.ptr<!cir.struct<"B">>}>}>}>}>>}>
-// CHECK5: !cir.struct<"C" {!cir.ptr<!cir.struct<"A" {!rec_anon2E0, !cir.struct<"B" {!cir.ptr<!cir.struct<"B">>, !cir.struct<"C">, !cir.union<"anon.1" {!cir.ptr<!cir.struct<"A">>, !cir.struct<"anon.2" {!cir.ptr<!cir.struct<"B">>}>}>}>}>>, !cir.ptr<!cir.struct<"B" {!cir.ptr<!cir.struct<"B">>, !cir.struct<"C">, !cir.union<"anon.1" {!cir.ptr<!cir.struct<"A" {!rec_anon2E0, !cir.struct<"B">}>>, !cir.struct<"anon.2" {!cir.ptr<!cir.struct<"B">>}>}>}>>, !cir.ptr<!cir.struct<"C">>}>
-// CHECK5: !cir.struct<"anon.2" {!cir.ptr<!cir.struct<"B" {!cir.ptr<!cir.struct<"B">>, !rec_C, !cir.union<"anon.1" {!cir.ptr<!cir.struct<"A" {!rec_anon2E0, !cir.struct<"B">}>>, !cir.struct<"anon.2">}>}>>}>
-// CHECK5: !cir.union<"anon.1" {!cir.ptr<!cir.struct<"A" {!rec_anon2E0, !cir.struct<"B" {!cir.ptr<!cir.struct<"B">>, !rec_C, !cir.union<"anon.1">}>}>>, !rec_anon2E2}>
-// CHECK5: !cir.struct<"B" {!cir.ptr<!cir.struct<"B">>, !rec_C, !rec_anon2E1}>
-// CHECK5: !cir.struct<"A" {!rec_anon2E0, !rec_B}>
+// CHECK5: !rec_anon2E0 = !cir.struct<"anon.0" {!cir.ptr<!cir.struct<"A" incomplete>>}>
+// CHECK5: !rec_C = !cir.struct<"C" {!cir.ptr<!cir.struct<"A" incomplete>>, !cir.ptr<!cir.struct<"B" incomplete>>, !cir.ptr<!cir.struct<"C">>}>
+// CHECK5: !rec_anon2E2 = !cir.struct<"anon.2" {!cir.ptr<!cir.struct<"B" incomplete>>}>
+// CHECK5: !rec_anon2E1 = !cir.union<"anon.1" {!cir.ptr<!cir.struct<"A" incomplete>>, !rec_anon2E2}>
+// CHECK5: !rec_B = !cir.struct<"B" {!cir.ptr<!cir.struct<"B">>, !rec_C, !rec_anon2E1}>
+// CHECK5: !rec_A = !cir.struct<"A" {!rec_anon2E0, !rec_B}>
 struct A {
   struct {
     struct A *a1;

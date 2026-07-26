@@ -47,7 +47,7 @@ void test_non_empty_base_null_init() {
 // CIR: cir.func {{.*}} @_Z29test_non_empty_base_null_initv()
 // CIR:   %[[TMP:.*]] = cir.alloca "agg.tmp.ensured" {{.*}} : !cir.ptr<!rec_D>
 // CIR:   %[[BASE:.*]] = cir.base_class_addr %[[TMP]] : !cir.ptr<!rec_D> nonnull [0] -> !cir.ptr<!rec_C>
-// CIR:   %[[ZERO:.*]] = cir.const #cir.const_record<{#cir.int<0> : !s32i}> : !rec_C
+// CIR:   %[[ZERO:.*]] = cir.const #cir.const_record<{#cir.int<0>}> : !rec_C
 // CIR:   cir.store{{.*}} %[[ZERO]], %[[BASE]]
 
 // LLVM: define{{.*}} void @_Z29test_non_empty_base_null_initv()
@@ -116,7 +116,7 @@ VDerived::VDerived() : VBase() {}
 
 // CIR-LABEL: cir.func {{.*}}@_ZN8VDerivedC2Ev
 // CIR: %[[BASE:.*]] = cir.base_class_addr {{.*}} : !cir.ptr<!rec_VDerived> nonnull [0] -> !cir.ptr<!rec_VBase>
-// CIR: %[[ZERO:.*]] = cir.const #cir.const_record<{#cir.zero : !cir.vptr}> : !rec_VBase 
+// CIR: %[[ZERO:.*]] = cir.const #cir.const_record<{#cir.zero}> : !rec_VBase
 // CIR: cir.store align(8) %[[ZERO]], %[[BASE]] : !rec_VBase, !cir.ptr<!rec_VBase>
 // CIR: cir.call @_ZN5VBaseC2Ev(%[[BASE]])
 // CIR: cir.vtable.address_point(@_ZTV8VDerived

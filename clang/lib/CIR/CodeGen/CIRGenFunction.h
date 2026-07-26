@@ -215,12 +215,36 @@ public:
   /// This keeps track of the CIR allocas or globals for local C
   /// declarations.
   DeclMapTy localDeclMap;
+  /// Tracks the canonical declaration whose cleanup identity is attached to
+  /// each automatic allocation. A null value records storage shared by
+  /// multiple distinct declarations, for which singular alloca metadata must
+  /// remain absent.
+  llvm::DenseMap<mlir::Operation *, const clang::VarDecl *>
+      automaticObjectIdentityDecls;
   struct CalleeDestructedParamCleanup {
     EHScopeStack::stable_iterator cleanup;
     mlir::Operation *dominatingIP;
   };
   llvm::DenseMap<const ParmVarDecl *, CalleeDestructedParamCleanup>
       calleeDestructedParamCleanups;
+
+  CalleeDestructedParamCleanup *
+  findCalleeDestructedParamCleanup(const ParmVarDecl *parm) {
+    if (!parm)
+      return nullptr;
+    if (auto cleanup = calleeDestructedParamCleanups.find(parm);
+        cleanup != calleeDestructedParamCleanups.end())
+      return &cleanup->second;
+
+    // Delegate-call parameter lists can refer to a redeclaration of the
+    // parameter used by the function prologue. Join only through canonical
+    // AST declaration identity.
+    const auto *canonicalParm = cast<ParmVarDecl>(parm->getCanonicalDecl());
+    for (auto &[candidate, cleanup] : calleeDestructedParamCleanups)
+      if (candidate->getCanonicalDecl() == canonicalParm)
+        return &cleanup;
+    return nullptr;
+  }
 
   /// The type of the condition for the emitting switch statement.
   llvm::SmallVector<mlir::Type, 2> condTypeStack;
@@ -1211,7 +1235,15 @@ public:
     /// Force the emission of cleanups now, instead of waiting
     /// until this object is destroyed.
     void forceCleanup(ArrayRef<mlir::Value *> valuesToReload = {}) {
-      assert(performCleanup && "Already forced cleanup");
+      if (!performCleanup) {
+        assert(!hasPendingCleanups() &&
+               cgf.lifetimeExtendedCleanupStack.size() ==
+                   lifetimeExtendedCleanupStackSize &&
+               cgf.deferredDeactivationCleanupStack.size() ==
+                   deactivateCleanups.oldDeactivateCleanupStackSize &&
+               "cleanup registered after its scope was forced");
+        return;
+      }
       cgf.didCallStackSave = oldDidCallStackSave;
 
       // forceDeactivate() can pop cleanup scopes that were pushed with
@@ -2321,19 +2353,6 @@ public:
   // Return true if we're currently emitting one branch or the other of a
   // conditional expression.
   bool isInConditionalBranch() const { return outermostConditional != nullptr; }
-
-  void setBeforeOutermostConditional(mlir::Value value, Address addr) {
-    assert(isInConditionalBranch());
-    {
-      mlir::OpBuilder::InsertionGuard guard(builder);
-      builder.restoreInsertionPoint(outermostConditional->getInsertPoint());
-      builder.createStore(
-          value.getLoc(), value, addr, /*isVolatile=*/false,
-          mlir::IntegerAttr::get(
-              mlir::IntegerType::get(value.getContext(), 64),
-              (uint64_t)addr.getAlignment().getAsAlign().value()));
-    }
-  }
 
   // Points to the outermost active conditional control. This is used so that
   // we know if a temporary should be destroyed conditionally.

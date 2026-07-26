@@ -48,7 +48,7 @@ module attributes {cir.triple = "x86_64-unknown-linux-gnu"} {
 
     // cir::ConstRecordAttr
     %constrecord = cir.const #cir.const_record<{#cir.data_member<null> : !dmp }> : !rec_Struct
-    // CHECK: cir.const #cir.const_record<{#cir.int<-1> : !s64i}> : !rec_Struct
+    // CHECK: cir.const #cir.const_record<{#cir.int<-1>}> : !rec_Struct
 
     // Array, ConstArray, Dictionary, VTable, DynamicCastInfo, and TypeInfo
     // Attrs don't really allow getting a 'bad' type into them.  We attempt to

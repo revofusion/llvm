@@ -2930,20 +2930,15 @@ mlir::Value ScalarExprEmitter::VisitAbstractConditionalOperator(
   // and safe to evaluate the LHS and RHS unconditionally.
   if (isCheapEnoughToEvaluateUnconditionally(lhsExpr, cgf) &&
       isCheapEnoughToEvaluateUnconditionally(rhsExpr, cgf)) {
-    bool lhsIsVoid = false;
     mlir::Value condV = cgf.evaluateExprAsBool(condExpr);
     assert(!cir::MissingFeatures::incrementProfileCounter());
 
     mlir::Value lhs = Visit(lhsExpr);
-    if (!lhs) {
-      lhs = builder.getNullValue(cgf.voidTy, loc);
-      lhsIsVoid = true;
-    }
-
     mlir::Value rhs = Visit(rhsExpr);
-    if (lhsIsVoid) {
+    if (!lhs) {
+      // A void conditional has no value to select.
       assert(!rhs && "lhs and rhs types must match");
-      rhs = builder.getNullValue(cgf.voidTy, loc);
+      return {};
     }
 
     mlir::Value result = builder.createSelect(loc, condV, lhs, rhs);

@@ -21,6 +21,11 @@
 // RecordMembers
 //===-----------------------------------------------------------------===//
 
+static void printRecordMembers(mlir::AsmPrinter &p, mlir::ArrayAttr members,
+                               mlir::Type type);
+static mlir::ParseResult parseRecordMembers(mlir::AsmParser &parser,
+                                            mlir::ArrayAttr &members,
+                                            mlir::Type type);
 static void printRecordMembers(mlir::AsmPrinter &p, mlir::ArrayAttr members);
 static mlir::ParseResult parseRecordMembers(mlir::AsmParser &parser,
                                             mlir::ArrayAttr &members);
@@ -178,19 +183,76 @@ static void printRecordMembers(mlir::AsmPrinter &printer,
 
 static ParseResult parseRecordMembers(mlir::AsmParser &parser,
                                       mlir::ArrayAttr &members) {
-  llvm::SmallVector<mlir::Attribute, 4> elts;
-
-  auto delimiter = AsmParser::Delimiter::Braces;
-  auto result = parser.parseCommaSeparatedList(delimiter, [&]() {
-    mlir::TypedAttr attr;
-    if (parser.parseAttribute(attr).failed())
-      return mlir::failure();
-    elts.push_back(attr);
-    return mlir::success();
-  });
-
+  llvm::SmallVector<mlir::Attribute, 4> elements;
+  auto result = parser.parseCommaSeparatedList(
+      AsmParser::Delimiter::Braces, [&]() -> mlir::ParseResult {
+        mlir::TypedAttr element;
+        if (parser.parseAttribute(element).failed())
+          return mlir::failure();
+        elements.push_back(element);
+        return mlir::success();
+      });
   if (result.failed())
     return mlir::failure();
+
+  members = mlir::ArrayAttr::get(parser.getContext(), elements);
+  return mlir::success();
+}
+
+static void printRecordMembers(mlir::AsmPrinter &printer,
+                               mlir::ArrayAttr members, mlir::Type type) {
+  auto recordType = mlir::cast<cir::RecordType>(type);
+  assert((recordType.isIncomplete() ||
+          recordType.getMembers().size() == members.size()) &&
+         "record member count mismatch");
+
+  printer << '{';
+  llvm::interleaveComma(members, printer, [&](mlir::Attribute member) {
+    printer.printAttributeWithoutType(member);
+    mlir::Type memberType = mlir::cast<mlir::TypedAttr>(member).getType();
+    if (recordType.isIncomplete() || mlir::isa<cir::RecordType>(memberType))
+      printer << " : " << memberType;
+  });
+  printer << '}';
+}
+
+static ParseResult parseRecordMembers(mlir::AsmParser &parser,
+                                      mlir::ArrayAttr &members,
+                                      mlir::Type type) {
+  auto recordType = mlir::dyn_cast_if_present<cir::RecordType>(type);
+  if (!recordType)
+    return parser.emitError(parser.getCurrentLocation(),
+                            "expected !cir.struct or !cir.union type");
+  llvm::SmallVector<mlir::Attribute, 4> elts;
+  unsigned memberIndex = 0;
+  auto result = parser.parseCommaSeparatedList(
+      AsmParser::Delimiter::Braces, [&]() -> mlir::ParseResult {
+        if (!recordType.isIncomplete() &&
+            memberIndex == recordType.getMembers().size())
+          return parser.emitError(parser.getCurrentLocation(),
+                                  "too many record members");
+
+        mlir::Type memberType = recordType.isIncomplete()
+                                    ? mlir::Type{}
+                                    : recordType.getMembers()[memberIndex++];
+        mlir::TypedAttr attr;
+        mlir::ParseResult parsed;
+        if (memberType)
+          parsed = parser.parseAttribute(attr, memberType);
+        else
+          parsed = parser.parseAttribute(attr);
+        if (parsed.failed())
+          return mlir::failure();
+        elts.push_back(attr);
+        return mlir::success();
+      });
+  if (result.failed())
+    return mlir::failure();
+
+  if (!recordType.isIncomplete() &&
+      memberIndex != recordType.getMembers().size())
+    return parser.emitError(parser.getCurrentLocation(),
+                            "too few record members");
 
   members = mlir::ArrayAttr::get(parser.getContext(), elts);
   return mlir::success();
@@ -644,41 +706,46 @@ ConstArrayAttr::verify(function_ref<InFlightDiagnostic()> emitError, Type type,
 }
 
 Attribute ConstArrayAttr::parse(AsmParser &parser, Type type) {
-  mlir::FailureOr<Type> resultTy;
-  mlir::FailureOr<Attribute> resultVal;
-
-  // Parse literal '<'
   if (parser.parseLess())
     return {};
 
-  // Parse variable 'value'
-  resultVal = FieldParser<Attribute>::parse(parser);
-  if (failed(resultVal)) {
-    parser.emitError(
-        parser.getCurrentLocation(),
-        "failed to parse ConstArrayAttr parameter 'value' which is "
-        "to be a `Attribute`");
-    return {};
-  }
+  mlir::FailureOr<Type> resultTy;
+  mlir::FailureOr<Attribute> resultVal;
+  if (parser.parseOptionalLSquare().succeeded()) {
+    auto arrayType = mlir::cast<cir::ArrayType>(type);
+    llvm::SmallVector<mlir::Attribute, 4> elements;
+    if (parser.parseOptionalRSquare().failed()) {
+      auto result = parser.parseCommaSeparatedList(
+          AsmParser::Delimiter::None, [&]() -> mlir::ParseResult {
+            mlir::TypedAttr element;
+            if (parser.parseAttribute(element, arrayType.getElementType())
+                    .failed())
+              return mlir::failure();
+            elements.push_back(element);
+            return mlir::success();
+          });
+      if (result.failed() || parser.parseRSquare())
+        return {};
+    }
+    resultVal = mlir::ArrayAttr::get(parser.getContext(), elements);
 
-  // ArrayAttrrs have per-element type, not the type of the array...
-  if (mlir::isa<ArrayAttr>(*resultVal)) {
-    // Array has implicit type: infer from const array type.
     if (parser.parseOptionalColon().failed()) {
       resultTy = type;
-    } else { // Array has explicit type: parse it.
+    } else {
       resultTy = FieldParser<Type>::parse(parser);
-      if (failed(resultTy)) {
-        parser.emitError(
-            parser.getCurrentLocation(),
-            "failed to parse ConstArrayAttr parameter 'type' which is "
-            "to be a `::mlir::Type`");
+      if (failed(resultTy))
         return {};
-      }
     }
   } else {
-    auto ta = mlir::cast<TypedAttr>(*resultVal);
-    resultTy = ta.getType();
+    resultVal = FieldParser<Attribute>::parse(parser);
+    if (failed(resultVal)) {
+      parser.emitError(parser.getCurrentLocation(),
+                       "failed to parse ConstArrayAttr value");
+      return {};
+    }
+
+    auto typedValue = mlir::cast<TypedAttr>(*resultVal);
+    resultTy = typedValue.getType();
     if (mlir::isa<mlir::NoneType>(*resultTy)) {
       parser.emitError(parser.getCurrentLocation(),
                        "expected type declaration for string literal");
@@ -688,19 +755,16 @@ Attribute ConstArrayAttr::parse(AsmParser &parser, Type type) {
 
   unsigned zeros = 0;
   if (parser.parseOptionalComma().succeeded()) {
-    if (parser.parseOptionalKeyword("trailing_zeros").succeeded()) {
-      unsigned totalSize = mlir::cast<cir::ArrayType>(type).getSize();
-      mlir::Attribute elts = resultVal.value();
-      if (auto str = mlir::dyn_cast<mlir::StringAttr>(elts))
-        zeros = totalSize - str.size();
-      else
-        zeros = totalSize - mlir::cast<mlir::ArrayAttr>(elts).size();
-    } else {
+    if (parser.parseOptionalKeyword("trailing_zeros").failed())
       return {};
-    }
+    unsigned totalSize = mlir::cast<cir::ArrayType>(type).getSize();
+    mlir::Attribute elements = resultVal.value();
+    if (auto str = mlir::dyn_cast<mlir::StringAttr>(elements))
+      zeros = totalSize - str.size();
+    else
+      zeros = totalSize - mlir::cast<mlir::ArrayAttr>(elements).size();
   }
 
-  // Parse literal '>'
   if (parser.parseGreater())
     return {};
 
@@ -711,7 +775,15 @@ Attribute ConstArrayAttr::parse(AsmParser &parser, Type type) {
 
 void ConstArrayAttr::print(AsmPrinter &printer) const {
   printer << "<";
-  printer.printStrippedAttrOrType(getElts());
+  if (auto elements = mlir::dyn_cast<mlir::ArrayAttr>(getElts())) {
+    printer << '[';
+    llvm::interleaveComma(elements, printer, [&](mlir::Attribute element) {
+      printer.printAttributeWithoutType(element);
+    });
+    printer << ']';
+  } else {
+    printer.printStrippedAttrOrType(getElts());
+  }
   if (getTrailingZerosNum())
     printer << ", trailing_zeros";
   printer << ">";

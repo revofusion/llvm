@@ -38,11 +38,11 @@ void init_vec_using_initalizer_list() {
 // CIR: %[[ELEM_2_PTR:.*]] = cir.ptr_stride %[[INIT_LIST_PTR]], %[[CONST_S64_2]] : (!cir.ptr<!s32i>, !s64i) -> !cir.ptr<!s32i>
 // CIR: %[[CONST_S32_2:.*]] = cir.const #cir.int<2> : !s32i
 // CIR: cir.store {{.*}} %[[CONST_S32_2]], %[[ELEM_2_PTR]] : !s32i, !cir.ptr<!s32i>
-// CIR: %[[DATA_PTR:.*]] = cir.get_member %[[AGG_ADDR]][0] {name = "data"} : !cir.ptr<!rec_std3A3Ainitializer_list3Cint3E> -> !cir.ptr<!cir.ptr<!s32i>>
+// CIR: %[[DATA_PTR:.*]] = cir.get_member %[[AGG_ADDR]][0] {{.*name = "data".*}} : !cir.ptr<!rec_std3A3Ainitializer_list3Cint3E> -> !cir.ptr<!cir.ptr<!s32i>>
 // CIR: %[[DATA_ARR_PTR:.*]] = cir.cast bitcast %[[DATA_PTR]] : !cir.ptr<!cir.ptr<!s32i>> -> !cir.ptr<!cir.ptr<!cir.array<!s32i x 3>>>
 // CIR: cir.store {{.*}} %[[INIT_LIST_ADDR]], %[[DATA_ARR_PTR]] : !cir.ptr<!cir.array<!s32i x 3>>, !cir.ptr<!cir.ptr<!cir.array<!s32i x 3>>>
 // CIR: %[[CONST_U64_3:.*]] = cir.const #cir.int<3> : !u64i
-// CIR: %[[SIZE_PTR:.*]] = cir.get_member %[[AGG_ADDR]][1] {name = "size"} : !cir.ptr<!rec_std3A3Ainitializer_list3Cint3E> -> !cir.ptr<!u64i>
+// CIR: %[[SIZE_PTR:.*]] = cir.get_member %[[AGG_ADDR]][1] {{.*name = "size".*}} : !cir.ptr<!rec_std3A3Ainitializer_list3Cint3E> -> !cir.ptr<!u64i>
 // CIR: cir.store {{.*}} %[[CONST_U64_3]], %[[SIZE_PTR]] : !u64i, !cir.ptr<!u64i>
 // CIR: %[[TMP_AGG:.*]] = cir.load {{.*}} %[[AGG_ADDR]] : !cir.ptr<!rec_std3A3Ainitializer_list3Cint3E>, !rec_std3A3Ainitializer_list3Cint3E
 // CIR: cir.call @_ZN6VectorC1ESt16initializer_listIiE(%[[VEC_ADDR]], %[[TMP_AGG]]) : (!cir.ptr<!rec_Vector> {llvm.align = 1 : i64, llvm.dereferenceable = 1 : i64, llvm.nonnull, llvm.noundef}, !rec_std3A3Ainitializer_list3Cint3E) -> ()

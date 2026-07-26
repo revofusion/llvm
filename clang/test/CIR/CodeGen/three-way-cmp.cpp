@@ -147,7 +147,7 @@ void use_pseudo_ordering(HasMember m1, HasMember m2) {
   // BOTH:   }) : (!cir.bool) -> !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
   // BOTH:   cir.copy %[[TOP_TERN_RES]] to %[[CMP_RES]] : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
   // BOTH:   cir.copy %[[CMP_RES]] to %[[CMP_TEMP]] : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
-  // BOTH:   %[[UNSPEC_TEMP:.*]] = cir.const #cir.const_record<{#cir.int<0> : !u64i, #cir.int<0> : !s64i}>
+  // BOTH:   %[[UNSPEC_TEMP:.*]] = cir.const #cir.const_record<{#cir.int<0>, #cir.int<0>}>
   // BOTH:   %[[CMP_TEMP_LOAD:.*]] = cir.load {{.*}}%[[CMP_TEMP]] : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>, !rec_std3A3A__13A3Astrong_ordering
   // BOTH:   %[[SO_NE_RES:.*]] = cir.call @_ZNSt3__1neENS_15strong_orderingEMNS_19_CmpUnspecifiedTypeEFvvE(%14, %[[UNSPEC_TEMP]])
   // BOTH:   cir.if %[[SO_NE_RES]] {

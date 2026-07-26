@@ -28,7 +28,7 @@ void test_destroying_delete(S *s) {
 }
 
 // S::operator delete(S *, std::destroying_delete_t)
-// CIR: cir.func private @_ZN1SdlEPS_St19destroying_delete_t(!cir.ptr<!rec_S> {llvm.noundef}, !rec_std3A3Adestroying_delete_t)
+// CIR: cir.func private @_ZN1SdlEPS_St19destroying_delete_t({{.*}})
 // LLVM: declare void @_ZN1SdlEPS_St19destroying_delete_t(ptr noundef, %"struct.std::destroying_delete_t")
 
 // The destroying operator delete takes over the entire delete operation:

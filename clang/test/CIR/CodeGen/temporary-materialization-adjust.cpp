@@ -13,7 +13,7 @@ void Field() {
 // CIR-LABEL: cir.func {{.*}}@_Z5Fieldv() 
 // CIR: %[[TEMP_ALLOCA:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<!rec_Base>
 // CIR: %[[R_ALLOCA:.*]] = cir.alloca "r" {{.*}} init const : !cir.ptr<!cir.ptr<!s32i>>
-// CIR:  %[[GET_MEM:.*]] = cir.get_member %[[TEMP_ALLOCA]][0] {name = "x"} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
+// CIR:  %[[GET_MEM:.*]] = cir.get_member %[[TEMP_ALLOCA]][0] {{.*}} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
 // CIR:  cir.store align(8) %[[GET_MEM]], %[[R_ALLOCA]] : !cir.ptr<!s32i>, !cir.ptr<!cir.ptr<!s32i>>
 
 // LLVM-LABEL: define {{.*}}@_Z5Fieldv()
@@ -51,7 +51,7 @@ void DerivedToBase() {
 // CIR: %[[TEMP_ALLOCA:.*]] = cir.alloca "ref.tmp0" align(4) : !cir.ptr<!rec_Derived>
 // CIR: %[[R_ALLOCA:.*]] = cir.alloca "r" align(8) init const : !cir.ptr<!cir.ptr<!s32i>>
 // CIR: %[[BASE:.*]] = cir.base_class_addr %[[TEMP_ALLOCA]] : !cir.ptr<!rec_Derived> nonnull [0] -> !cir.ptr<!rec_Base>
-// CIR: %[[GET_MEM:.*]] = cir.get_member %[[BASE]][0] {name = "x"} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
+// CIR: %[[GET_MEM:.*]] = cir.get_member %[[BASE]][0] {{.*}} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
 // CIR: cir.store align(8) %[[GET_MEM]], %[[R_ALLOCA]] : !cir.ptr<!s32i>, !cir.ptr<!cir.ptr<!s32i>>
 
 // LLVM-LABEL: define {{.*}}@_Z13DerivedToBasev

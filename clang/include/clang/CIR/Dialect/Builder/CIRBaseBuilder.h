@@ -94,7 +94,7 @@ public:
     return getConstAPInt(loc, type, llvm::APInt(numBits, val));
   }
 
-  // Creates constant null value for integral type ty.
+  // Creates the typed null/zero value used to zero-initialize ty.
   cir::ConstantOp getNullValue(mlir::Type ty, mlir::Location loc) {
     return getConstant(loc, getZeroInitAttr(ty));
   }

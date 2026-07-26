@@ -56,7 +56,7 @@ thread_local T tls_templ = {get_i()};
 // CIR: cir.global linkonce_odr comdat tls_dyn dyn_tls_refs = <"_ZTW9tls_templIiE", "_ZTH9tls_templIiE", "_ZGV9tls_templIiE"> @_Z9tls_templIiE = #cir.int<0> : !s32i
 
 // Init Func: int
-// CIR:  cir.func internal private @[[INT_INIT]]() {
+// CIR:  cir.func internal private @[[INT_INIT]]() {{.*lifecycle_kind = "init".*owner = @_Z9tls_templIiE.*}} {
 // CIR:    %[[GET_GUARD:.*]] = cir.get_global thread_local @_ZGV9tls_templIiE : !cir.ptr<!s64i>
 // CIR:    %[[GUARD_CAST:.*]] = cir.cast bitcast %[[GET_GUARD]] : !cir.ptr<!s64i> -> !cir.ptr<!s8i>
 // CIR:    %[[LOAD_GUARD:.*]] = cir.load align(8) %[[GUARD_CAST]] : !cir.ptr<!s8i>, !s8i
@@ -77,7 +77,7 @@ thread_local T tls_templ = {get_i()};
 // CIR: cir.global linkonce_odr comdat tls_dyn dyn_tls_refs = <"_ZTW9tls_templI8CtorDtorE", "_ZTH9tls_templI8CtorDtorE", "_ZGV9tls_templI8CtorDtorE"> @_Z9tls_templI8CtorDtorE = #cir.zero : !rec_CtorDtor
 
 // Init Func: Ctor/Dtor:
-// CIR: cir.func internal private @[[CTOR_DTOR_INIT]]() {
+// CIR: cir.func internal private @[[CTOR_DTOR_INIT]]() {{.*lifecycle_kind = "init".*owner = @_Z9tls_templI8CtorDtorE.*}} {
 // CIR:   %[[GET_GUARD:.*]] = cir.get_global thread_local @_ZGV9tls_templI8CtorDtorE : !cir.ptr<!s64i>
 // CIR:    %[[GUARD_CAST:.*]] = cir.cast bitcast %[[GET_GUARD]] : !cir.ptr<!s64i> -> !cir.ptr<!s8i>
 // CIR:    %[[LOAD_GUARD:.*]] = cir.load align(8) %[[GUARD_CAST]] : !cir.ptr<!s8i>, !s8i

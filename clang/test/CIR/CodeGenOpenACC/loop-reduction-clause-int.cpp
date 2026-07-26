@@ -229,7 +229,7 @@ void acc_loop() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_mul__ZTSA5_i : !cir.ptr<!cir.array<!s32i x 5>> reduction_operator <mul> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!s32i x 5>>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!cir.array<!s32i x 5>>
-// CHECK-NEXT: %[[CONST_ARRAY:.*]] = cir.const #cir.const_array<[#cir.int<1> : !s32i, #cir.int<1> : !s32i, #cir.int<1> : !s32i, #cir.int<1> : !s32i, #cir.int<1> : !s32i]> : !cir.array<!s32i x 5>
+// CHECK-NEXT: %[[CONST_ARRAY:.*]] = cir.const #cir.const_array<[#cir.int<1>, #cir.int<1>, #cir.int<1>, #cir.int<1>, #cir.int<1>]> : !cir.array<!s32i x 5>
 // CHECK-NEXT: cir.store{{.*}} %[[CONST_ARRAY]], %[[ALLOCA]] : !cir.array<!s32i x 5>, !cir.ptr<!cir.array<!s32i x 5>>
 // CHECK-NEXT: acc.yield
 //
@@ -267,7 +267,7 @@ void acc_loop() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_max__ZTSA5_i : !cir.ptr<!cir.array<!s32i x 5>> reduction_operator <max> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!s32i x 5>>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!cir.array<!s32i x 5>>
-// CHECK-NEXT: %[[CONST_ARRAY:.*]] = cir.const #cir.const_array<[#cir.int<-2147483648> : !s32i, #cir.int<-2147483648> : !s32i, #cir.int<-2147483648> : !s32i, #cir.int<-2147483648> : !s32i, #cir.int<-2147483648> : !s32i]> : !cir.array<!s32i x 5>
+// CHECK-NEXT: %[[CONST_ARRAY:.*]] = cir.const #cir.const_array<[#cir.int<-2147483648>, #cir.int<-2147483648>, #cir.int<-2147483648>, #cir.int<-2147483648>, #cir.int<-2147483648>]> : !cir.array<!s32i x 5>
 // CHECK-NEXT: cir.store{{.*}} %[[CONST_ARRAY]], %[[ALLOCA]] : !cir.array<!s32i x 5>, !cir.ptr<!cir.array<!s32i x 5>>
 // CHECK-NEXT: acc.yield
 //
@@ -312,7 +312,7 @@ void acc_loop() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_min__ZTSA5_i : !cir.ptr<!cir.array<!s32i x 5>> reduction_operator <min> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!s32i x 5>>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!cir.array<!s32i x 5>>
-// CHECK-NEXT: %[[CONST_ARRAY:.*]] = cir.const #cir.const_array<[#cir.int<2147483647> : !s32i, #cir.int<2147483647> : !s32i, #cir.int<2147483647> : !s32i, #cir.int<2147483647> : !s32i, #cir.int<2147483647> : !s32i]> : !cir.array<!s32i x 5>
+// CHECK-NEXT: %[[CONST_ARRAY:.*]] = cir.const #cir.const_array<[#cir.int<2147483647>, #cir.int<2147483647>, #cir.int<2147483647>, #cir.int<2147483647>, #cir.int<2147483647>]> : !cir.array<!s32i x 5>
 // CHECK-NEXT: cir.store{{.*}} %[[CONST_ARRAY]], %[[ALLOCA]] : !cir.array<!s32i x 5>, !cir.ptr<!cir.array<!s32i x 5>>
 // CHECK-NEXT: acc.yield
 //
@@ -357,7 +357,7 @@ void acc_loop() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_iand__ZTSA5_i : !cir.ptr<!cir.array<!s32i x 5>> reduction_operator <iand> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!s32i x 5>>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!cir.array<!s32i x 5>>
-// CHECK-NEXT: %[[CONST_ARRAY:.*]] = cir.const #cir.const_array<[#cir.int<-1> : !s32i, #cir.int<-1> : !s32i, #cir.int<-1> : !s32i, #cir.int<-1> : !s32i, #cir.int<-1> : !s32i]> : !cir.array<!s32i x 5>
+// CHECK-NEXT: %[[CONST_ARRAY:.*]] = cir.const #cir.const_array<[#cir.int<-1>, #cir.int<-1>, #cir.int<-1>, #cir.int<-1>, #cir.int<-1>]> : !cir.array<!s32i x 5>
 // CHECK-NEXT: cir.store{{.*}} %[[CONST_ARRAY]], %[[ALLOCA]] : !cir.array<!s32i x 5>, !cir.ptr<!cir.array<!s32i x 5>>
 // CHECK-NEXT: acc.yield
 //
@@ -471,7 +471,7 @@ void acc_loop() {
 // CHECK-NEXT: acc.reduction.recipe @reduction_land__ZTSA5_i : !cir.ptr<!cir.array<!s32i x 5>> reduction_operator <land> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!cir.array<!s32i x 5>>{{.*}})
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.reduction.init" {{.*}} init : !cir.ptr<!cir.array<!s32i x 5>>
-// CHECK-NEXT: %[[CONST_ARRAY:.*]] = cir.const #cir.const_array<[#cir.int<1> : !s32i, #cir.int<1> : !s32i, #cir.int<1> : !s32i, #cir.int<1> : !s32i, #cir.int<1> : !s32i]> : !cir.array<!s32i x 5>
+// CHECK-NEXT: %[[CONST_ARRAY:.*]] = cir.const #cir.const_array<[#cir.int<1>, #cir.int<1>, #cir.int<1>, #cir.int<1>, #cir.int<1>]> : !cir.array<!s32i x 5>
 // CHECK-NEXT: cir.store{{.*}} %[[CONST_ARRAY]], %[[ALLOCA]] : !cir.array<!s32i x 5>, !cir.ptr<!cir.array<!s32i x 5>>
 // CHECK-NEXT: acc.yield
 //

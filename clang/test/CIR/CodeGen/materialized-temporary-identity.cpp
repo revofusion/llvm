@@ -123,6 +123,34 @@ Cleanup direct_temporary_result(bool branch) {
   return Cleanup{};
 }
 
+// Macro source locations are opaque provenance IDs, not ordered byte offsets.
+// Nested expansion can therefore give a valid temporary a numerically smaller
+// end_raw than begin_raw.
+Cleanup make_cleanup(int);
+#define IDENTITY_CONCAT1(X, Y) X##Y
+#define IDENTITY_CONCAT2(X, Y) IDENTITY_CONCAT1(X, Y)
+#define IDENTITY_FACTORY IDENTITY_CONCAT2(make_, cleanup)
+#define MATERIALIZE_THROUGH_MACRO(EXPR) consume(IDENTITY_FACTORY(EXPR))
+#define FORWARD_MATERIALIZED_TEMP(EXPR) MATERIALIZE_THROUGH_MACRO(EXPR)
+void macro_temporary_provenance() {
+  FORWARD_MATERIALIZED_TEMP(7);
+}
+
+// Each expansion introduces a distinct canonical VarDecl, but both NRVO
+// candidates legitimately use the one return allocation. Singular automatic
+// object metadata must be omitted rather than choosing or conflating either
+// declaration; both cleanup scopes remain present.
+#define RETURN_NAMED_CLEANUP() \
+  do {                         \
+    Cleanup macro_result;      \
+    return macro_result;       \
+  } while (false)
+Cleanup repeated_macro_nrvo(bool first) {
+  if (first)
+    RETURN_NAMED_CLEANUP();
+  RETURN_NAMED_CLEANUP();
+}
+
 // Automatic declarations used as unbraced control-flow bodies still own
 // alloca-attached cleanup identity. Cleanup emission is not their owner:
 // it can be deferred through branch, loop, or continue cleanup paths.
@@ -205,9 +233,12 @@ void conditional_temporary_continue(bool b) {
 // Repeated discovery of one by-value argument binding must not mint a second
 // runtime identity for the same exact AST temporary and physical alloca.
 // CIR-LABEL: cir.func{{.*}} @{{[^ (]*transferred_argument[^ (]*}}(
-// CIR: cir.alloca "agg.tmp0"{{.*}}ast_temporary_object_identities = {{.*}}instance_token = "[[TRANSFERRED_TOKEN:cxx\.temporary\.instance\.[0-9]+]]"
-// CIR-NOT: instance_token =
-// CIR: cir.call @_ZN7CleanupC1EOS_
+// CIR: %[[TEMP:.*]] = cir.alloca "agg.tmp0"
+// CIR: cir.call @_ZN7CleanupC1EOS_(%[[TEMP]],
+// CIR: cir.cleanup.scope
+// CIR: cir.call @_Z16consume_by_value7Cleanup
+// CIR: } cleanup normal {
+// CIR: cir.call @_ZN7CleanupD1Ev(%[[TEMP]])
 // Both temporary allocas are emitted while the enclosing cir.if is detached.
 // The reference-bound temporary carries both AST identities, while the
 // standalone C-style cast carries its CXXBindTemporaryExpr identity.
@@ -221,6 +252,20 @@ void conditional_temporary_continue(bool b) {
 // CIR: cir.alloca "__retval"
 // CIR-NOT: ast_temporary_object_identities
 // CIR: cir.return
+// CIR-LABEL: cir.func{{.*}} @{{[^ (]*macro_temporary_provenance[^ (]*}}()
+// CIR: cir.alloca{{.*}}ast_temporary_object_identities = {{.*}}begin_raw = {{[0-9]+}} : i64{{.*}}declaration_ordinal = {{[0-9]+}} : i64{{.*}}end_raw = {{[0-9]+}} : i64{{.*}}function = @{{[^ (]*macro_temporary_provenance[^ (]*}}
+// CIR: cir.call @_ZN7CleanupD1Ev
+// CIR-LABEL: cir.func{{.*}} @{{[^ (]*repeated_macro_nrvo[^ (]*}}(
+// CIR: %[[SHARED_RETURN:.*]] = cir.alloca "__retval"
+// CIR: %[[NRVO:.*]] = cir.alloca "nrvo"
+// CIR: cir.call @_ZN7CleanupC1Ev(%[[SHARED_RETURN]])
+// CIR: cir.cleanup.scope {
+// CIR:   cir.call @_ZN7CleanupD1Ev(%[[SHARED_RETURN]])
+// CIR: }
+// CIR: cir.call @_ZN7CleanupC1Ev(%[[SHARED_RETURN]])
+// CIR: cir.cleanup.scope {
+// CIR:   cir.call @_ZN7CleanupD1Ev(%[[SHARED_RETURN]])
+// CIR: }
 // CIR-LABEL: cir.func{{.*}} @_Z20automatic_cleanup_ifb(
 // CIR: cir.alloca "guard"{{.*}}ast_automatic_object_identity = {{.*}}cleanup_kind = "cxx_destructor"{{.*}}constructor_symbol = "_ZN7CleanupC1Ev"{{.*}}declaration_usr = "{{[^"]+}}"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}function = @_Z20automatic_cleanup_ifb{{.*}}requires_observed_constructor_call = true
 // CIR-LABEL: cir.func{{.*}} @_Z23automatic_cleanup_whileb(

@@ -152,31 +152,31 @@ void C::f(int x, ...) {}
 
 // Test1 vtable: C's vtable references the thunk for B's entry.
 // CIR-DAG: cir.global "private" external @_ZTVN5Test11CE = #cir.vtable<{
-// CIR-DAG:   #cir.global_view<@_ZN5Test11C1fEv> : !cir.ptr<!u8i>
-// CIR-DAG:   #cir.global_view<@_ZThn8_N5Test11C1fEv> : !cir.ptr<!u8i>
+// CIR-DAG:   #cir.global_view<@_ZN5Test11C1fEv>
+// CIR-DAG:   #cir.global_view<@_ZThn8_N5Test11C1fEv>
 
 // Test2 vtable: C's vtable references the thunk for B's entry.
 // CIR-DAG: cir.global "private" external @_ZTVN5Test21CE = #cir.vtable<{
-// CIR-DAG:   #cir.global_view<@_ZN5Test21C1gEv> : !cir.ptr<!u8i>
-// CIR-DAG:   #cir.global_view<@_ZThn8_N5Test21C1gEv> : !cir.ptr<!u8i>
+// CIR-DAG:   #cir.global_view<@_ZN5Test21C1gEv>
+// CIR-DAG:   #cir.global_view<@_ZThn8_N5Test21C1gEv>
 
 // Test5 vtable: C's vtable references the aggregate-return thunk for B's
 // entry.
 // CIR-DAG: cir.global "private" external @_ZTVN5Test51CE = #cir.vtable<{
-// CIR-DAG:   #cir.global_view<@_ZN5Test51C1hEv> : !cir.ptr<!u8i>
-// CIR-DAG:   #cir.global_view<@_ZThn8_N5Test51C1hEv> : !cir.ptr<!u8i>
+// CIR-DAG:   #cir.global_view<@_ZN5Test51C1hEv>
+// CIR-DAG:   #cir.global_view<@_ZThn8_N5Test51C1hEv>
 
 // Test4 vtable: C's vtable references the thunk for B's entry.
 // CIR-DAG: cir.global "private" external @_ZTVN5Test41CE = #cir.vtable<{
-// CIR-DAG:   #cir.global_view<@_ZN5Test41C1gEi> : !cir.ptr<!u8i>
-// CIR-DAG:   #cir.global_view<@_ZThn8_N5Test41C1gEi> : !cir.ptr<!u8i>
+// CIR-DAG:   #cir.global_view<@_ZN5Test41C1gEi>
+// CIR-DAG:   #cir.global_view<@_ZThn8_N5Test41C1gEi>
 
 // Test3 vtable: D's vtable references D1, D0, and their thunks.
 // CIR-DAG: cir.global "private" external @_ZTVN5Test31DE = #cir.vtable<{
-// CIR-DAG:   #cir.global_view<@_ZN5Test31DD1Ev> : !cir.ptr<!u8i>
-// CIR-DAG:   #cir.global_view<@_ZN5Test31DD0Ev> : !cir.ptr<!u8i>
-// CIR-DAG:   #cir.global_view<@_ZThn8_N5Test31DD1Ev> : !cir.ptr<!u8i>
-// CIR-DAG:   #cir.global_view<@_ZThn8_N5Test31DD0Ev> : !cir.ptr<!u8i>
+// CIR-DAG:   #cir.global_view<@_ZN5Test31DD1Ev>
+// CIR-DAG:   #cir.global_view<@_ZN5Test31DD0Ev>
+// CIR-DAG:   #cir.global_view<@_ZThn8_N5Test31DD1Ev>
+// CIR-DAG:   #cir.global_view<@_ZThn8_N5Test31DD0Ev>
 
 // --- Test1: void method thunk ---
 

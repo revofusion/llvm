@@ -441,7 +441,7 @@ void CIRGenFunction::emitFunctionProlog(const FunctionArgList &args,
 
     mlir::Value addrVal =
         emitAlloca(cast<NamedDecl>(paramVar)->getName(),
-                   convertType(paramVar->getType()), paramLoc, alignment,
+                   convertTypeForMem(paramVar->getType()), paramLoc, alignment,
                    /*insertIntoFnEntryBlock=*/true);
 
     declare(addrVal, paramVar, paramVar->getType(), paramLoc, alignment,
@@ -454,6 +454,7 @@ void CIRGenFunction::emitFunctionProlog(const FunctionArgList &args,
     assert(!cir::MissingFeatures::constructABIArgDirectExtend());
     if (isPromoted)
       paramVal = emitArgumentDemotion(*this, paramVar, paramVal);
+    paramVal = emitToMemory(paramVal, paramVar->getType());
 
     // Location of the store to the param storage tracked as beginning of
     // the function body.
@@ -470,8 +471,8 @@ void CIRGenFunction::emitFunctionProlog(const FunctionArgList &args,
           mlir::Operation *dominatingIP =
               builder.getBool(false, paramLoc).getOperation();
           pushDestroy(dtorKind, Address(addrVal, alignment), ty);
-          calleeDestructedParamCleanups[parm] = {
-              ehStack.stable_begin(), dominatingIP};
+          calleeDestructedParamCleanups[parm] = {ehStack.stable_begin(),
+                                                 dominatingIP};
         } else if (dtorKind) {
           cgm.errorNYI(parm->getSourceRange(),
                        "callee-destructed parameter cleanup kind");
@@ -690,8 +691,6 @@ void CIRGenFunction::finishFunction(SourceLocation endLoc) {
 }
 
 mlir::LogicalResult CIRGenFunction::emitFunctionBody(const clang::Stmt *body) {
-  // We start with function level scope for variables.
-  SymTableScopeTy varScope(symbolTable);
 
   if (const CompoundStmt *block = dyn_cast<CompoundStmt>(body))
     return emitCompoundStmtWithoutScope(*block);

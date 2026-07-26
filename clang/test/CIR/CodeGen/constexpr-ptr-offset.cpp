@@ -19,6 +19,6 @@ void test() {
 }
 
 // CIR-LABEL: @_Z4testv
-// CIR: #cir.global_view<@{{.*}}str{{.*}}, [2 : i32]> : !cir.ptr<!s8i>
+// CIR: #cir.global_view<@".str", [2 : i32]>
 
 // LLVM: getelementptr{{.*}}(i8, ptr @{{.*}}str{{.*}}, i64 2)
