@@ -66,10 +66,10 @@ emitArrayConstant(CIRGenModule &cgm, mlir::Type desiredType,
 
 struct ConstantAggregateBuilderUtils {
   CIRGenModule &cgm;
-  cir::CIRDataLayout dataLayout;
+  const cir::CIRDataLayout &dataLayout;
 
   ConstantAggregateBuilderUtils(CIRGenModule &cgm)
-      : cgm(cgm), dataLayout{cgm.getModule()} {}
+      : cgm(cgm), dataLayout{cgm.getDataLayout()} {}
 
   CharUnits getAlignment(const mlir::TypedAttr c) const {
     return CharUnits::fromQuantity(
@@ -2097,9 +2097,8 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
     const unsigned memberIndex =
         parent->isUnion()
             ? fieldDecl->getFieldIndex()
-            : cgm.getTypes()
-                  .getCIRGenRecordLayout(parent)
-                  .getCIRFieldNo(fieldDecl);
+            : cgm.getTypes().getCIRGenRecordLayout(parent).getCIRFieldNo(
+                  fieldDecl);
     return builder.getDataMemberAttr(cirTy, memberIndex);
   }
   case APValue::LValue:

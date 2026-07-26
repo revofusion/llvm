@@ -27,6 +27,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Linker/Linker.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/Internalize.h"
 
@@ -130,9 +131,13 @@ public:
   }
 
   void HandleTranslationUnit(ASTContext &C) override {
-    Gen->HandleTranslationUnit(C);
+    {
+      llvm::TimeTraceScope scope("CIR CodeGen");
+      Gen->HandleTranslationUnit(C);
+    }
 
     if (!FEOptions.ClangIRDisableCIRVerifier) {
+      llvm::TimeTraceScope scope("CIR Module Verification");
       if (!Gen->verifyModule()) {
         CI.getDiagnostics().Report(
             diag::err_cir_verification_failed_pre_passes);
@@ -159,16 +164,17 @@ public:
     switch (Action) {
     case CIRGenAction::OutputType::EmitCIRBytecode:
       if (OutputStream && MlirModule) {
+        llvm::TimeTraceScope scope("CIR Bytecode Serialization");
         mlir::BytecodeWriterConfig config("clang-cir");
-        if (mlir::failed(mlir::writeBytecodeToFile(
-                MlirModule, *OutputStream, config))) {
-          CI.getDiagnostics().Report(
-              diag::err_cir_to_cir_transform_failed);
+        if (mlir::failed(
+                mlir::writeBytecodeToFile(MlirModule, *OutputStream, config))) {
+          CI.getDiagnostics().Report(diag::err_cir_to_cir_transform_failed);
         }
       }
       break;
     case CIRGenAction::OutputType::EmitCIR:
       if (OutputStream && MlirModule) {
+        llvm::TimeTraceScope scope("CIR Text Serialization");
         mlir::OpPrintingFlags Flags;
         Flags.enableDebugInfo(/*enable=*/true, /*prettyForm=*/false);
         MlirModule->print(*OutputStream, Flags);

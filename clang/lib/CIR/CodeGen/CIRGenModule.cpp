@@ -49,6 +49,7 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/SaveAndRestore.h"
+#include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "CIRGenFunctionInfo.h"
@@ -780,6 +781,13 @@ void CIRGenModule::emitGlobalFunctionDefinition(clang::GlobalDecl gd,
   // Already emitted.
   if (!funcOp.isDeclaration())
     return;
+  llvm::TimeTraceScope timeScope("CIRGen Function", [&]() {
+    std::string name;
+    llvm::raw_string_ostream os(name);
+    funcDecl->getNameForDiagnostic(os, astContext.getPrintingPolicy(),
+                                   /*Qualified=*/true);
+    return name;
+  });
 
   setFunctionLinkage(gd, funcOp);
   setGVProperties(funcOp, funcDecl);
@@ -1552,6 +1560,13 @@ void CIRGenModule::emitLLVMUsed() {
 
 void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
                                            bool isTentative) {
+  llvm::TimeTraceScope timeScope("CIRGen Global Variable", [&]() {
+    std::string name;
+    llvm::raw_string_ostream os(name);
+    vd->getNameForDiagnostic(os, astContext.getPrintingPolicy(),
+                             /*Qualified=*/true);
+    return name;
+  });
   if (getLangOpts().OpenCL || getLangOpts().OpenMPIsTargetDevice) {
     errorNYI(vd->getSourceRange(),
              "emitGlobalVarDefinition: emit OpenCL/OpenMP global variable");

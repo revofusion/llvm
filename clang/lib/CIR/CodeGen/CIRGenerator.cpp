@@ -63,6 +63,7 @@ void CIRGenerator::Initialize(ASTContext &astContext) {
   llvm::DataLayout layout =
       llvm::DataLayout(astContext.getTargetInfo().getDataLayoutString());
   setMLIRDataLayout(mod, layout);
+  cgm->initializeDataLayout();
 }
 
 void CIRGenerator::InitializeSema(Sema &sema) { this->sema = &sema; }

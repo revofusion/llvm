@@ -1037,7 +1037,7 @@ CIRGenFunction::emitNVPTXBuiltinExpr(unsigned builtinId, const CallExpr *expr) {
 static mlir::Value packArgsIntoNVPTXFormatBuffer(CIRGenFunction &cgf,
                                                  const CallArgList &args,
                                                  mlir::Location loc) {
-  const cir::CIRDataLayout dataLayout = cgf.cgm.getDataLayout();
+  const cir::CIRDataLayout &dataLayout = cgf.cgm.getDataLayout();
   CIRGenBuilderTy &builder = cgf.getBuilder();
 
   if (args.size() <= 1)

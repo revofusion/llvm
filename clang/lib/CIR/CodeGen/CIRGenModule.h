@@ -91,6 +91,9 @@ private:
 
   /// A "module" matches a c/cpp source file: containing a list of functions.
   mlir::ModuleOp theModule;
+  /// Immutable DLTI layout and its type-query caches. Initialized after the
+  /// module receives its target data-layout specification.
+  mutable std::optional<cir::CIRDataLayout> dataLayout;
 
   clang::DiagnosticsEngine &diags;
 
@@ -291,10 +294,14 @@ public:
   CIRGenCXXABI &getCXXABI() const { return *abi; }
   mlir::MLIRContext &getMLIRContext() { return *builder.getContext(); }
 
-  const cir::CIRDataLayout getDataLayout() const {
-    // FIXME(cir): instead of creating a CIRDataLayout every time, set it as an
-    // attribute for the CIRModule class.
-    return cir::CIRDataLayout(theModule);
+  void initializeDataLayout() {
+    assert(!dataLayout && "data layout initialized multiple times");
+    dataLayout.emplace(theModule);
+  }
+
+  const cir::CIRDataLayout &getDataLayout() const {
+    assert(dataLayout && "data layout queried before initialization");
+    return *dataLayout;
   }
 
   /// -------
