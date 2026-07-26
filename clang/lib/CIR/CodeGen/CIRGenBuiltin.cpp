@@ -471,6 +471,20 @@ static mlir::Value emitBinaryMaybeConstrainedFPBuiltin(CIRGenFunction &cgf,
   return call->getResult(0);
 }
 
+static mlir::Value
+emitTernaryMaybeConstrainedFPBuiltin(CIRGenFunction &cgf, const CallExpr &e,
+                                     llvm::StringRef intrinsicName) {
+  llvm::SmallVector<mlir::Value, 3> operands;
+  operands.reserve(3);
+  for (const Expr *arg : e.arguments())
+    operands.push_back(cgf.emitScalarExpr(arg));
+
+  assert(!cir::MissingFeatures::emitConstrainedFPCall());
+  return cgf.getBuilder().emitIntrinsicCallOp(
+      cgf.getLoc(e.getExprLoc()), intrinsicName, cgf.convertType(e.getType()),
+      operands);
+}
+
 static RValue errorBuiltinNYI(CIRGenFunction &cgf, const CallExpr *e,
                               unsigned builtinID) {
 
@@ -808,6 +822,7 @@ static RValue tryEmitFPMathIntrinsic(CIRGenFunction &cgf, const CallExpr *e,
   case Builtin::BI__builtin_floorf128:
     return emitUnaryMaybeConstrainedFPBuiltin<cir::FloorOp>(cgf, *e);
   case Builtin::BI__builtin_elementwise_floor:
+    return emitUnaryMaybeConstrainedFPBuiltin<cir::FloorOp>(cgf, *e);
   case Builtin::BIfma:
   case Builtin::BIfmaf:
   case Builtin::BIfmal:
@@ -817,7 +832,7 @@ static RValue tryEmitFPMathIntrinsic(CIRGenFunction &cgf, const CallExpr *e,
   case Builtin::BI__builtin_fmal:
   case Builtin::BI__builtin_fmaf128:
   case Builtin::BI__builtin_elementwise_fma:
-    return RValue::getIgnored();
+    return RValue::get(emitTernaryMaybeConstrainedFPBuiltin(cgf, *e, "fma"));
   case Builtin::BIfmax:
   case Builtin::BIfmaxf:
   case Builtin::BIfmaxl:
@@ -2078,8 +2093,12 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
         builder.createIsFPClass(loc, v, cir::FPClassTest(test)),
         convertType(e->getType())));
   }
-  case Builtin::BI__builtin_nondeterministic_value:
-    return errorBuiltinNYI(*this, e, builtinID);
+  case Builtin::BI__builtin_nondeterministic_value: {
+    mlir::Location loc = getLoc(e->getExprLoc());
+    mlir::Type ty = convertType(e->getArg(0)->getType());
+    mlir::Value poison = builder.getConstant(loc, cir::PoisonAttr::get(ty));
+    return RValue::get(cir::FreezeOp::create(builder, loc, poison));
+  }
   case Builtin::BI__builtin_elementwise_abs: {
     mlir::Type cirTy = convertType(e->getArg(0)->getType());
     bool isIntTy = cir::isIntOrVectorOfIntType(cirTy);
@@ -2161,9 +2180,37 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
                                                    mlir::ValueRange{a, b, c}));
   }
   case Builtin::BI__builtin_elementwise_add_sat:
-  case Builtin::BI__builtin_elementwise_sub_sat:
+  case Builtin::BI__builtin_elementwise_sub_sat: {
+    mlir::Location loc = getLoc(e->getExprLoc());
+    mlir::Value lhs = emitScalarExpr(e->getArg(0));
+    mlir::Value rhs = emitScalarExpr(e->getArg(1));
+    mlir::Value result =
+        builtinID == Builtin::BI__builtin_elementwise_add_sat
+            ? builder.createAdd(loc, lhs, rhs, cir::OverflowBehavior::Saturated)
+            : builder.createSub(loc, lhs, rhs,
+                                cir::OverflowBehavior::Saturated);
+    return RValue::get(result);
+  }
   case Builtin::BI__builtin_elementwise_max:
-  case Builtin::BI__builtin_elementwise_min:
+  case Builtin::BI__builtin_elementwise_min: {
+    mlir::Type type = convertType(e->getArg(0)->getType());
+    if (!cir::isIntOrVectorOfIntType(type)) {
+      mlir::Value result =
+          builtinID == Builtin::BI__builtin_elementwise_max
+              ? emitBinaryMaybeConstrainedFPBuiltin<cir::FMaxNumOp>(*this, *e)
+              : emitBinaryMaybeConstrainedFPBuiltin<cir::FMinNumOp>(*this, *e);
+      return RValue::get(result);
+    }
+
+    mlir::Location loc = getLoc(e->getExprLoc());
+    mlir::Value lhs = emitScalarExpr(e->getArg(0));
+    mlir::Value rhs = emitScalarExpr(e->getArg(1));
+    mlir::Value result =
+        builtinID == Builtin::BI__builtin_elementwise_max
+            ? builder.createMax(loc, lhs, rhs)
+            : cir::MinOp::create(builder, loc, lhs, rhs).getResult();
+    return RValue::get(result);
+  }
   case Builtin::BI__builtin_elementwise_maxnum:
   case Builtin::BI__builtin_elementwise_minnum:
   case Builtin::BI__builtin_elementwise_maximum:
@@ -2634,6 +2681,8 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     return RValue::get(result);
   }
   case Builtin::BI__warn_memset_zero_len:
+    // This builtin is a diagnostic marker and has no runtime semantics.
+    return RValue::getIgnored();
   case Builtin::BI__annotation:
   case Builtin::BI__builtin_annotation:
   case Builtin::BI__builtin_addcb:

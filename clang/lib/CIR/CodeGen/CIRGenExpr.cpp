@@ -1181,8 +1181,12 @@ LValue CIRGenFunction::emitDeclRefLValue(const DeclRefExpr *e) {
       auto getGlob = getGlobVal.getDefiningOp<cir::GetGlobalOp>();
       getGlob.setStaticLocal(var.getStaticLocalGuard().has_value());
       getGlob.setTls(vd->getTLSKind() != VarDecl::TLS_None);
-      addr = Address(getGlob, convertTypeForMem(vd->getType()),
-                     getContext().getDeclAlign(vd));
+
+      mlir::Type variableTy = convertTypeForMem(vd->getType());
+      auto pointerTy = mlir::cast<cir::PointerType>(getGlobVal.getType());
+      if (pointerTy.getPointee() != variableTy)
+        getGlobVal = builder.createPtrBitcast(getGlobVal, variableTy);
+      addr = Address(getGlobVal, variableTy, getContext().getDeclAlign(vd));
     } else {
       llvm_unreachable("DeclRefExpr for Decl not entered in localDeclMap?");
     }

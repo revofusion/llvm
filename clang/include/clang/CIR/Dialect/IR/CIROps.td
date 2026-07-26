@@ -2037,6 +2037,27 @@ def CIR_FNegOp : CIR_UnaryOp<"fneg", CIR_AnyFloatOrVecOfFloatType> {
 }
 
 //===----------------------------------------------------------------------===//
+// FreezeOp
+//===----------------------------------------------------------------------===//
+
+def CIR_FreezeOp : CIR_UnaryOp<"freeze", CIR_AnyType> {
+  let summary = "Choose a stable value for an arbitrary operand";
+  let description = [{
+    The `cir.freeze` operation returns an arbitrary but fixed value when its
+    operand is poison or undef. For every other operand, it returns the operand
+    unchanged.
+
+    Example:
+
+    ```
+    %1 = cir.freeze %0 : !s32i
+    ```
+  }];
+
+  let llvmOp = "FreezeOp";
+}
+
+//===----------------------------------------------------------------------===//
 // BrCondOp
 //===----------------------------------------------------------------------===//
 

@@ -1801,16 +1801,60 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
   case X86::BI__builtin_ia32_vperm2f128_ps256:
   case X86::BI__builtin_ia32_vperm2f128_si256:
   case X86::BI__builtin_ia32_permti256:
-  case X86::BI__builtin_ia32_pslldqi128_byteshift:
-  case X86::BI__builtin_ia32_pslldqi256_byteshift:
-  case X86::BI__builtin_ia32_pslldqi512_byteshift:
-  case X86::BI__builtin_ia32_psrldqi128_byteshift:
-  case X86::BI__builtin_ia32_psrldqi256_byteshift:
-  case X86::BI__builtin_ia32_psrldqi512_byteshift:
     cgm.errorNYI(expr->getSourceRange(),
                  std::string("unimplemented X86 builtin call: ") +
                      getContext().BuiltinInfo.getName(builtinID));
     return mlir::Value{};
+  case X86::BI__builtin_ia32_pslldqi128_byteshift:
+  case X86::BI__builtin_ia32_pslldqi256_byteshift:
+  case X86::BI__builtin_ia32_pslldqi512_byteshift: {
+    unsigned shiftVal =
+        ops[1].getDefiningOp<cir::ConstantOp>().getIntValue().getZExtValue() &
+        0xff;
+    auto vecTy = cast<cir::VectorType>(ops[0].getType());
+    unsigned numElts = vecTy.getSize();
+    mlir::Value zero = builder.getNullValue(vecTy, getLoc(expr->getExprLoc()));
+
+    if (shiftVal >= 16)
+      return zero;
+
+    int64_t indices[64];
+    for (unsigned lane = 0; lane != numElts; lane += 16) {
+      for (unsigned i = 0; i != 16; ++i) {
+        unsigned index = numElts + i - shiftVal;
+        if (index < numElts)
+          index -= numElts - 16;
+        indices[lane + i] = index + lane;
+      }
+    }
+    return builder.createVecShuffle(getLoc(expr->getExprLoc()), zero, ops[0],
+                                    ArrayRef(indices, numElts));
+  }
+  case X86::BI__builtin_ia32_psrldqi128_byteshift:
+  case X86::BI__builtin_ia32_psrldqi256_byteshift:
+  case X86::BI__builtin_ia32_psrldqi512_byteshift: {
+    unsigned shiftVal =
+        ops[1].getDefiningOp<cir::ConstantOp>().getIntValue().getZExtValue() &
+        0xff;
+    auto vecTy = cast<cir::VectorType>(ops[0].getType());
+    unsigned numElts = vecTy.getSize();
+    mlir::Value zero = builder.getNullValue(vecTy, getLoc(expr->getExprLoc()));
+
+    if (shiftVal >= 16)
+      return zero;
+
+    int64_t indices[64];
+    for (unsigned lane = 0; lane != numElts; lane += 16) {
+      for (unsigned i = 0; i != 16; ++i) {
+        unsigned index = i + shiftVal;
+        if (index >= 16)
+          index += numElts - 16;
+        indices[lane + i] = index + lane;
+      }
+    }
+    return builder.createVecShuffle(getLoc(expr->getExprLoc()), ops[0], zero,
+                                    ArrayRef(indices, numElts));
+  }
   case X86::BI__builtin_ia32_kshiftliqi:
   case X86::BI__builtin_ia32_kshiftlihi:
   case X86::BI__builtin_ia32_kshiftlisi:

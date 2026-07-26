@@ -7,9 +7,69 @@
 // RUN: FileCheck --check-prefix=LLVM --input-file=%t-ogcg.ll %s
 
 typedef int vint4 __attribute__((ext_vector_type(4)));
+typedef unsigned vuint4 __attribute__((ext_vector_type(4)));
 typedef short vshort8 __attribute__((ext_vector_type(8)));
 typedef float vfloat4 __attribute__((ext_vector_type(4)));
 typedef double vdouble4 __attribute__((ext_vector_type(4)));
+
+void test_builtin_elementwise_sat(int i, unsigned u, vint4 vi4, vuint4 vu4) {
+  // CIR-LABEL: test_builtin_elementwise_sat
+  // LLVM-LABEL: test_builtin_elementwise_sat
+
+  // CIR: cir.add sat %{{.*}}, %{{.*}} : !s32i
+  // LLVM: call i32 @llvm.sadd.sat.i32(i32 %{{.*}}, i32 %{{.*}})
+  i = __builtin_elementwise_add_sat(i, i);
+
+  // CIR: cir.add sat %{{.*}}, %{{.*}} : !u32i
+  // LLVM: call i32 @llvm.uadd.sat.i32(i32 %{{.*}}, i32 %{{.*}})
+  u = __builtin_elementwise_add_sat(u, u);
+
+  // CIR: cir.add sat %{{.*}}, %{{.*}} : !cir.vector<4 x !s32i>
+  // LLVM: call <4 x i32> @llvm.sadd.sat.v4i32(<4 x i32> %{{.*}}, <4 x i32> %{{.*}})
+  vi4 = __builtin_elementwise_add_sat(vi4, vi4);
+
+  // CIR: cir.add sat %{{.*}}, %{{.*}} : !cir.vector<4 x !u32i>
+  // LLVM: call <4 x i32> @llvm.uadd.sat.v4i32(<4 x i32> %{{.*}}, <4 x i32> %{{.*}})
+  vu4 = __builtin_elementwise_add_sat(vu4, vu4);
+
+  // CIR: cir.sub sat %{{.*}}, %{{.*}} : !s32i
+  // LLVM: call i32 @llvm.ssub.sat.i32(i32 %{{.*}}, i32 %{{.*}})
+  i = __builtin_elementwise_sub_sat(i, i);
+
+  // CIR: cir.sub sat %{{.*}}, %{{.*}} : !u32i
+  // LLVM: call i32 @llvm.usub.sat.i32(i32 %{{.*}}, i32 %{{.*}})
+  u = __builtin_elementwise_sub_sat(u, u);
+}
+
+void test_builtin_elementwise_minmax(int i, unsigned u, vint4 vi4, vuint4 vu4,
+                                     float f) {
+  // CIR-LABEL: test_builtin_elementwise_minmax
+  // LLVM-LABEL: test_builtin_elementwise_minmax
+
+  // CIR: cir.max %{{.*}}, %{{.*}} : !s32i
+  // LLVM: call i32 @llvm.smax.i32(i32 %{{.*}}, i32 %{{.*}})
+  i = __builtin_elementwise_max(i, i);
+
+  // CIR: cir.max %{{.*}}, %{{.*}} : !u32i
+  // LLVM: call i32 @llvm.umax.i32(i32 %{{.*}}, i32 %{{.*}})
+  u = __builtin_elementwise_max(u, u);
+
+  // CIR: cir.max %{{.*}}, %{{.*}} : !cir.vector<4 x !s32i>
+  // LLVM: call <4 x i32> @llvm.smax.v4i32(<4 x i32> %{{.*}}, <4 x i32> %{{.*}})
+  vi4 = __builtin_elementwise_max(vi4, vi4);
+
+  // CIR: cir.min %{{.*}}, %{{.*}} : !cir.vector<4 x !u32i>
+  // LLVM: call <4 x i32> @llvm.umin.v4i32(<4 x i32> %{{.*}}, <4 x i32> %{{.*}})
+  vu4 = __builtin_elementwise_min(vu4, vu4);
+
+  // CIR: cir.fmaxnum %{{.*}}, %{{.*}} : !cir.float
+  // LLVM: call{{( nsz)?}} float @llvm.maxnum.f32(float %{{.*}}, float %{{.*}})
+  f = __builtin_elementwise_max(f, f);
+
+  // CIR: cir.fminnum %{{.*}}, %{{.*}} : !cir.float
+  // LLVM: call{{( nsz)?}} float @llvm.minnum.f32(float %{{.*}}, float %{{.*}})
+  f = __builtin_elementwise_min(f, f);
+}
 
 void test_builtin_elementwise_abs(vint4 vi4, int i, float f, double d,
                                   vfloat4 vf4, vdouble4  vd4) {
@@ -281,6 +341,28 @@ void test_builtin_elementwise_floor(float f, double d, vfloat4 vf4,
   // CIR: cir.floor %{{.*}} : !cir.vector<4 x !cir.double>
   // LLVM: call <4 x double> @llvm.floor.v4f64(<4 x double> %{{.*}})
   vd4 = __builtin_elementwise_floor(vd4);
+}
+
+void test_builtin_elementwise_fma(float f, double d, vfloat4 vf4,
+                                  vdouble4 vd4) {
+  // CIR-LABEL: test_builtin_elementwise_fma
+  // LLVM-LABEL: test_builtin_elementwise_fma
+
+  // CIR: cir.call_llvm_intrinsic "fma" %{{.*}}, %{{.*}}, %{{.*}} : (!cir.float, !cir.float, !cir.float) -> !cir.float
+  // LLVM: call float @llvm.fma.f32(float %{{.*}}, float %{{.*}}, float %{{.*}})
+  f = __builtin_elementwise_fma(f, f, f);
+
+  // CIR: cir.call_llvm_intrinsic "fma" %{{.*}}, %{{.*}}, %{{.*}} : (!cir.double, !cir.double, !cir.double) -> !cir.double
+  // LLVM: call double @llvm.fma.f64(double %{{.*}}, double %{{.*}}, double %{{.*}})
+  d = __builtin_elementwise_fma(d, d, d);
+
+  // CIR: cir.call_llvm_intrinsic "fma" %{{.*}}, %{{.*}}, %{{.*}} : (!cir.vector<4 x !cir.float>, !cir.vector<4 x !cir.float>, !cir.vector<4 x !cir.float>) -> !cir.vector<4 x !cir.float>
+  // LLVM: call <4 x float> @llvm.fma.v4f32(<4 x float> %{{.*}}, <4 x float> %{{.*}}, <4 x float> %{{.*}})
+  vf4 = __builtin_elementwise_fma(vf4, vf4, vf4);
+
+  // CIR: cir.call_llvm_intrinsic "fma" %{{.*}}, %{{.*}}, %{{.*}} : (!cir.vector<4 x !cir.double>, !cir.vector<4 x !cir.double>, !cir.vector<4 x !cir.double>) -> !cir.vector<4 x !cir.double>
+  // LLVM: call <4 x double> @llvm.fma.v4f64(<4 x double> %{{.*}}, <4 x double> %{{.*}}, <4 x double> %{{.*}})
+  vd4 = __builtin_elementwise_fma(vd4, vd4, vd4);
 }
 
 void test_builtin_elementwise_round(float f, double d, vfloat4 vf4,
