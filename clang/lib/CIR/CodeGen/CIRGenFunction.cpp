@@ -589,8 +589,13 @@ void CIRGenFunction::startFunction(GlobalDecl gd, QualType returnType,
         }
       }
       for (auto *fd : md->getParent()->fields()) {
-        if (fd->hasCapturedVLAType())
-          cgm.errorNYI(loc, "lambda captured VLA type");
+        if (fd->hasCapturedVLAType()) {
+          mlir::Value exprArg =
+              emitLoadOfLValue(emitLValueForLambdaField(fd), SourceLocation())
+                  .getValue();
+          const auto *vla = fd->getCapturedVLAType();
+          vlaSizeMap[vla->getSizeExpr()] = exprArg;
+        }
       }
     } else {
       // Not in a lambda; just use 'this' from the method.
@@ -1660,6 +1665,11 @@ CIRGenFunction::getVLAElements1D(const VariableArrayType *vla) {
   assert(vlaSize && "no size for VLA!");
   assert(vlaSize.getType() == sizeTy);
   return {vlaSize, vla->getElementType()};
+}
+
+void CIRGenFunction::emitLambdaVLACapture(const VariableArrayType *vla,
+                                          LValue lv) {
+  emitStoreThroughLValue(RValue::get(vlaSizeMap[vla->getSizeExpr()]), lv);
 }
 
 // TODO(cir): Most of this function can be shared between CIRGen

@@ -652,6 +652,7 @@ public:
   /// the type has already been emitted with emitVariablyModifiedType.
   VlaSizePair getVLASize(const VariableArrayType *type);
   VlaSizePair getVLASize(QualType type);
+  void emitLambdaVLACapture(const VariableArrayType *vla, LValue lv);
 
   Address getAsNaturalAddressOf(Address addr, QualType pointeeTy);
 

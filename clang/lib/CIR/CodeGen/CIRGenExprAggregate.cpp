@@ -1096,16 +1096,20 @@ void AggExprEmitter::VisitLambdaExpr(LambdaExpr *e) {
       cgf.cgm.lambdaFieldToName[curField] = fieldName;
     } else if (capture.capturesThis()) {
       cgf.cgm.lambdaFieldToName[curField] = "this";
+    } else if (capture.capturesVLAType()) {
+      fieldName = "__vla_bound";
+      cgf.cgm.lambdaFieldToName[curField] = fieldName;
     } else {
-      cgf.cgm.errorNYI(e->getSourceRange(), "Unhandled capture kind");
-      cgf.cgm.lambdaFieldToName[curField] = "unhandled-capture-kind";
+      llvm_unreachable("unexpected lambda capture kind");
     }
 
     // Emit initialization
     LValue lv =
         cgf.emitLValueForFieldInitialization(slotLV, curField, fieldName);
-    if (curField->hasCapturedVLAType())
-      cgf.cgm.errorNYI(e->getSourceRange(), "lambda captured VLA type");
+    if (curField->hasCapturedVLAType()) {
+      cgf.emitLambdaVLACapture(curField->getCapturedVLAType(), lv);
+      continue;
+    }
 
     emitInitializationToLValue(captureInit, lv);
 
