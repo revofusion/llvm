@@ -27,26 +27,38 @@ void LoopOpInterface::getLoopOpSuccessorRegions(
 
   mlir::Region *parentRegion =
       point.getTerminatorPredecessorOrNull()->getParentRegion();
+  mlir::Region *step = op.maybeGetStep();
+  mlir::Region *cleanup = op.maybeGetCleanup();
 
-  // Branching from condition: go to body or exit.
+  // The false condition edge, the normal end of the body, and the normal end
+  // of a step all route through a per-evaluation cleanup when one is present.
   if (&op.getCond() == parentRegion) {
-    regions.emplace_back(op);
+    if (cleanup)
+      regions.emplace_back(cleanup);
+    else
+      regions.emplace_back(op);
     regions.emplace_back(&op.getBody());
     return;
   }
 
-  // Branching from body: go to step (for) or condition.
   if (&op.getBody() == parentRegion) {
-    // FIXME(cir): Should we consider break/continue statements here?
-    mlir::Region *afterBody =
-        (op.maybeGetStep() ? op.maybeGetStep() : &op.getCond());
-    regions.emplace_back(afterBody);
+    if (step)
+      regions.emplace_back(step);
+    else if (cleanup)
+      regions.emplace_back(cleanup);
+    else
+      regions.emplace_back(&op.getCond());
     return;
   }
 
-  // Branching from step: go to condition.
-  if (op.maybeGetStep() == parentRegion) {
+  if (step == parentRegion) {
+    regions.emplace_back(cleanup ? cleanup : &op.getCond());
+    return;
+  }
+
+  if (cleanup == parentRegion) {
     regions.emplace_back(&op.getCond());
+    regions.emplace_back(op);
     return;
   }
 
@@ -58,16 +70,8 @@ LoopOpInterface::getLoopOpSuccessorInputs(LoopOpInterface op,
                                           mlir::RegionSuccessor successor) {
   if (successor.isOperation())
     return op->getResults();
-  if (successor == &op.getEntry())
-    return op.getEntry().getArguments();
-  if (successor == &op.getBody())
-    return op.getBody().getArguments();
-  mlir::Region *afterBody =
-      (op.maybeGetStep() ? op.maybeGetStep() : &op.getCond());
-  if (successor == afterBody)
-    return afterBody->getArguments();
-  if (successor == &op.getCond())
-    return op.getCond().getArguments();
+  if (mlir::Region *region = successor.getSuccessor())
+    return region->getArguments();
   llvm_unreachable("invalid region successor");
 }
 

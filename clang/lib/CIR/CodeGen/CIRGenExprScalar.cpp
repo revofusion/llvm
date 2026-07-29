@@ -853,9 +853,10 @@ public:
 
   // C++
   mlir::Value VisitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "ScalarExprEmitter: materialize temporary");
-    return {};
+    LValue lv = cgf.emitLValue(e);
+    if (!lv.getPointer())
+      return cgf.getUndefRValue(e->getType()).getValue();
+    return emitLoadOfLValue(lv, e->getExprLoc());
   }
   mlir::Value VisitSourceLocExpr(SourceLocExpr *e) {
     ASTContext &ctx = cgf.getContext();
@@ -1071,7 +1072,22 @@ public:
     ignoreResultAssign = false;
     BinOpInfo result;
     result.lhs = cgf.emitPromotedScalarExpr(e->getLHS(), promotionType);
-    result.rhs = cgf.emitPromotedScalarExpr(e->getRHS(), promotionType);
+    // Sema splats a scalar vector shift count without first converting it to
+    // the LHS element type. Build the splat here so its lane count and element
+    // width match the LHS, as required by CIR and LLVM.
+    if (e->isShiftOp() && e->getLHS()->getType()->isVectorType()) {
+      if (const auto *rhsSplat = dyn_cast<ImplicitCastExpr>(e->getRHS());
+          rhsSplat && rhsSplat->getCastKind() == CK_VectorSplat) {
+        auto lhsTy = cast<cir::VectorType>(result.lhs.getType());
+        mlir::Value rhs =
+            cgf.emitPromotedScalarExpr(rhsSplat->getSubExpr(), QualType());
+        rhs = builder.createIntCast(rhs, lhsTy.getElementType());
+        result.rhs = cir::VecSplatOp::create(
+            builder, cgf.getLoc(e->getRHS()->getSourceRange()), lhsTy, rhs);
+      }
+    }
+    if (!result.rhs)
+      result.rhs = cgf.emitPromotedScalarExpr(e->getRHS(), promotionType);
     if (!promotionType.isNull())
       result.fullType = promotionType;
     else

@@ -815,8 +815,9 @@ def CIR_StoreOp : CIR_Op<"store", [
   let description = [{
     `cir.store` stores a value (first operand) to the memory address specified
     in the second operand. A unit attribute `volatile` can be used to indicate
-    a volatile store. Store's can be marked atomic by using
-    `atomic(<mem_order>)`.
+    a volatile store. A unit attribute `nontemporal` can be used to indicate
+    that the store is unlikely to be reused soon. Stores can be marked atomic
+    by using `atomic(<mem_order>)`.
 
     `alignment` can be used to specify an alignment that's different from the
     default, which is computed from `result`'s type ABI data layout.
@@ -830,6 +831,9 @@ def CIR_StoreOp : CIR_Op<"store", [
     // Perform a volatile store into memory location at the address in %0.
     cir.store volatile %arg0, %0 : i32, !cir.ptr<i32>
 
+    // Perform a nontemporal store into memory location at the address in %0.
+    cir.store nontemporal %arg0, %0 : i32, !cir.ptr<i32>
+
     // Others
     cir.store align(16) atomic(seq_cst) %x, %addr : i32, !cir.ptr<i32>
     ```
@@ -839,12 +843,14 @@ def CIR_StoreOp : CIR_Op<"store", [
                        Arg<CIR_PointerType, "the address to store the value",
                            [MemWrite]>:$addr,
                        UnitAttr:$is_volatile,
+                       UnitAttr:$is_nontemporal,
                        OptionalAttr<I64Attr>:$alignment,
                        OptionalAttr<CIR_SyncScopeKind>:$sync_scope,
                        OptionalAttr<CIR_MemOrder>:$mem_order);
 
   let assemblyFormat = [{
     (`volatile` $is_volatile^)?
+    (`nontemporal` $is_nontemporal^)?
     (`align` `(` $alignment^ `)`)?
     (`syncscope` `(` $sync_scope^ `)`)?
     (`atomic` `(` $mem_order^ `)`)?
@@ -852,9 +858,10 @@ def CIR_StoreOp : CIR_Op<"store", [
   }];
 
   let builders = [
-    // Non-volatile, non-atomic store with default alignment.
+    // Non-volatile, temporal, non-atomic store with default alignment.
     OpBuilder<(ins "mlir::Value":$value, "mlir::Value":$addr), [{
       build($_builder, $_state, value, addr, /*is_volatile=*/mlir::UnitAttr(),
+            /*is_nontemporal=*/mlir::UnitAttr(),
             /*alignment=*/mlir::IntegerAttr(),
             /*sync_scope=*/cir::SyncScopeKindAttr(),
             /*mem_order=*/cir::MemOrderAttr());
@@ -2202,29 +2209,74 @@ class CIR_WhileOpBase<string mnemonic> : CIR_LoopOpBase<mnemonic> {
 }
 
 def CIR_WhileOp : CIR_WhileOpBase<"while"> {
-  let regions = (region MinSizedRegion<1>:$cond, MinSizedRegion<1>:$body);
-  let assemblyFormat = "$cond `do` $body attr-dict";
+  let arguments = (ins OptionalAttr<CIR_CleanupKindAttr>:$cleanupKind);
+  let regions = (region MinSizedRegion<1>:$cond, MinSizedRegion<1>:$body,
+                        MaxSizedRegion<1>:$cleanup);
+  let assemblyFormat = [{
+    $cond `do` $body (`cleanup` $cleanupKind $cleanup^)? attr-dict
+  }];
 
   let description = [{
-    Represents a C/C++ while loop. It consists of two regions:
+    Represents a C/C++ while loop. It consists of two or three regions:
 
      - `cond`: single block region with the loop's condition. Should be
-     terminated with a `cir.condition` operation.
+       terminated with a `cir.condition` operation.
      - `body`: contains the loop body and an arbitrary number of blocks.
+     - `cleanup`: optional region that runs on every per-evaluation exit edge
+       (condition-false exit, end-of-iteration, break/continue, and EH unwinding
+       when the cleanup kind includes EH). This destroys a condition variable
+       whose lifetime is one condition evaluation plus its selected body.
 
     Example:
 
     ```
     cir.while {
-      cir.break
-    ^bb2:
-      cir.yield
-    } do {
       cir.condition %cond : cir.bool
+    } do {
+      cir.yield
+    } cleanup normal {
+      cir.yield
     }
     ```
   }];
 
+  let builders = [
+    OpBuilder<(ins "BuilderCallbackRef":$condBuilder,
+                   "BuilderCallbackRef":$bodyBuilder,
+                   CArg<"BuilderCallbackRef", "nullptr">:$cleanupBuilder,
+                   CArg<"cir::CleanupKind", "cir::CleanupKind::All">:$cleanupKind), [{
+        mlir::OpBuilder::InsertionGuard guard($_builder);
+        $_builder.createBlock($_state.addRegion());
+        condBuilder($_builder, $_state.location);
+        $_builder.createBlock($_state.addRegion());
+        bodyBuilder($_builder, $_state.location);
+        mlir::Region *cleanupRegion = $_state.addRegion();
+        if (cleanupBuilder) {
+          $_state.addAttribute(
+              getCleanupKindAttrName($_state.name),
+              cir::CleanupKindAttr::get($_builder.getContext(), cleanupKind));
+          $_builder.createBlock(cleanupRegion);
+          cleanupBuilder($_builder, $_state.location);
+        }
+      }]>
+  ];
+
+  let extraClassDeclaration = [{
+    mlir::Region *maybeGetCleanup() {
+      return getCleanup().empty() ? nullptr : &getCleanup();
+    }
+    std::optional<cir::CleanupKind> maybeGetCleanupKind() {
+      return getCleanupKind();
+    }
+    llvm::SmallVector<mlir::Region *> getRegionsInExecutionOrder() {
+      llvm::SmallVector<mlir::Region *> regions{&getCond(), &getBody()};
+      if (mlir::Region *cleanup = maybeGetCleanup())
+        regions.push_back(cleanup);
+      return regions;
+    }
+  }];
+
+  let hasVerifier = 1;
   let hasLLVMLowering = false;
 }
 

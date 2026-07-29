@@ -32,6 +32,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MathExtras.h"
 #include <algorithm>
 #include <functional>
 #include <tuple>
@@ -89,6 +90,43 @@ static RValue emitBuiltinBitOp(CIRGenFunction &cgf, const CallExpr *e,
                                Args... args) {
   mlir::Value arg = cgf.emitScalarExpr(e->getArg(0));
   return RValue::get(createBuiltinBitOp<Op>(cgf, e, arg, args...));
+}
+
+/// Emit popcount using a CIR operand width accepted by BitPopcountOp.
+///
+/// Zero-extension preserves the population count of unsigned _BitInt values.
+/// LLVM's ctpop intrinsic accepts arbitrary integer widths, so use the generic
+/// intrinsic representation for _BitInt widths beyond the dedicated CIR op's
+/// largest supported width.
+static RValue emitBuiltinPopcount(CIRGenFunction &cgf, const CallExpr *e) {
+  mlir::Value arg = cgf.emitScalarExpr(e->getArg(0));
+  auto argTy = mlir::dyn_cast<cir::IntType>(arg.getType());
+  if (!argTy || !argTy.isBitInt())
+    return RValue::get(
+        createBuiltinBitOp<cir::BitPopcountOp>(cgf, e, arg));
+
+  assert(argTy.isUnsigned() && "popcount operand must be unsigned");
+
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
+  constexpr unsigned maxCIRPopcountWidth = 128;
+  unsigned argWidth = argTy.getWidth();
+
+  if (argWidth > maxCIRPopcountWidth) {
+    mlir::Value result = builder.emitIntrinsicCallOp(
+        loc, "ctpop", arg.getType(), mlir::ValueRange{arg});
+    mlir::Type resultTy = cgf.convertType(e->getType());
+    if (result.getType() != resultTy)
+      result = builder.createIntCast(result, resultTy);
+    return RValue::get(result);
+  }
+
+  unsigned legalWidth = llvm::PowerOf2Ceil(argWidth);
+  legalWidth = std::max(8U, legalWidth);
+  if (legalWidth != argWidth)
+    arg = builder.createIntCast(arg, builder.getUIntNTy(legalWidth));
+
+  return RValue::get(createBuiltinBitOp<cir::BitPopcountOp>(cgf, e, arg));
 }
 
 /// Emit a clz/ctz bit op with optional fallback for __builtin_c[lt]zg.
@@ -1729,7 +1767,7 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_popcountl:
   case Builtin::BI__builtin_popcountll:
   case Builtin::BI__builtin_popcountg:
-    return emitBuiltinBitOp<cir::BitPopcountOp>(*this, e);
+    return emitBuiltinPopcount(*this, e);
 
   // Always return the argument of __builtin_unpredictable.  LLVM does not
   // have an intrinsic corresponding to this builtin.  Metadata for this
@@ -2237,6 +2275,13 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     return RValue::get(builder.emitIntrinsicCallOp(
         loc, "vector.reduce.or", resultType, mlir::ValueRange{value}));
   }
+  case Builtin::BI__builtin_reduce_and: {
+    mlir::Location loc = getLoc(e->getExprLoc());
+    mlir::Value value = emitScalarExpr(e->getArg(0));
+    mlir::Type resultType = convertType(e->getType());
+    return RValue::get(builder.emitIntrinsicCallOp(
+        loc, "vector.reduce.and", resultType, mlir::ValueRange{value}));
+  }
   case Builtin::BI__builtin_elementwise_maxnum:
   case Builtin::BI__builtin_elementwise_minnum:
   case Builtin::BI__builtin_elementwise_maximum:
@@ -2248,7 +2293,6 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_reduce_add:
   case Builtin::BI__builtin_reduce_mul:
   case Builtin::BI__builtin_reduce_xor:
-  case Builtin::BI__builtin_reduce_and:
   case Builtin::BI__builtin_reduce_assoc_fadd:
   case Builtin::BI__builtin_reduce_in_order_fadd:
   case Builtin::BI__builtin_reduce_maximum:
@@ -2674,7 +2718,16 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     return RValue::get(nullptr);
   }
   case Builtin::BI__builtin_nontemporal_load:
-  case Builtin::BI__builtin_nontemporal_store:
+    return errorBuiltinNYI(*this, e, builtinID);
+  case Builtin::BI__builtin_nontemporal_store: {
+    mlir::Value value = emitScalarExpr(e->getArg(0));
+    LValueBaseInfo baseInfo;
+    Address address = emitPointerWithAlignment(e->getArg(1), &baseInfo);
+    emitStoreOfScalar(value, address, /*isVolatile=*/false,
+                      e->getArg(0)->getType(), baseInfo, /*isInit=*/false,
+                      /*isNontemporal=*/true);
+    return RValue::get(nullptr);
+  }
   case Builtin::BI__c11_atomic_is_lock_free:
   case Builtin::BI__atomic_is_lock_free:
   case Builtin::BI__atomic_test_and_set:
@@ -2708,6 +2761,8 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     return RValue::getIgnored();
   case Builtin::BI__annotation:
   case Builtin::BI__builtin_annotation:
+    return errorBuiltinNYI(*this, e, builtinID);
+
   case Builtin::BI__builtin_addcb:
   case Builtin::BI__builtin_addcs:
   case Builtin::BI__builtin_addc:
@@ -2717,8 +2772,51 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__builtin_subcs:
   case Builtin::BI__builtin_subc:
   case Builtin::BI__builtin_subcl:
-  case Builtin::BI__builtin_subcll:
-    return errorBuiltinNYI(*this, e, builtinID);
+  case Builtin::BI__builtin_subcll: {
+    // Compute the operation in two steps so the carry-in is treated as a
+    // full-width unsigned value, as required by the builtin contract.
+    mlir::Value x = emitScalarExpr(e->getArg(0));
+    mlir::Value y = emitScalarExpr(e->getArg(1));
+    mlir::Value carryIn = emitScalarExpr(e->getArg(2));
+    Address carryOutPtr = emitPointerWithAlignment(e->getArg(3));
+
+    mlir::Location loc = getLoc(e->getSourceRange());
+    auto resultTy = mlir::cast<cir::IntType>(convertType(e->getType()));
+    mlir::Value result1, overflow1, result2, overflow2;
+
+    switch (builtinID) {
+    default:
+      llvm_unreachable("Unknown multiprecision builtin id.");
+    case Builtin::BI__builtin_addcb:
+    case Builtin::BI__builtin_addcs:
+    case Builtin::BI__builtin_addc:
+    case Builtin::BI__builtin_addcl:
+    case Builtin::BI__builtin_addcll:
+      std::tie(result1, overflow1) =
+          emitOverflowOp<cir::AddOverflowOp>(builder, loc, resultTy, x, y);
+      std::tie(result2, overflow2) = emitOverflowOp<cir::AddOverflowOp>(
+          builder, loc, resultTy, result1, carryIn);
+      break;
+    case Builtin::BI__builtin_subcb:
+    case Builtin::BI__builtin_subcs:
+    case Builtin::BI__builtin_subc:
+    case Builtin::BI__builtin_subcl:
+    case Builtin::BI__builtin_subcll:
+      std::tie(result1, overflow1) =
+          emitOverflowOp<cir::SubOverflowOp>(builder, loc, resultTy, x, y);
+      std::tie(result2, overflow2) = emitOverflowOp<cir::SubOverflowOp>(
+          builder, loc, resultTy, result1, carryIn);
+      break;
+    }
+
+    mlir::Value carryOut =
+        builder.createBoolToInt(builder.createOr(loc, overflow1, overflow2),
+                                resultTy);
+    bool isVolatile =
+        e->getArg(3)->getType()->getPointeeType().isVolatileQualified();
+    builder.createStore(loc, carryOut, carryOutPtr, isVolatile);
+    return RValue::get(result2);
+  }
 
   case Builtin::BI__builtin_add_overflow:
   case Builtin::BI__builtin_sub_overflow:

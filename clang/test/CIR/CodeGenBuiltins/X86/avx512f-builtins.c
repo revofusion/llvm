@@ -1163,3 +1163,19 @@ __m512i test_mm512_shuffle_i64x2(__m512i a, __m512i b) {
   return _mm512_shuffle_i64x2(a, b, 0x4E);
 }
 
+
+__m512 test_mm512_mask_loadu_ps(__m512 passthru, __mmask16 mask,
+                                void const *ptr) {
+  // CIR-LABEL: test_mm512_mask_loadu_ps
+  // CIR: %[[VECTOR_PTR:.*]] = cir.cast bitcast %{{.*}} : !cir.ptr<!cir.float> -> !cir.ptr<!cir.vector<16 x !cir.float>>
+  // CIR: %[[MASK_VEC:.*]] = cir.cast bitcast %{{.*}} : !u16i -> !cir.vector<16 x !cir.int<s, 1>>
+  // CIR: %[[LOAD:.*]] = cir.vec.masked_load align(1) %[[VECTOR_PTR]], %[[MASK_VEC]], %{{.*}} : !cir.ptr<!cir.vector<16 x !cir.float>>, <16 x !cir.int<s, 1>>, <16 x !cir.float> -> !cir.vector<16 x !cir.float>
+
+  // LLVM-LABEL: test_mm512_mask_loadu_ps
+  // LLVM: call <16 x float> @llvm.masked.load.v16f32.p0(ptr align 1 %{{.*}}, <16 x i1> %{{.*}}, <16 x float> %{{.*}})
+
+  // OGCG-LABEL: test_mm512_mask_loadu_ps
+  // OGCG: call <16 x float> @llvm.masked.load.v16f32.p0(ptr align 1 %{{.*}}, <16 x i1> %{{.*}}, <16 x float> %{{.*}})
+  return (__m512)__builtin_ia32_loadups512_mask(
+      (const float *)ptr, (__v16sf)passthru, (__mmask16)mask);
+}

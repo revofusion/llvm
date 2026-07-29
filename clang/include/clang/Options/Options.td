@@ -3401,6 +3401,10 @@ def fclangir_emit_selected_decls_EQ : Joined<["-"], "fclangir-emit-selected-decl
   Group<f_Group>, Visibility<[ClangOption, CC1Option]>,
   HelpText<"Emit only the newline-delimited CIR symbol roots listed in the specified file">,
   MarshallingInfoString<CodeGenOpts<"ClangIRSelectedDeclsFile">>;
+def fclangir_aeneas_metadata : Flag<["-"], "fclangir-aeneas-metadata">,
+  Group<f_Group>, Visibility<[ClangOption, CC1Option]>,
+  HelpText<"Emit source-exact CIR metadata for the Aeneas C/C++ frontend">,
+  MarshallingInfoFlag<CodeGenOpts<"EmitAeneasCIRMetadata">>;
 /// ClangIR-specific options - END
 
 def flto_EQ : Joined<["-"], "flto=">,

@@ -22,6 +22,7 @@
 #include "clang/AST/StmtOpenACC.h"
 #include "clang/AST/StmtOpenMP.h"
 #include "clang/CIR/MissingFeatures.h"
+#include "llvm/Support/SaveAndRestore.h"
 
 using namespace clang;
 using namespace clang::CIRGen;
@@ -88,14 +89,23 @@ mlir::LogicalResult CIRGenFunction::emitCompoundStmtWithoutScope(
 
 mlir::LogicalResult
 CIRGenFunction::emitAttributedStmt(const AttributedStmt &s) {
+  bool alwaysInline = false;
+  const CallExpr *mustTail = nullptr;
+
   for (const Attr *attr : s.getAttrs()) {
     switch (attr->getKind()) {
     default:
       break;
-    case attr::NoInline:
     case attr::AlwaysInline:
+      alwaysInline = true;
+      break;
+    case attr::MustTail: {
+      const ReturnStmt *returnStmt = cast<ReturnStmt>(s.getSubStmt());
+      mustTail =
+          cast<CallExpr>(returnStmt->getRetValue()->IgnoreParens());
+    } break;
+    case attr::NoInline:
     case attr::NoConvergent:
-    case attr::MustTail:
     case attr::Atomic:
     case attr::HLSLControlFlowHint:
       cgm.errorNYI(s.getSourceRange(),
@@ -114,6 +124,9 @@ CIRGenFunction::emitAttributedStmt(const AttributedStmt &s) {
     }
   }
 
+  llvm::SaveAndRestore saveAlwaysInline(inAlwaysInlineAttributedStmt,
+                                        alwaysInline);
+  llvm::SaveAndRestore saveMustTail(mustTailCall, mustTail);
   return emitStmt(s.getSubStmt(), /*useCurrentScope=*/true, s.getAttrs());
 }
 
@@ -651,6 +664,10 @@ mlir::LogicalResult CIRGenFunction::emitReturnStmt(const ReturnStmt &s) {
   mlir::Location loc = getLoc(s.getSourceRange());
   const Expr *rv = s.getRetValue();
 
+  const bool isMustTailReturn = mustTailCall != nullptr;
+  llvm::SaveAndRestore<mlir::Operation *> saveEmittedMustTailCall(
+      emittedMustTailCall, nullptr);
+
   RunCleanupsScope cleanupScope(*this);
   bool createNewScope = false;
   if (const auto *ewc = dyn_cast_or_null<ExprWithCleanups>(rv)) {
@@ -684,21 +701,24 @@ mlir::LogicalResult CIRGenFunction::emitReturnStmt(const ReturnStmt &s) {
       // If this function returns a reference, take the address of the
       // expression rather than the value.
       RValue result = emitReferenceBindingToExpr(rv);
-      builder.CIRBaseBuilderTy::createStore(loc, result.getValue(),
-                                            *fnRetAlloca);
+      if (!isMustTailReturn)
+        builder.CIRBaseBuilderTy::createStore(loc, result.getValue(),
+                                              *fnRetAlloca);
     } else {
       mlir::Value value = nullptr;
       switch (CIRGenFunction::getEvaluationKind(rv->getType())) {
       case cir::TEK_Scalar:
         value = emitScalarExpr(rv);
-        if (value) { // Change this to an assert once emitScalarExpr is complete
+        if (value && !isMustTailReturn)
           builder.CIRBaseBuilderTy::createStore(loc, value, *fnRetAlloca);
-        }
         break;
       case cir::TEK_Complex:
-        emitComplexExprIntoLValue(rv,
-                                  makeAddrLValue(returnValue, rv->getType()),
-                                  /*isInit=*/true);
+        if (isMustTailReturn)
+          emitComplexExpr(rv);
+        else
+          emitComplexExprIntoLValue(rv,
+                                    makeAddrLValue(returnValue, rv->getType()),
+                                    /*isInit=*/true);
         break;
       case cir::TEK_Aggregate:
         assert(!cir::MissingFeatures::aggValueSlotGC());
@@ -719,6 +739,53 @@ mlir::LogicalResult CIRGenFunction::emitReturnStmt(const ReturnStmt &s) {
   }
 
   cleanupScope.forceCleanup();
+
+  if (isMustTailReturn) {
+    mlir::Operation *callOp = emittedMustTailCall;
+    mlir::Block *returnBlock = builder.getInsertionBlock();
+    bool callImmediatelyPrecedesReturn = false;
+    if (callOp && returnBlock == callOp->getBlock()) {
+      auto insertionPoint = builder.getInsertionPoint();
+      if (insertionPoint != returnBlock->begin()) {
+        --insertionPoint;
+        callImmediatelyPrecedesReturn = &*insertionPoint == callOp;
+      }
+    }
+
+    // A musttail call cannot unwind through, or be followed by, a cleanup.
+    // Reject such shapes until CIR can move every legal cleanup before the
+    // call, rather than silently producing invalid LLVM IR.
+    if (!mlir::isa_and_nonnull<cir::CallOp>(callOp) ||
+        callOp->getParentOfType<cir::CleanupScopeOp>() ||
+        !callImmediatelyPrecedesReturn) {
+      cgm.errorNYI(s.getSourceRange(),
+                   "musttail return requiring cleanup or post-call operations");
+      return mlir::failure();
+    }
+
+    cir::FuncOp fn = mlir::cast<cir::FuncOp>(curFn);
+    mlir::ResultRange callResults = callOp->getResults();
+    if (fn.getFunctionType().hasVoidReturn()) {
+      if (!callResults.empty()) {
+        cgm.errorNYI(s.getSourceRange(),
+                     "musttail call result does not match function return");
+        return mlir::failure();
+      }
+      cir::ReturnOp::create(builder, loc);
+    } else {
+      if (callResults.size() != 1 ||
+          callResults.front().getType() !=
+              fn.getFunctionType().getReturnType()) {
+        cgm.errorNYI(s.getSourceRange(),
+                     "musttail call result does not match function return");
+        return mlir::failure();
+      }
+      cir::ReturnOp::create(builder, loc, callResults);
+    }
+
+    builder.createBlock(builder.getBlock()->getParent());
+    return mlir::success();
+  }
 
   // Classic codegen emits a branch through any cleanups before continuing to
   // a shared return block. Because CIR handles branching through cleanups
@@ -915,18 +982,23 @@ mlir::LogicalResult CIRGenFunction::emitCaseStmt(const CaseStmt &s,
                                                  bool buildingTopLevelCase) {
   cir::CaseOpKind kind;
   mlir::ArrayAttr value;
-  llvm::APSInt intVal = s.getLHS()->EvaluateKnownConstInt(getContext());
+  auto condIntType = mlir::cast<cir::IntType>(condType);
+  auto getCaseValue = [&](const Expr *expr) {
+    llvm::APSInt intVal = expr->EvaluateKnownConstInt(getContext());
+    intVal = intVal.extOrTrunc(condIntType.getWidth());
+    intVal.setIsSigned(condIntType.isSigned());
+    return cir::IntAttr::get(condIntType, intVal);
+  };
 
   // If the case statement has an RHS value, it is representing a GNU
   // case range statement, where LHS is the beginning of the range
   // and RHS is the end of the range.
   if (const Expr *rhs = s.getRHS()) {
-    llvm::APSInt endVal = rhs->EvaluateKnownConstInt(getContext());
-    value = builder.getArrayAttr({cir::IntAttr::get(condType, intVal),
-                                  cir::IntAttr::get(condType, endVal)});
+    value = builder.getArrayAttr(
+        {getCaseValue(s.getLHS()), getCaseValue(rhs)});
     kind = cir::CaseOpKind::Range;
   } else {
-    value = builder.getArrayAttr({cir::IntAttr::get(condType, intVal)});
+    value = builder.getArrayAttr({getCaseValue(s.getLHS())});
     kind = cir::CaseOpKind::Equal;
   }
 
@@ -1153,31 +1225,50 @@ mlir::LogicalResult CIRGenFunction::emitWhileStmt(const WhileStmt &s) {
     mlir::LogicalResult loopRes = mlir::success();
     assert(!cir::MissingFeatures::loopInfoStack());
 
-    whileOp = builder.createWhile(
-        getLoc(s.getSourceRange()),
-        /*condBuilder=*/
-        [&](mlir::OpBuilder &b, mlir::Location loc) {
-          assert(!cir::MissingFeatures::createProfileWeightsForLoop());
-          assert(!cir::MissingFeatures::emitCondLikelihoodViaExpectIntrinsic());
-          mlir::Value condVal;
-          // If the for statement has a condition scope,
-          // emit the local variable declaration.
-          if (s.getConditionVariable())
-            emitDecl(*s.getConditionVariable());
-          // C99 6.8.5p2/p4: The first substatement is executed if the
-          // expression compares unequal to 0. The condition must be a
-          // scalar type.
-          condVal = evaluateExprAsBool(s.getCond());
-          builder.createCondition(condVal);
-        },
-        /*bodyBuilder=*/
-        [&](mlir::OpBuilder &b, mlir::Location loc) {
-          // The scope of the while loop body is a nested scope.
-          RunCleanupsScope bodyScope(*this);
-          if (emitStmt(s.getBody(), /*useCurrentScope=*/false).failed())
-            loopRes = mlir::failure();
-          emitStopPoint(&s);
-        });
+    const VarDecl *condVar = s.getConditionVariable();
+    const bool needsCondCleanup =
+        condVar &&
+        (condVar->needsDestruction(getContext()) != QualType::DK_none ||
+         condVar->hasAttr<CleanupAttr>());
+    assert(!cir::MissingFeatures::emitLifetimeMarkers());
+    DeferredLoopConditionCleanup loopCondScope(*this, needsCondCleanup);
+
+    auto condBuilder = [&](mlir::OpBuilder &b, mlir::Location loc) {
+      assert(!cir::MissingFeatures::createProfileWeightsForLoop());
+      assert(!cir::MissingFeatures::emitCondLikelihoodViaExpectIntrinsic());
+      if (condVar)
+        emitLoopConditionVariable(*condVar, loopCondScope);
+
+      mlir::Value condVal = evaluateExprAsBool(s.getCond());
+      // This terminator must remain directly in the loop's condition region.
+      builder.createCondition(condVal);
+    };
+
+    auto bodyBuilder = [&](mlir::OpBuilder &b, mlir::Location loc) {
+      // The scope of the while loop body is nested inside the condition
+      // variable's per-evaluation lifetime.
+      RunCleanupsScope bodyScope(*this);
+      if (emitStmt(s.getBody(), /*useCurrentScope=*/false).failed())
+        loopRes = mlir::failure();
+      emitStopPoint(&s);
+    };
+
+    if (needsCondCleanup) {
+      cir::CleanupKind cleanupKind = getLangOpts().Exceptions
+                                         ? cir::CleanupKind::All
+                                         : cir::CleanupKind::Normal;
+      whileOp = builder.createWhile(
+          getLoc(s.getSourceRange()), condBuilder, bodyBuilder,
+          /*cleanupBuilder=*/
+          [&](mlir::OpBuilder &b, mlir::Location loc) {
+            loopCondScope.emitIntoLoopCleanupRegion(loc);
+            builder.createYield(loc);
+          },
+          cleanupKind);
+    } else {
+      whileOp = builder.createWhile(getLoc(s.getSourceRange()), condBuilder,
+                                    bodyBuilder);
+    }
     return loopRes;
   };
 
@@ -1282,6 +1373,16 @@ mlir::LogicalResult CIRGenFunction::emitSwitchStmt(const clang::SwitchStmt &s) {
       emitDecl(*s.getConditionVariable(), /*evaluateConditionDecl=*/true);
 
     mlir::Value condV = emitScalarExpr(s.getCond());
+
+    // CIR represents C/C++ booleans separately from integers, but a switch
+    // ultimately requires an integer discriminator. This is normally handled
+    // by Sema's integral promotions. Scoped enumerations are not subject to
+    // those promotions, however, and an enum with bool as its underlying type
+    // is therefore emitted as !cir.bool. Normalize that representation to int
+    // while preserving the source-level switch semantics.
+    if (mlir::isa<cir::BoolType>(condV.getType()))
+      condV = builder.createCast(condV.getLoc(), cir::CastKind::bool_to_int,
+                                 condV, convertType(getContext().IntTy));
 
     // TODO: PGO and likelihood (e.g. PGO.haveRegionCounts())
     assert(!cir::MissingFeatures::pgoUse());

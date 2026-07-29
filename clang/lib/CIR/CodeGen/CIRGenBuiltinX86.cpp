@@ -377,6 +377,83 @@ static mlir::Value emitX86MaskedCompareResult(CIRGenBuilderTy &builder,
   return builder.createBitcast(cmp, builder.getUIntNTy(std::max(numElts, 8U)));
 }
 
+static llvm::StringRef
+getX86PackedFPCompareIntrinsicName(cir::VectorType vecTy, bool isMasked) {
+  unsigned numElts = vecTy.getSize();
+  mlir::Type elementTy = vecTy.getElementType();
+
+  if (!isMasked) {
+    if (mlir::isa<cir::SingleType>(elementTy) && numElts == 8)
+      return "x86.avx.cmp.ps.256";
+    if (mlir::isa<cir::DoubleType>(elementTy) && numElts == 4)
+      return "x86.avx.cmp.pd.256";
+    llvm_unreachable("unexpected unmasked packed FP comparison type");
+  }
+
+  if (mlir::isa<cir::FP16Type>(elementTy)) {
+    switch (numElts) {
+    case 8:
+      return "x86.avx512fp16.mask.cmp.ph.128";
+    case 16:
+      return "x86.avx512fp16.mask.cmp.ph.256";
+    case 32:
+      return "x86.avx512fp16.mask.cmp.ph.512";
+    default:
+      llvm_unreachable("unexpected masked FP16 comparison width");
+    }
+  }
+
+  if (mlir::isa<cir::SingleType>(elementTy)) {
+    switch (numElts) {
+    case 4:
+      return "x86.avx512.mask.cmp.ps.128";
+    case 8:
+      return "x86.avx512.mask.cmp.ps.256";
+    case 16:
+      return "x86.avx512.mask.cmp.ps.512";
+    default:
+      llvm_unreachable("unexpected masked float comparison width");
+    }
+  }
+
+  if (mlir::isa<cir::DoubleType>(elementTy)) {
+    switch (numElts) {
+    case 2:
+      return "x86.avx512.mask.cmp.pd.128";
+    case 4:
+      return "x86.avx512.mask.cmp.pd.256";
+    case 8:
+      return "x86.avx512.mask.cmp.pd.512";
+    default:
+      llvm_unreachable("unexpected masked double comparison width");
+    }
+  }
+
+  llvm_unreachable("unexpected packed FP comparison element type");
+}
+
+static mlir::Value
+emitX86PackedFPCompare(CIRGenBuilderTy &builder, mlir::Location loc,
+                       llvm::SmallVectorImpl<mlir::Value> &ops,
+                       bool isMasked) {
+  assert((isMasked ? (ops.size() == 4 || ops.size() == 5)
+                   : ops.size() == 3) &&
+         "unexpected packed FP comparison signature");
+
+  auto vecTy = cast<cir::VectorType>(ops[0].getType());
+  llvm::StringRef intrinsicName =
+      getX86PackedFPCompareIntrinsicName(vecTy, isMasked);
+  if (!isMasked)
+    return builder.emitIntrinsicCallOp(loc, intrinsicName, vecTy, ops);
+
+  unsigned numElts = vecTy.getSize();
+  ops[3] = getMaskVecValue(builder, loc, ops[3], numElts);
+  auto cmpTy = cir::VectorType::get(builder.getSIntNTy(1), numElts);
+  mlir::Value cmp =
+      builder.emitIntrinsicCallOp(loc, intrinsicName, cmpTy, ops);
+  return emitX86MaskedCompareResult(builder, cmp, numElts, nullptr, loc);
+}
+
 // TODO: The cgf parameter should be removed when all the NYI cases are
 // implemented.
 static std::optional<mlir::Value>
@@ -440,6 +517,30 @@ static std::optional<mlir::Value> emitX86ConvertToMask(CIRGenFunction &cgf,
                                                        mlir::Location loc) {
   cir::ConstantOp zero = builder.getNullValue(in.getType(), loc);
   return emitX86MaskedCompare(builder, 1, true, {in, zero}, loc);
+}
+
+static mlir::Value emitX86ConvertIntToFp(
+    CIRGenFunction &cgf, const CallExpr &expr, CIRGenBuilderTy &builder,
+    mlir::Location loc, llvm::ArrayRef<mlir::Value> ops, bool isSigned) {
+  assert(ops.size() == 4 && "unexpected integer-to-FP conversion signature");
+  auto rounding = ops[3].getDefiningOp<cir::ConstantOp>();
+  assert(rounding && "expected constant rounding operand");
+
+  mlir::Type resultTy = ops[1].getType();
+  mlir::Value result;
+  if (rounding.getIntValue().getZExtValue() != 4) {
+    llvm::StringRef intrinsicName =
+        isSigned ? "x86.avx512.sitofp.round" : "x86.avx512.uitofp.round";
+    result = builder.emitIntrinsicCallOp(
+        loc, intrinsicName, resultTy, mlir::ValueRange{ops[0], ops[3]});
+  } else {
+    CIRGenFunction::CIRGenFPOptionsRAII FPOptsRAII(cgf, &expr);
+    assert(!cir::MissingFeatures::emitConstrainedFPCall());
+    result =
+        builder.createCast(loc, cir::CastKind::int_to_float, ops[0], resultTy);
+  }
+
+  return emitX86Select(builder, loc, ops[2], result, ops[1]);
 }
 
 static std::optional<mlir::Value> emitX86SExtMask(CIRGenBuilderTy &builder,
@@ -574,6 +675,48 @@ static mlir::Value emitX86CvtF16ToFloatExpr(CIRGenBuilderTy &builder,
   if (ops.size() >= 3)
     res = emitX86Select(builder, loc, ops[2], res, ops[1]);
   return res;
+}
+
+static llvm::StringRef getX86TernlogIntrinsicName(cir::VectorType vecTy) {
+  auto elementTy = cast<cir::IntType>(vecTy.getElementType());
+  unsigned vectorWidth = vecTy.getSize() * elementTy.getWidth();
+  if (elementTy.getWidth() == 32) {
+    switch (vectorWidth) {
+    case 128:
+      return "x86.avx512.pternlog.d.128";
+    case 256:
+      return "x86.avx512.pternlog.d.256";
+    case 512:
+      return "x86.avx512.pternlog.d.512";
+    default:
+      llvm_unreachable("unexpected pternlogd vector width");
+    }
+  }
+  if (elementTy.getWidth() == 64) {
+    switch (vectorWidth) {
+    case 128:
+      return "x86.avx512.pternlog.q.128";
+    case 256:
+      return "x86.avx512.pternlog.q.256";
+    case 512:
+      return "x86.avx512.pternlog.q.512";
+    default:
+      llvm_unreachable("unexpected pternlogq vector width");
+    }
+  }
+  llvm_unreachable("unexpected pternlog element width");
+}
+
+static mlir::Value emitX86Ternlog(CIRGenBuilderTy &builder, mlir::Location loc,
+                                  llvm::ArrayRef<mlir::Value> ops,
+                                  bool zeroMask) {
+  assert(ops.size() == 5 && "unexpected masked pternlog signature");
+  auto vecTy = cast<cir::VectorType>(ops[0].getType());
+  mlir::Value ternlog = builder.emitIntrinsicCallOp(
+      loc, getX86TernlogIntrinsicName(vecTy), vecTy, ops.take_front(4));
+  mlir::Value passthrough =
+      zeroMask ? builder.getNullValue(vecTy, loc) : ops[0];
+  return emitX86Select(builder, loc, ops[4], ternlog, passthrough);
 }
 
 static mlir::Value emitX86vpcom(CIRGenBuilderTy &builder, mlir::Location loc,
@@ -804,7 +947,7 @@ static mlir::Value emitX86MaskedLoad(CIRGenBuilderTy &builder,
                                      llvm::Align alignment,
                                      mlir::Location loc) {
   mlir::Type ty = ops[1].getType();
-  mlir::Value ptr = ops[0];
+  mlir::Value ptr = builder.createPtrBitcast(ops[0], ty);
   mlir::Value maskVec = getMaskVecValue(builder, loc, ops[2],
                                         cast<cir::VectorType>(ty).getSize());
 
@@ -890,6 +1033,31 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
 
     // Return timestamp (element 0 of the returned struct)
     return cir::ExtractMemberOp::create(builder, loc, i64Ty, result, 0);
+  }
+  case X86::BI__builtin_ia32_roundps:
+  case X86::BI__builtin_ia32_roundpd:
+  case X86::BI__builtin_ia32_roundps256:
+  case X86::BI__builtin_ia32_roundpd256: {
+    assert(ops.size() == 2 && "invalid packed round builtin signature");
+    llvm::StringRef intrinsicName;
+    switch (builtinID) {
+    case X86::BI__builtin_ia32_roundps:
+      intrinsicName = "x86.sse41.round.ps";
+      break;
+    case X86::BI__builtin_ia32_roundpd:
+      intrinsicName = "x86.sse41.round.pd";
+      break;
+    case X86::BI__builtin_ia32_roundps256:
+      intrinsicName = "x86.avx.round.ps.256";
+      break;
+    case X86::BI__builtin_ia32_roundpd256:
+      intrinsicName = "x86.avx.round.pd.256";
+      break;
+    default:
+      llvm_unreachable("unexpected packed round builtin");
+    }
+    return builder.emitIntrinsicCallOp(getLoc(expr->getExprLoc()),
+                                       intrinsicName, ops[0].getType(), ops);
   }
   case X86::BI__builtin_ia32_lzcnt_u16:
   case X86::BI__builtin_ia32_lzcnt_u32:
@@ -1063,7 +1231,12 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
     return builder.emitIntrinsicCallOp(getLoc(expr->getExprLoc()), "x86.xgetbv",
                                        builder.getUInt64Ty(), ops[0]);
   case X86::BI__builtin_ia32_storedquhi512_mask:
-  case X86::BI__builtin_ia32_storedquqi128_mask: {
+  case X86::BI__builtin_ia32_storedquqi512_mask:
+  case X86::BI__builtin_ia32_storedquqi128_mask:
+  case X86::BI__builtin_ia32_storedquhi128_mask:
+  case X86::BI__builtin_ia32_storeups256_mask:
+  case X86::BI__builtin_ia32_storeups512_mask: {
+    assert(ops.size() == 3 && "invalid masked store builtin signature");
     mlir::Location loc = getLoc(expr->getExprLoc());
     auto valueTy = cast<cir::VectorType>(ops[1].getType());
     mlir::Value mask = getMaskVecValue(builder, loc, ops[2], valueTy.getSize());
@@ -1072,7 +1245,6 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
   }
   case X86::BI__builtin_ia32_storedqudi128_mask:
   case X86::BI__builtin_ia32_storedqusi128_mask:
-  case X86::BI__builtin_ia32_storedquhi128_mask:
   case X86::BI__builtin_ia32_storeupd128_mask:
   case X86::BI__builtin_ia32_storeups128_mask:
   case X86::BI__builtin_ia32_storedqudi256_mask:
@@ -1080,12 +1252,9 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
   case X86::BI__builtin_ia32_storedquhi256_mask:
   case X86::BI__builtin_ia32_storedquqi256_mask:
   case X86::BI__builtin_ia32_storeupd256_mask:
-  case X86::BI__builtin_ia32_storeups256_mask:
   case X86::BI__builtin_ia32_storedqudi512_mask:
   case X86::BI__builtin_ia32_storedqusi512_mask:
-  case X86::BI__builtin_ia32_storedquqi512_mask:
   case X86::BI__builtin_ia32_storeupd512_mask:
-  case X86::BI__builtin_ia32_storeups512_mask:
   case X86::BI__builtin_ia32_storesbf16128_mask:
   case X86::BI__builtin_ia32_storesh128_mask:
   case X86::BI__builtin_ia32_storess128_mask:
@@ -1143,10 +1312,13 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
 
     return emitX86Select(builder, loc, ops[3], result, ops[0]);
   }
+  case X86::BI__builtin_ia32_vcvtw2ph512_mask:
+    return emitX86ConvertIntToFp(*this, *expr, builder,
+                                 getLoc(expr->getExprLoc()), ops,
+                                 /*isSigned=*/true);
   case X86::BI__builtin_ia32_cvtdq2ps512_mask:
   case X86::BI__builtin_ia32_cvtqq2ps512_mask:
   case X86::BI__builtin_ia32_cvtqq2pd512_mask:
-  case X86::BI__builtin_ia32_vcvtw2ph512_mask:
   case X86::BI__builtin_ia32_vcvtdq2ph512_mask:
   case X86::BI__builtin_ia32_vcvtqq2ph512_mask:
   case X86::BI__builtin_ia32_cvtudq2ps512_mask:
@@ -1832,11 +2004,41 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
   case X86::BI__builtin_ia32_vperm2f128_pd256:
   case X86::BI__builtin_ia32_vperm2f128_ps256:
   case X86::BI__builtin_ia32_vperm2f128_si256:
-  case X86::BI__builtin_ia32_permti256:
-    cgm.errorNYI(expr->getSourceRange(),
-                 std::string("unimplemented X86 builtin call: ") +
-                     getContext().BuiltinInfo.getName(builtinID));
-    return mlir::Value{};
+  case X86::BI__builtin_ia32_permti256: {
+    assert(ops.size() == 3 && "invalid x86 permute2x128 signature");
+    assert(ops[0].getType() == ops[1].getType() &&
+           "x86 permute2x128 operands must have the same type");
+
+    mlir::Location loc = getLoc(expr->getExprLoc());
+    auto vecTy = cast<cir::VectorType>(ops[0].getType());
+    unsigned numElts = vecTy.getSize();
+    assert((numElts == 4 || numElts == 8) &&
+           "x86 permute2x128 requires a 256-bit vector");
+
+    unsigned imm = getZExtIntValueFromConstOp(ops[2]);
+    mlir::Value zero = builder.getNullValue(vecTy, loc);
+    mlir::Value outOps[2];
+    int64_t indices[8];
+
+    for (unsigned lane = 0; lane != 2; ++lane) {
+      if (imm & (1 << (lane * 4 + 3)))
+        outOps[lane] = zero;
+      else if (imm & (1 << (lane * 4 + 1)))
+        outOps[lane] = ops[1];
+      else
+        outOps[lane] = ops[0];
+
+      for (unsigned i = 0; i != numElts / 2; ++i) {
+        unsigned index = lane * numElts + i;
+        if (imm & (1 << (lane * 4)))
+          index += numElts / 2;
+        indices[lane * (numElts / 2) + i] = index;
+      }
+    }
+
+    return builder.createVecShuffle(loc, outOps[0], outOps[1],
+                                    ArrayRef(indices, numElts));
+  }
   case X86::BI__builtin_ia32_pslldqi128_byteshift:
   case X86::BI__builtin_ia32_pslldqi256_byteshift:
   case X86::BI__builtin_ia32_pslldqi512_byteshift: {
@@ -2178,12 +2380,14 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
     return emitX86Muldq(builder, getLoc(expr->getExprLoc()), /*isSigned*/ true,
                         ops, opTypePrimitiveSizeInBits);
   }
-  case X86::BI__builtin_ia32_pternlogd512_mask:
-  case X86::BI__builtin_ia32_pternlogq512_mask:
   case X86::BI__builtin_ia32_pternlogd128_mask:
   case X86::BI__builtin_ia32_pternlogd256_mask:
+  case X86::BI__builtin_ia32_pternlogd512_mask:
   case X86::BI__builtin_ia32_pternlogq128_mask:
   case X86::BI__builtin_ia32_pternlogq256_mask:
+  case X86::BI__builtin_ia32_pternlogq512_mask:
+    return emitX86Ternlog(builder, getLoc(expr->getExprLoc()), ops,
+                          /*zeroMask=*/false);
   case X86::BI__builtin_ia32_pternlogd512_maskz:
   case X86::BI__builtin_ia32_pternlogq512_maskz:
   case X86::BI__builtin_ia32_pternlogd128_maskz:
@@ -2431,13 +2635,17 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
   case X86::BI__builtin_ia32_cmppd128_mask:
   case X86::BI__builtin_ia32_cmppd256_mask:
   case X86::BI__builtin_ia32_cmppd512_mask:
+    return emitX86PackedFPCompare(builder, getLoc(expr->getExprLoc()), ops,
+                                  /*isMasked=*/true);
+  case X86::BI__builtin_ia32_cmpps256:
+  case X86::BI__builtin_ia32_cmppd256:
+    return emitX86PackedFPCompare(builder, getLoc(expr->getExprLoc()), ops,
+                                  /*isMasked=*/false);
   case X86::BI__builtin_ia32_vcmpbf16512_mask:
   case X86::BI__builtin_ia32_vcmpbf16256_mask:
   case X86::BI__builtin_ia32_vcmpbf16128_mask:
   case X86::BI__builtin_ia32_cmpps:
-  case X86::BI__builtin_ia32_cmpps256:
   case X86::BI__builtin_ia32_cmppd:
-  case X86::BI__builtin_ia32_cmppd256:
   case X86::BI__builtin_ia32_cmpeqss:
   case X86::BI__builtin_ia32_cmpltss:
   case X86::BI__builtin_ia32_cmpless:

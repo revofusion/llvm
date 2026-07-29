@@ -678,7 +678,8 @@ ItaniumEHLowering::lowerConstructCatchParam(cir::ConstructCatchParamOp op,
     mlir::Value casted =
         cir::CastOp::create(builder, loc, paramAddrType.getPointee(),
                             cir::CastKind::bitcast, exnObj);
-    cir::StoreOp::create(builder, loc, casted, paramAddr, {}, {}, {}, {});
+    cir::StoreOp::create(builder, loc, casted, paramAddr, {},
+                         /*is_nontemporal=*/false, {}, {}, {});
     op.erase();
     return success();
   }
@@ -853,7 +854,8 @@ void ItaniumEHLowering::lowerInitCatchParam(cir::InitCatchParamOp op) {
 
     mlir::Value casted = cir::CastOp::create(builder, loc, elementType,
                                              cir::CastKind::bitcast, exnPtr);
-    cir::StoreOp::create(builder, loc, casted, paramAddr, {}, {}, {}, {});
+    cir::StoreOp::create(builder, loc, casted, paramAddr, {},
+                         /*is_nontemporal=*/false, {}, {}, {});
     break;
   }
   case InitCatchKind::TrivialCopy: {
@@ -873,14 +875,15 @@ void ItaniumEHLowering::lowerInitCatchParam(cir::InitCatchParamOp op) {
     mlir::Value srcPtr = cir::CastOp::create(builder, loc, paramAddrType,
                                              cir::CastKind::bitcast, exnPtr);
     auto loadOp = cir::LoadOp::create(builder, loc, elementType, srcPtr);
-    cir::StoreOp::create(builder, loc, loadOp.getResult(), paramAddr, {}, {},
-                         {}, {});
+    cir::StoreOp::create(builder, loc, loadOp.getResult(), paramAddr, {},
+                         /*is_nontemporal=*/false, {}, {}, {});
     break;
   }
   case InitCatchKind::Pointer: {
     mlir::Value casted = cir::CastOp::create(builder, loc, elementType,
                                              cir::CastKind::bitcast, exnPtr);
-    cir::StoreOp::create(builder, loc, casted, paramAddr, {}, {}, {}, {});
+    cir::StoreOp::create(builder, loc, casted, paramAddr, {},
+                         /*is_nontemporal=*/false, {}, {}, {});
     break;
   }
   case InitCatchKind::Objc:

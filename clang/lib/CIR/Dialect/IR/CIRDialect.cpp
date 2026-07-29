@@ -501,10 +501,14 @@ void cir::ConditionOp::getSuccessorRegions(
   // TODO(cir): The condition value may be folded to a constant, narrowing
   // down its list of possible successors.
 
-  // Parent is a loop: condition may branch to the body or to the parent op.
+  // A false loop condition routes through its per-evaluation cleanup when
+  // present; otherwise it exits the loop directly.
   if (auto loopOp = dyn_cast<LoopOpInterface>(getOperation()->getParentOp())) {
     regions.emplace_back(&loopOp.getBody());
-    regions.emplace_back(getOperation());
+    if (mlir::Region *cleanup = loopOp.maybeGetCleanup())
+      regions.emplace_back(cleanup);
+    else
+      regions.emplace_back(getOperation());
     return;
   }
 
@@ -529,6 +533,24 @@ cir::ResumeOp::getMutableSuccessorOperands(RegionSuccessor point) {
 LogicalResult cir::ConditionOp::verify() {
   if (!isa<LoopOpInterface, AwaitOp>(getOperation()->getParentOp()))
     return emitOpError("condition must be within a conditional region");
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// WhileOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult cir::WhileOp::verify() {
+  std::optional<cir::CleanupKind> cleanupKind = getCleanupKind();
+
+  if (cleanupKind.has_value() == getCleanup().empty())
+    return emitOpError("cleanup kind must be present if and only if the "
+                       "cleanup region is non-empty");
+
+  if (cleanupKind == cir::CleanupKind::EH)
+    return emitOpError(
+        "loop cleanup kind must be 'normal' or 'all', not 'eh'");
+
   return success();
 }
 

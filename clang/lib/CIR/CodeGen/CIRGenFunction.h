@@ -203,6 +203,15 @@ public:
   const CIRGenFunctionInfo *curFnInfo = nullptr;
   QualType fnRetTy;
 
+  /// True while emitting a statement carrying [[clang::always_inline]].
+  bool inAlwaysInlineAttributedStmt = false;
+
+  /// The call expression selected by a [[clang::musttail]] return statement.
+  const clang::CallExpr *mustTailCall = nullptr;
+
+  /// The CIR call operation emitted for mustTailCall.
+  mlir::Operation *emittedMustTailCall = nullptr;
+
   /// The current function or global initializer that is generated code for.
   /// This is usually a cir::FuncOp, but it can also be a cir::GlobalOp for
   /// global initializers.
@@ -1128,6 +1137,17 @@ public:
                         ArrayRef<mlir::Value *> valuesToReload = {});
   void popCleanupBlock(bool forDeactivation = false);
 
+  /// Attach an active flag to cleanups captured since \p depth. Captured
+  /// condition-variable cleanups structurally enclose initialization, so the
+  /// flag prevents them from running until construction completes.
+  void initLoopConditionCleanupsWithFlag(
+      EHScopeStack::stable_iterator depth, Address activeFlag);
+
+  /// Emit cleanups captured since \p depth into the current loop cleanup
+  /// region, then pop them from the EH stack.
+  void emitLoopConditionCleanups(EHScopeStack::stable_iterator depth,
+                                 mlir::Location loc);
+
   void terminateStructuredRegionBody(mlir::Region &r, mlir::Location loc);
 
   /// Deactivates the given cleanup block. The block cannot be reactivated.
@@ -1362,6 +1382,52 @@ public:
   private:
     FullExprCleanupScope(const FullExprCleanupScope &) = delete;
     void operator=(const FullExprCleanupScope &) = delete;
+  };
+
+  /// Captures a loop condition variable's cleanups so they can be emitted in
+  /// the loop op's per-evaluation cleanup region.
+  class DeferredLoopConditionCleanup {
+    CIRGenFunction &cgf;
+    EHScopeStack::stable_iterator depth;
+    bool active;
+
+  public:
+    DeferredLoopConditionCleanup(CIRGenFunction &cgf, bool active)
+        : cgf(cgf), depth(cgf.ehStack.stable_begin()), active(active) {}
+
+    /// Suppress cir.cleanup.scope creation while the condition variable's own
+    /// cleanups are pushed. The cleanup objects remain on the EH stack until
+    /// they are emitted into the loop cleanup region.
+    class CaptureScope {
+      EHScopeStack &ehStack;
+
+    public:
+      explicit CaptureScope(DeferredLoopConditionCleanup &scope)
+          : ehStack(scope.cgf.ehStack) {
+        assert(!ehStack.isCapturingLoopConditionCleanups() &&
+               "loop condition cleanup capturing should not nest");
+        if (scope.active)
+          ehStack.setCapturingLoopConditionCleanups(true);
+      }
+      ~CaptureScope() { ehStack.setCapturingLoopConditionCleanups(false); }
+
+      CaptureScope(const CaptureScope &) = delete;
+      void operator=(const CaptureScope &) = delete;
+    };
+
+    void initWithActiveFlag(Address activeFlag) {
+      if (active)
+        cgf.initLoopConditionCleanupsWithFlag(depth, activeFlag);
+    }
+
+    void emitIntoLoopCleanupRegion(mlir::Location loc) {
+      if (active)
+        cgf.emitLoopConditionCleanups(depth, loc);
+    }
+
+  private:
+    DeferredLoopConditionCleanup(const DeferredLoopConditionCleanup &) = delete;
+    void operator=(const DeferredLoopConditionCleanup &) = delete;
   };
 
 public:
@@ -1608,8 +1674,7 @@ private:
 
 public:
   Address emitAddrOfFieldStorage(Address base, const FieldDecl *field,
-                                 llvm::StringRef fieldName,
-                                 unsigned fieldIndex);
+                                 llvm::StringRef fieldName);
 
   mlir::Value emitAlloca(llvm::StringRef name, mlir::Type ty,
                          mlir::Location loc, clang::CharUnits alignment,
@@ -1705,6 +1770,11 @@ public:
   void emitAutoVarDecl(const clang::VarDecl &d);
 
   void emitAutoVarCleanups(const AutoVarEmission &emission);
+
+  /// Emit a while condition variable while capturing its own cleanups for the
+  /// loop's per-evaluation cleanup region.
+  void emitLoopConditionVariable(const clang::VarDecl &d,
+                                 DeferredLoopConditionCleanup &condCleanup);
   /// Emit the initializer for an allocated variable.  If this call is not
   /// associated with the call to emitAutoVarAlloca (as the address of the
   /// emission is not directly an alloca), the allocatedSeparately parameter can
@@ -1774,7 +1844,8 @@ public:
   RValue emitCall(const CIRGenFunctionInfo &funcInfo,
                   const CIRGenCallee &callee, ReturnValueSlot returnValue,
                   const CallArgList &args, cir::CIRCallOpInterface *callOp,
-                  mlir::Location loc);
+                  mlir::Location loc,
+                  const clang::CallExpr *callExpr = nullptr);
   RValue emitCall(const CIRGenFunctionInfo &funcInfo,
                   const CIRGenCallee &callee, ReturnValueSlot returnValue,
                   const CallArgList &args,

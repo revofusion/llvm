@@ -15,11 +15,13 @@
 #include "CIRGenCXXABI.h"
 #include "CIRGenFunction.h"
 #include "CIRGenFunctionInfo.h"
+#include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Attributes.h"
 #include "clang/CIR/ABIArgInfo.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "llvm/ADT/FloatingPointMode.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/TypeSize.h"
@@ -1177,7 +1179,8 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
                                 ReturnValueSlot returnValue,
                                 const CallArgList &args,
                                 cir::CIRCallOpInterface *callOp,
-                                mlir::Location loc) {
+                                mlir::Location loc,
+                                const CallExpr *callExpr) {
   QualType retTy = funcInfo.getReturnType();
   cir::FuncType cirFuncTy = getTypes().getFunctionType(funcInfo);
 
@@ -1290,6 +1293,32 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
                              attrs, argAttrs, retAttrs, callingConv, sideEffect,
                              /*attrOnCallSite=*/true, /*isThunk=*/false);
 
+  // The linker symbol is not a semantic callable identity: explicit asm
+  // labels can intentionally bind distinct C++ overloads to one physical
+  // symbol. Preserve the exact declaration selected by overload resolution on
+  // the call edge so downstream consumers never have to choose among the
+  // declarations by symbol spelling.
+  if (cgm.shouldEmitAeneasMetadata()) {
+    if (const Decl *calleeDecl =
+            callee.getAbstractInfo().getCalleeDecl().getDecl()) {
+      llvm::SmallString<256> astCalleeUSR;
+      if (!clang::index::generateUSRForDecl(calleeDecl, astCalleeUSR))
+        attrs.set("ast_callee_usr", builder.getStringAttr(astCalleeUSR));
+    }
+  }
+
+  // [[clang::always_inline]] applies to every call contained in its statement.
+  if (inAlwaysInlineAttributedStmt)
+    attrs.set(cir::CIRDialect::getAlwaysInlineAttrName(),
+              mlir::UnitAttr::get(&getMLIRContext()));
+
+  // [[clang::musttail]] applies only to the outer call of its return statement,
+  // not to calls used to evaluate that call's arguments.
+  const bool isMustTailCall = callExpr && callExpr == mustTailCall;
+  if (isMustTailCall)
+    attrs.set(cir::CIRDialect::getMustTailAttrName(),
+              mlir::UnitAttr::get(&getMLIRContext()));
+
   auto resolvedFuncOpFromGlobal = [&](mlir::Operation *op) -> cir::FuncOp {
     if (auto fnOp = dyn_cast<cir::FuncOp>(op))
       return fnOp;
@@ -1357,6 +1386,9 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
       emitCallLikeOp(*this, loc, indirectFuncTy, indirectFuncVal, directFuncOp,
                      cirCallArgs, isInvoke, attrs, argAttrs, retAttrs);
 
+  if (isMustTailCall)
+    emittedMustTailCall = theCall.getOperation();
+
   if (callOp)
     *callOp = theCall;
 
@@ -1376,8 +1408,13 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
     mlir::ResultRange results = theCall->getOpResults();
     assert(results.size() <= 1 && "multiple returns from a call");
 
-    SourceLocRAIIObject loc{*this, callLoc};
-    emitAggregateStore(results[0], destPtr);
+    // A musttail call's result must flow directly to cir.return. Storing the
+    // aggregate here would put an operation between the call and return.
+    if (!isMustTailCall) {
+      assert(results.size() == 1 && "aggregate call has no result");
+      SourceLocRAIIObject loc{*this, callLoc};
+      emitAggregateStore(results[0], destPtr);
+    }
     return RValue::getAggregate(destPtr);
   }
   case cir::TEK_Scalar: {

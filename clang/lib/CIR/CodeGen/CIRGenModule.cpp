@@ -17,6 +17,7 @@
 #include "CIRGenFunction.h"
 
 #include "mlir/Dialect/OpenMP/OpenMPOffloadUtils.h"
+#include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/SymbolTable.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTLambda.h"
@@ -1908,22 +1909,16 @@ void CIRGenModule::updateCompletedType(const TagDecl *td) {
 }
 
 void CIRGenModule::addReplacement(StringRef name, mlir::Operation *op) {
-  replacements[name] = op;
+  auto symbol = mlir::cast<mlir::SymbolOpInterface>(op);
+  replacements[name] = symbol.getNameAttr();
 }
 
 #ifndef NDEBUG
-static bool verifyPointerTypeArgs(cir::FuncOp oldF, cir::FuncOp newF,
-                                  mlir::SymbolUserMap &userMap) {
-  for (mlir::Operation *user : userMap.getUsers(oldF)) {
-    auto call = mlir::dyn_cast<cir::CallOp>(user);
-    if (!call)
-      continue;
-
-    for (auto [argOp, fnArgType] :
-         llvm::zip(call.getArgs(), newF.getFunctionType().getInputs())) {
-      if (argOp.getType() != fnArgType)
-        return false;
-    }
+static bool verifyPointerTypeArgs(cir::CallOp call, cir::FuncOp newF) {
+  for (auto [argOp, fnArgType] :
+       llvm::zip(call.getArgs(), newF.getFunctionType().getInputs())) {
+    if (argOp.getType() != fnArgType)
+      return false;
   }
 
   return true;
@@ -1934,33 +1929,267 @@ void CIRGenModule::applyReplacements() {
   if (replacements.empty())
     return;
 
-  // Build a symbol user map once — this walks the module O(M) one time.
-  // Previously, each replaceAllSymbolUses call walked the entire module,
-  // giving O(R × M) quadratic behavior for R replacements.
-  mlir::SymbolTableCollection symbolTableCollection;
-  mlir::SymbolUserMap userMap(symbolTableCollection, theModule);
+  struct Replacement {
+    cir::FuncOp oldFunction;
+    cir::FuncOp newFunction;
+  };
 
-  for (auto &i : replacements) {
-    StringRef mangledName = i.first;
-    mlir::Operation *replacement = i.second;
+  // Resolve the replacement graph without recursion before looking at the IR.
+  // The graph is functional (each source has one target), so memoizing each
+  // terminal target makes chain resolution linear in the number of entries.
+  llvm::DenseMap<mlir::StringAttr, mlir::StringAttr> directReplacements;
+  for (const auto &replacement : replacements) {
+    directReplacements.try_emplace(
+        mlir::StringAttr::get(&getMLIRContext(), replacement.getKey()),
+        replacement.getValue());
+  }
+
+  llvm::DenseMap<mlir::StringAttr, mlir::StringAttr> resolvedReplacements;
+  llvm::DenseSet<mlir::StringAttr> resolving;
+  for (const auto &replacement : directReplacements) {
+    mlir::StringAttr sourceName = replacement.first;
+    if (resolvedReplacements.count(sourceName))
+      continue;
+
+    llvm::SmallVector<mlir::StringAttr, 4> path;
+    mlir::StringAttr currentName = sourceName;
+    mlir::StringAttr finalName;
+    while (true) {
+      auto resolved = resolvedReplacements.find(currentName);
+      if (resolved != resolvedReplacements.end()) {
+        finalName = resolved->second;
+        break;
+      }
+
+      auto direct = directReplacements.find(currentName);
+      if (direct == directReplacements.end()) {
+        finalName = currentName;
+        break;
+      }
+
+      if (!resolving.insert(currentName).second) {
+        mlir::Operation *cycleOp = getGlobalValue(currentName.getValue());
+        errorNYI(cycleOp ? cycleOp->getLoc() : theModule.getLoc(),
+                 "cyclic function replacement");
+        replacements.clear();
+        return;
+      }
+      path.push_back(currentName);
+      currentName = direct->second;
+    }
+
+    for (mlir::StringAttr name : path) {
+      resolving.erase(name);
+      resolvedReplacements.try_emplace(name, finalName);
+    }
+  }
+
+  llvm::SmallVector<Replacement> pendingReplacements;
+  bool invalidReplacement = false;
+  for (const auto &replacement : replacements) {
+    llvm::StringRef mangledName = replacement.getKey();
     mlir::Operation *entry = getGlobalValue(mangledName);
     if (!entry)
       continue;
-    assert(isa<cir::FuncOp>(entry) && "expected function");
-    auto oldF = cast<cir::FuncOp>(entry);
-    auto newF = dyn_cast<cir::FuncOp>(replacement);
-    if (!newF) {
-      // In classic codegen, this can be a global alias, a bitcast, or a GEP.
-      errorNYI(replacement->getLoc(), "replacement is not a function");
+
+    auto oldF = mlir::dyn_cast<cir::FuncOp>(entry);
+    if (!oldF) {
+      errorNYI(entry->getLoc(), "replacement source is not a function");
+      invalidReplacement = true;
       continue;
     }
 
-    assert(verifyPointerTypeArgs(oldF, newF, userMap) &&
-           "call argument types do not match replacement function");
+    mlir::StringAttr sourceName =
+        mlir::StringAttr::get(&getMLIRContext(), mangledName);
+    auto resolved = resolvedReplacements.find(sourceName);
+    assert(resolved != resolvedReplacements.end() &&
+           "replacement source was not resolved");
+    auto newF = mlir::dyn_cast_or_null<cir::FuncOp>(
+        getGlobalValue(resolved->second.getValue()));
+    if (!newF) {
+      errorNYI(entry->getLoc(), "replacement target is not a function");
+      invalidReplacement = true;
+      continue;
+    }
+    if (newF == oldF)
+      continue;
 
-    // Replace old with new, but keep the old order.  Uses
-    // SymbolUserMap to touch only actual users, not the whole module.
-    userMap.replaceAllUsesWith(oldF, newF.getSymNameAttr());
+    pendingReplacements.push_back({oldF, newF});
+  }
+  replacements.clear();
+
+  // Do not mutate any references when one entry in the batch is invalid.
+  if (invalidReplacement || pendingReplacements.empty())
+    return;
+
+  llvm::DenseMap<mlir::StringAttr, mlir::StringAttr> terminalBySource;
+  for (const Replacement &replacement : pendingReplacements) {
+    cir::FuncOp oldFunction = replacement.oldFunction;
+    cir::FuncOp newFunction = replacement.newFunction;
+    terminalBySource.try_emplace(oldFunction.getSymNameAttr(),
+                                 newFunction.getSymNameAttr());
+  }
+  auto normalizeLifecycleIdentitySymbols =
+      [&](auto &&self, mlir::Attribute attribute) -> mlir::Attribute {
+    if (auto dictionary = mlir::dyn_cast<mlir::DictionaryAttr>(attribute)) {
+      mlir::NamedAttrList normalized;
+      bool changed = false;
+      for (mlir::NamedAttribute named : dictionary) {
+        mlir::Attribute value = named.getValue();
+        llvm::StringRef name = named.getName().strref();
+        if (name == "constructor_symbol" || name == "destructor_symbol" ||
+            name == "callee_symbol") {
+          if (auto symbol = mlir::dyn_cast<mlir::StringAttr>(value)) {
+            auto replacement = terminalBySource.find(symbol);
+            if (replacement != terminalBySource.end()) {
+              value = replacement->second;
+              changed = true;
+            }
+          }
+        } else {
+          mlir::Attribute nested = self(self, value);
+          changed |= nested != value;
+          value = nested;
+        }
+        normalized.append(named.getName(), value);
+      }
+      return changed ? normalized.getDictionary(&getMLIRContext()) : attribute;
+    }
+    if (auto array = mlir::dyn_cast<mlir::ArrayAttr>(attribute)) {
+      llvm::SmallVector<mlir::Attribute> normalized;
+      normalized.reserve(array.size());
+      bool changed = false;
+      for (mlir::Attribute element : array) {
+        mlir::Attribute nested = self(self, element);
+        changed |= nested != element;
+        normalized.push_back(nested);
+      }
+      return changed ? mlir::ArrayAttr::get(&getMLIRContext(), normalized)
+                     : attribute;
+    }
+    return attribute;
+  };
+
+  // Build one batch replacer; scope discovery below collects every relevant
+  // module-level use before any operation is mutated or erased.
+  mlir::AttrTypeReplacer replacer;
+  replacer.addReplacement(
+      [&](mlir::SymbolRefAttr symbolRef)
+          -> std::pair<mlir::Attribute, mlir::WalkResult> {
+        auto replacement =
+            terminalBySource.find(symbolRef.getRootReference());
+        if (replacement == terminalBySource.end())
+          return {symbolRef, mlir::WalkResult::skip()};
+
+        mlir::StringAttr newName = replacement->second;
+        if (mlir::isa<mlir::FlatSymbolRefAttr>(symbolRef))
+          return {mlir::FlatSymbolRefAttr::get(newName),
+                  mlir::WalkResult::skip()};
+        return {mlir::SymbolRefAttr::get(
+                    newName, symbolRef.getNestedReferences()),
+                mlir::WalkResult::skip()};
+      });
+
+  using AttributeUpdate =
+      std::pair<mlir::Operation *, mlir::DictionaryAttr>;
+  llvm::SmallVector<AttributeUpdate> attributeUpdates;
+  {
+    auto symbolUses =
+        mlir::SymbolTable::getSymbolUses(&theModule.getBodyRegion());
+    if (!symbolUses) {
+      errorNYI(theModule.getLoc(),
+               "failed to replace all function symbol uses");
+      return;
+    }
+
+    llvm::DenseSet<mlir::Operation *> relevantUsers;
+    theModule.walk([&](mlir::Operation *op) {
+      if (op->hasAttr("ast_automatic_object_identity") ||
+          op->hasAttr("ast_temporary_object_identities") ||
+          op->hasAttr("ast_conditional_cleanup_identities"))
+        relevantUsers.insert(op);
+    });
+    for (const mlir::SymbolTable::SymbolUse &use : *symbolUses)
+      if (terminalBySource.count(use.getSymbolRef().getRootReference()))
+        relevantUsers.insert(use.getUser());
+
+    for (mlir::Operation *op : relevantUsers) {
+      mlir::StringAttr normalizedDestructorCallee;
+      mlir::StringAttr normalizedDestructorVariant;
+      if (auto call = mlir::dyn_cast<cir::CallOp>(op)) {
+        if (mlir::FlatSymbolRefAttr callee = call.getCalleeAttr()) {
+          auto replacement =
+              terminalBySource.find(callee.getRootReference());
+          if (replacement != terminalBySource.end()) {
+            cir::FuncOp newFunction =
+                lookupFuncOp(replacement->second.getValue());
+            assert(newFunction && "replacement target disappeared");
+            assert(verifyPointerTypeArgs(call, newFunction) &&
+                   "call argument types do not match replacement function");
+            if (op->hasAttr("ast_destructor_call")) {
+              normalizedDestructorCallee = replacement->second;
+              normalizedDestructorVariant =
+                  newFunction->getAttrOfType<mlir::StringAttr>(
+                      "abi_dtor_variant");
+              if (!normalizedDestructorVariant) {
+                errorNYI(op->getLoc(),
+                         "destructor replacement target has no ABI variant");
+                return;
+              }
+            }
+          }
+        }
+      }
+
+      mlir::DictionaryAttr oldAttrs = op->getAttrDictionary();
+      mlir::Attribute rewritten = replacer.replace(oldAttrs);
+      if (!rewritten) {
+        errorNYI(op->getLoc(), "failed to replace all function symbol uses");
+        return;
+      }
+      auto newAttrs = mlir::cast<mlir::DictionaryAttr>(rewritten);
+      {
+        mlir::NamedAttrList normalized(newAttrs);
+        for (llvm::StringRef name :
+             {"ast_automatic_object_identity",
+              "ast_temporary_object_identities",
+              "ast_conditional_cleanup_identities"}) {
+          if (mlir::Attribute identity = newAttrs.get(name))
+            normalized.set(
+                name, normalizeLifecycleIdentitySymbols(
+                          normalizeLifecycleIdentitySymbols, identity));
+        }
+        newAttrs = normalized.getDictionary(&getMLIRContext());
+      }
+      if (normalizedDestructorCallee) {
+        auto destructorIdentity =
+            newAttrs.getAs<mlir::DictionaryAttr>("ast_destructor_call");
+        assert(destructorIdentity &&
+               "destructor call identity disappeared during replacement");
+        mlir::NamedAttrList normalizedIdentity(destructorIdentity);
+        normalizedIdentity.set("callee_symbol", normalizedDestructorCallee);
+        normalizedIdentity.set("variant", normalizedDestructorVariant);
+        mlir::NamedAttrList normalizedAttrs(newAttrs);
+        normalizedAttrs.set(
+            "ast_destructor_call",
+            normalizedIdentity.getDictionary(&getMLIRContext()));
+        newAttrs = normalizedAttrs.getDictionary(&getMLIRContext());
+      }
+      if (newAttrs != oldAttrs)
+        attributeUpdates.emplace_back(op, newAttrs);
+    }
+  }
+
+  // Attribute replacement cannot fail after the complete set has been staged.
+  // Apply every reference update before invalidating any source operation.
+  for (const auto &[op, attrs] : attributeUpdates)
+    op->setAttrs(attrs);
+
+  for (Replacement replacement : pendingReplacements) {
+    cir::FuncOp oldF = replacement.oldFunction;
+    cir::FuncOp newF = replacement.newFunction;
+
+    // Replace old with new, but keep the old order.
     newF->moveBefore(oldF);
     eraseGlobalSymbol(oldF);
     oldF->erase();
@@ -2622,9 +2851,7 @@ mlir::Value CIRGenModule::emitMemberPointerConstant(const UnaryOperator *e) {
     const auto *fieldDecl = cast<FieldDecl>(decl);
     const RecordDecl *parent = fieldDecl->getParent();
     const unsigned memberIndex =
-        parent->isUnion()
-            ? fieldDecl->getFieldIndex()
-            : getTypes().getCIRGenRecordLayout(parent).getCIRFieldNo(fieldDecl);
+        getTypes().getCIRGenRecordLayout(parent).getCIRFieldNo(fieldDecl);
     result = cir::ConstantOp::create(
         builder, loc, builder.getDataMemberAttr(ty, memberIndex));
   }
@@ -5060,6 +5287,8 @@ CIRGenModule::createCIRFunction(mlir::Location loc, StringRef name,
     CIRGenFunction *cgf = this->curCGF;
     if (cgf)
       builder.setInsertionPoint(cgf->curFn);
+    else
+      builder.setInsertionPointToEnd(theModule.getBody());
 
     func = cir::FuncOp::create(builder, loc, name, funcType);
 
@@ -5083,9 +5312,6 @@ CIRGenModule::createCIRFunction(mlir::Location loc, StringRef name,
 
     // Mark C++ special member functions (Constructor, Destructor etc.)
     setCXXSpecialMemberAttr(func, funcDecl);
-
-    if (!cgf)
-      theModule.push_back(func);
 
     if (this->getLangOpts().OpenACC) {
       // We only have to handle this attribute, since OpenACCAnnotAttrs are
@@ -5796,9 +6022,9 @@ CIRGenModule::getAddrOfGlobalTemporary(const MaterializeTemporaryExpr *mte,
   }
 
   gv.setAlignment(align.getAsAlign().value());
-  if (supportsCOMDAT() && gv.isWeakForLinker())
-    errorNYI(mte->getSourceRange(),
-             "Global temporary with comdat/weak linkage");
+  if (supportsCOMDAT() && gv.isWeakForLinker() &&
+      !gv.hasAvailableExternallyLinkage())
+    gv.setComdat(true);
   if (varDecl->getTLSKind())
     setTLSMode(gv, *varDecl, /*isExtendingDecl=*/true);
   mlir::Operation *cv = gv;

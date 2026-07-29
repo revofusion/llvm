@@ -265,6 +265,17 @@ public:
     return cir::WhileOp::create(*this, loc, condBuilder, bodyBuilder);
   }
 
+  cir::WhileOp createWhile(
+      mlir::Location loc,
+      llvm::function_ref<void(mlir::OpBuilder &, mlir::Location)> condBuilder,
+      llvm::function_ref<void(mlir::OpBuilder &, mlir::Location)> bodyBuilder,
+      llvm::function_ref<void(mlir::OpBuilder &, mlir::Location)>
+          cleanupBuilder,
+      cir::CleanupKind cleanupKind) {
+    return cir::WhileOp::create(*this, loc, condBuilder, bodyBuilder,
+                                cleanupBuilder, cleanupKind);
+  }
+
   /// Create a for operation.
   cir::ForOp createFor(
       mlir::Location loc,
@@ -381,14 +392,15 @@ public:
 
   cir::StoreOp createStore(mlir::Location loc, mlir::Value val, mlir::Value dst,
                            bool isVolatile = false,
+                           bool isNontemporal = false,
                            mlir::IntegerAttr align = {},
                            cir::SyncScopeKindAttr scope = {},
                            cir::MemOrderAttr order = {}) {
     if (mlir::cast<cir::PointerType>(dst.getType()).getPointee() !=
         val.getType())
       dst = createPtrBitcast(dst, val.getType());
-    return cir::StoreOp::create(*this, loc, val, dst, isVolatile, align, scope,
-                                order);
+    return cir::StoreOp::create(*this, loc, val, dst, isVolatile,
+                                isNontemporal, align, scope, order);
   }
 
   /// Emit a load from an boolean flag variable.

@@ -46,6 +46,26 @@ def LoopOpInterface : OpInterface<"LoopOpInterface", [
       /*defaultImplementation=*/"return nullptr;"
     >,
     InterfaceMethod<[{
+        Returns a pointer to the loop's per-evaluation cleanup region, or
+        nullptr when the loop has none.
+      }],
+      /*retTy=*/"mlir::Region *",
+      /*methodName=*/"maybeGetCleanup",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return nullptr;"
+    >,
+    InterfaceMethod<[{
+        Returns the cleanup kind for the loop's per-evaluation cleanup region,
+        or std::nullopt when the loop has none.
+      }],
+      /*retTy=*/"::std::optional<::cir::CleanupKind>",
+      /*methodName=*/"maybeGetCleanupKind",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/"return std::nullopt;"
+    >,
+    InterfaceMethod<[{
         Returns the first region to be executed in the loop.
       }],
       /*retTy=*/"mlir::Region &",

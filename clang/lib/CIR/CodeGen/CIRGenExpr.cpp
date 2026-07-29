@@ -126,8 +126,7 @@ static Address emitAddrOfZeroSizeField(CIRGenFunction &cgf, Address base,
 
 Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
                                                const FieldDecl *field,
-                                               llvm::StringRef fieldName,
-                                               unsigned fieldIndex) {
+                                               llvm::StringRef fieldName) {
   if (isEmptyFieldForLayout(getContext(), field))
     return emitAddrOfZeroSizeField(*this, base, field);
 
@@ -144,8 +143,8 @@ Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
   // the complete object type. Use the record's member type for get_member,
   // then bitcast to the complete type for downstream use.
   //
-  // For unions, all fields map to index 0, so we use the field's declared type
-  // directly instead of looking up the member type from the layout.
+  // Union fields retain their declared types in distinct CIR schema entries,
+  // even though their physical storage overlaps.
   mlir::Type fieldType = convertTypeForMem(field->getType());
   auto fieldPtr = cir::PointerType::get(fieldType);
   bool needsBitcast = false;
@@ -160,7 +159,7 @@ Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
   // which do not currently carry the name, so it can be passed down from the
   // CaptureStmt.
   mlir::Value addr = builder.createGetMember(loc, fieldPtr, base.getPointer(),
-                                             fieldName, fieldIndex);
+                                             fieldName, idx);
   setFieldIdentityAttrs(*this, addr, field);
 
   // If the field is potentially overlapping, the record member uses the base
@@ -566,12 +565,7 @@ void CIRGenFunction::emitStoreOfScalar(mlir::Value value, Address addr,
   }
 
   assert(currSrcLoc && "must pass in source location");
-  builder.createStore(*currSrcLoc, value, addr, isVolatile);
-
-  if (isNontemporal) {
-    cgm.errorNYI(addr.getPointer().getLoc(), "emitStoreOfScalar nontemporal");
-    return;
-  }
+  builder.createStore(*currSrcLoc, value, addr, isVolatile, isNontemporal);
 
   assert(!cir::MissingFeatures::opTBAA());
 }
@@ -626,8 +620,7 @@ Address CIRGenFunction::getAddrOfBitFieldStorage(LValue base,
   cir::PointerType fieldPtr = cir::PointerType::get(fieldType);
   auto rec = cast<cir::RecordType>(base.getAddress().getElementType());
   cir::GetMemberOp sea = getBuilder().createGetMember(
-      loc, fieldPtr, base.getPointer(), field->getName(),
-      mlir::isa<cir::UnionType>(rec) ? field->getFieldIndex() : index);
+      loc, fieldPtr, base.getPointer(), field->getName(), index);
   setFieldIdentityAttrs(*this, sea.getResult(), field);
   CharUnits offset = CharUnits::fromQuantity(
       rec.getElementOffset(cgm.getDataLayout().layout, index));
@@ -682,7 +675,6 @@ LValue CIRGenFunction::emitLValueForField(LValue base, const FieldDecl *field) {
   unsigned recordCVR = base.getVRQualifiers();
 
   llvm::StringRef fieldName = field->getName();
-  unsigned fieldIndex;
   if (cgm.lambdaFieldToName.count(field))
     fieldName = cgm.lambdaFieldToName[field];
 
@@ -695,15 +687,7 @@ LValue CIRGenFunction::emitLValueForField(LValue base, const FieldDecl *field) {
     return lv;
   }
 
-  if (rec->isUnion())
-    fieldIndex = field->getFieldIndex();
-  else {
-    const CIRGenRecordLayout &layout =
-        cgm.getTypes().getCIRGenRecordLayout(field->getParent());
-    fieldIndex = layout.getCIRFieldNo(field);
-  }
-
-  addr = emitAddrOfFieldStorage(addr, field, fieldName, fieldIndex);
+  addr = emitAddrOfFieldStorage(addr, field, fieldName);
   assert(!cir::MissingFeatures::preservedAccessIndexRegion());
 
   // If this is a reference field, load the reference right now.
@@ -744,10 +728,7 @@ LValue CIRGenFunction::emitLValueForFieldInitialization(
   if (isEmptyFieldForLayout(getContext(), field)) {
     v = emitAddrOfZeroSizeField(*this, v, field);
   } else {
-    const CIRGenRecordLayout &layout =
-        cgm.getTypes().getCIRGenRecordLayout(field->getParent());
-    unsigned fieldIndex = layout.getCIRFieldNo(field);
-    v = emitAddrOfFieldStorage(v, field, fieldName, fieldIndex);
+    v = emitAddrOfFieldStorage(v, field, fieldName);
   }
 
   // Make sure that the address is pointing to the right type.
@@ -2602,8 +2583,9 @@ RValue CIRGenFunction::emitCall(clang::QualType calleeTy,
   assert(!cir::MissingFeatures::opCallMustTail());
 
   cir::CIRCallOpInterface callOp;
-  RValue callResult = emitCall(funcInfo, callee, returnValue, args, &callOp,
-                               getLoc(e->getExprLoc()));
+  RValue callResult =
+      emitCall(funcInfo, callee, returnValue, args, &callOp,
+               getLoc(e->getExprLoc()), e);
 
   assert(!cir::MissingFeatures::generateDebugInfo());
 

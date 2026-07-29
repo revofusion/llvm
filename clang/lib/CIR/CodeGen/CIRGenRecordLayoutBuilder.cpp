@@ -1032,40 +1032,32 @@ void CIRRecordLowering::lowerUnion() {
       fieldType = getStorageType(field);
     }
 
-    // This maps a field to its index. For unions, the index is always 0.
-    fieldIdxMap[field->getCanonicalDecl()] = 0;
+    // Record the member's index in the CIR union layout. This can differ from
+    // FieldDecl::getFieldIndex() when an earlier field has no CIR storage.
+    fieldIdxMap[field->getCanonicalDecl()] = fieldTypes.size();
+    // Keep every source member in the CIR union schema even when this field
+    // proves that the union is not zero-initializable. That property is
+    // independent of both the source-member schema and the physical storage
+    // type selected below.
+    fieldTypes.push_back(fieldType);
 
-    // Compute zero-initializable status.
-    // This union might not be zero initialized: it may contain a pointer to
-    // data member which might have some exotic initialization sequence.
-    // If this is the case, then we ought not to try and come up with a "better"
-    // type, it might not be very easy to come up with a Constant which
-    // correctly initializes it.
+    // Compute zero-initializable status. A pointer-to-data-member can have a
+    // nonzero null representation, so a union containing one may not be zero
+    // initializable.
     if (!seenNamedMember) {
       seenNamedMember = field->getIdentifier();
       if (!seenNamedMember)
         if (const RecordDecl *fieldRD = field->getType()->getAsRecordDecl())
           seenNamedMember = fieldRD->findFirstNamedDataMember();
-      if (seenNamedMember && !isZeroInitializable(field)) {
+      if (seenNamedMember && !isZeroInitializable(field))
         zeroInitializable = zeroInitializableAsBase = false;
-        storageType = fieldType;
-      }
     }
-
-    // Because our union isn't zero initializable, we won't be getting a better
-    // storage type.
-    if (!zeroInitializable)
-      continue;
 
     // Conditionally update our storage type if we've got a new "better" one.
     if (!storageType || getAlignment(fieldType) > getAlignment(storageType) ||
         (getAlignment(fieldType) == getAlignment(storageType) &&
          getSize(fieldType) > getSize(storageType)))
       storageType = fieldType;
-
-    // NOTE(cir): Track all union member's types, not just the largest one. It
-    // allows for proper type-checking and retain more info for analisys.
-    fieldTypes.push_back(fieldType);
   }
 
   if (!storageType) {

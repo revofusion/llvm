@@ -496,6 +496,98 @@ public:
                                                exit);
   }
 
+  /// Rewrite a loop with a per-evaluation cleanup into an always-true loop
+  /// whose body is a cleanup scope enclosing the original condition and body.
+  /// This makes condition-false, fallthrough, break, continue, return, and EH
+  /// exits use the existing cleanup-scope routing.
+  mlir::LogicalResult
+  rewriteLoopWithCleanup(cir::LoopOpInterface op,
+                         mlir::PatternRewriter &rewriter) const {
+    mlir::Location loc = op.getLoc();
+    mlir::Region *stepRegion = op.maybeGetStep();
+
+    std::optional<cir::CleanupKind> cleanupKind = op.maybeGetCleanupKind();
+    assert(cleanupKind && "loop cleanup region without a cleanup kind");
+
+    mlir::Region &condRegion = op.getCond();
+    mlir::Region &bodyRegion = op.getBody();
+    mlir::Region &cleanupRegion = *op.maybeGetCleanup();
+
+    auto conditionOp =
+        cast<cir::ConditionOp>(condRegion.back().getTerminator());
+    mlir::Value condVal = conditionOp.getCondition();
+    mlir::Block *bodyFront = &bodyRegion.front();
+    mlir::Block *stepFront = stepRegion ? &stepRegion->front() : nullptr;
+
+    llvm::SmallVector<cir::YieldOp> bodyYieldsToStep;
+    llvm::SmallVector<cir::ContinueOp> continuesToStep;
+    if (stepRegion) {
+      for (mlir::Block &blk : bodyRegion.getBlocks())
+        if (auto yield = dyn_cast<cir::YieldOp>(blk.getTerminator()))
+          bodyYieldsToStep.push_back(yield);
+      op.walkBodySkippingNestedLoops([&](mlir::Operation *nested) {
+        if (auto continueOp = dyn_cast<cir::ContinueOp>(nested)) {
+          continuesToStep.push_back(continueOp);
+          return mlir::WalkResult::skip();
+        }
+        return mlir::WalkResult::advance();
+      });
+    }
+
+    // Assemble one evaluation in execution order.
+    rewriter.inlineRegionBefore(bodyRegion, condRegion, condRegion.end());
+    if (stepRegion)
+      rewriter.inlineRegionBefore(*stepRegion, condRegion, condRegion.end());
+
+    mlir::Block *breakBlock =
+        rewriter.createBlock(&condRegion, condRegion.end());
+    rewriter.setInsertionPointToEnd(breakBlock);
+    cir::BreakOp::create(rewriter, conditionOp.getLoc());
+
+    rewriter.setInsertionPoint(conditionOp);
+    rewriter.replaceOpWithNewOp<cir::BrCondOp>(conditionOp, condVal, bodyFront,
+                                               breakBlock);
+
+    for (cir::YieldOp yield : bodyYieldsToStep)
+      lowerTerminator(yield, stepFront, rewriter);
+    for (cir::ContinueOp continueOp : continuesToStep)
+      lowerTerminator(continueOp, stepFront, rewriter);
+
+    mlir::Block *newBodyBlock = rewriter.createBlock(&bodyRegion);
+    rewriter.setInsertionPointToEnd(newBodyBlock);
+    auto emitYield = [](mlir::OpBuilder &b, mlir::Location yieldLoc) {
+      cir::YieldOp::create(b, yieldLoc);
+    };
+    auto scope = cir::CleanupScopeOp::create(
+        rewriter, loc, *cleanupKind, emitYield, emitYield);
+    cir::YieldOp::create(rewriter, loc);
+
+    mlir::Block *bodyPlaceholder = &scope.getBodyRegion().front();
+    rewriter.inlineRegionBefore(condRegion, bodyPlaceholder);
+    rewriter.eraseBlock(bodyPlaceholder);
+
+    mlir::Block *cleanupPlaceholder = &scope.getCleanupRegion().front();
+    rewriter.inlineRegionBefore(cleanupRegion, cleanupPlaceholder);
+    rewriter.eraseBlock(cleanupPlaceholder);
+
+    mlir::Block *newCondBlock = rewriter.createBlock(&condRegion);
+    rewriter.setInsertionPointToEnd(newCondBlock);
+    mlir::Value trueVal = cir::ConstantOp::create(
+        rewriter, loc, cir::BoolAttr::get(rewriter.getContext(), true));
+    cir::ConditionOp::create(rewriter, loc, trueVal);
+
+    if (stepRegion) {
+      mlir::Block *newStepBlock = rewriter.createBlock(stepRegion);
+      rewriter.setInsertionPointToEnd(newStepBlock);
+      cir::YieldOp::create(rewriter, loc);
+    }
+
+    auto whileOp = mlir::dyn_cast<cir::WhileOp>(op.getOperation());
+    assert(whileOp && "only cir.while has a per-evaluation cleanup region");
+    whileOp.removeCleanupKindAttr();
+    return mlir::success();
+  }
+
   mlir::LogicalResult
   matchAndRewrite(cir::LoopOpInterface op,
                   mlir::PatternRewriter &rewriter) const final {
@@ -506,6 +598,9 @@ public:
     for (mlir::Region &region : op->getRegions())
       if (hasNestedOpsToFlatten(region))
         return mlir::failure();
+
+    if (op.maybeGetCleanup())
+      return rewriteLoopWithCleanup(op, rewriter);
 
     // Setup CFG blocks.
     mlir::Block *entry = rewriter.getInsertionBlock();
@@ -971,6 +1066,7 @@ public:
           rewriter.setInsertionPoint(exitOp);
           cir::StoreOp::create(rewriter, loc, operand, alloca,
                                /*isVolatile=*/false,
+                               /*is_nontemporal=*/false,
                                /*alignment=*/mlir::IntegerAttr(),
                                cir::SyncScopeKindAttr(), cir::MemOrderAttr());
         }
@@ -1322,6 +1418,7 @@ public:
               rewriter, loc, cir::IntAttr::get(s32Type, exit.destinationId));
           cir::StoreOp::create(rewriter, loc, destIdConst, destSlot,
                                /*isVolatile=*/false,
+                               /*is_nontemporal=*/false,
                                /*alignment=*/mlir::IntegerAttr(),
                                cir::SyncScopeKindAttr(), cir::MemOrderAttr());
           rewriter.replaceOpWithNewOp<cir::BrOp>(exit.exitOp, cleanupEntry);

@@ -1067,6 +1067,7 @@ static mlir::Value packArgsIntoNVPTXFormatBuffer(CIRGenFunction &cgf,
         dataLayout.getABITypeAlign(argTypes[i]).value());
     cir::StoreOp::create(builder, loc, arg.getKnownRValue().getValue(), member,
                          /*is_volatile=*/false,
+                         /*is_nontemporal=*/false,
                          builder.getAlignmentAttr(abiAlign),
                          /*sync_scope=*/cir::SyncScopeKindAttr{},
                          /*mem_order=*/cir::MemOrderAttr{});

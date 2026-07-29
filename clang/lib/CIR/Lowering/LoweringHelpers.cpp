@@ -212,6 +212,18 @@ static bool containsPoison(mlir::Attribute attr) {
   return false;
 }
 
+static bool containsGlobalView(mlir::Attribute attr) {
+  if (mlir::isa<cir::GlobalViewAttr>(attr))
+    return true;
+  if (auto elts = mlir::dyn_cast<mlir::ArrayAttr>(attr))
+    return llvm::any_of(elts, containsGlobalView);
+  if (auto constArr = mlir::dyn_cast<cir::ConstArrayAttr>(attr)) {
+    if (auto elts = mlir::dyn_cast<mlir::ArrayAttr>(constArr.getElts()))
+      return llvm::any_of(elts, containsGlobalView);
+  }
+  return false;
+}
+
 std::optional<mlir::Attribute>
 lowerConstArrayAttr(cir::ConstArrayAttr constArr,
                     const mlir::TypeConverter *converter,
@@ -236,9 +248,15 @@ lowerConstArrayAttr(cir::ConstArrayAttr constArr,
   if (mlir::isa<mlir::StringAttr>(constArr.getElts()))
     return convertStringAttrToDenseElementsAttr(constArr,
                                                 converter->convertType(type));
-  if (mlir::isa<cir::IntType>(type))
+  if (mlir::isa<cir::IntType>(type)) {
+    // Dense integer elements cannot encode symbolic pointer relocations.
+    // Keep integer GlobalViewAttr leaves on the per-element lowering path,
+    // where they become addressof + ptrtoint constant expressions.
+    if (containsGlobalView(constArr))
+      return std::nullopt;
     return convertToDenseElementsAttr<cir::IntAttr, mlir::APInt>(
         constArr, dims, type, converter->convertType(type));
+  }
 
   if (mlir::isa<cir::BoolType>(type))
     return convertToDenseElementsAttr<cir::IntAttr, mlir::APInt>(

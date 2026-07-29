@@ -13,6 +13,7 @@
 #ifndef CLANG_CIR_INTERFACES_CIRLOOPOPINTERFACE_H
 #define CLANG_CIR_INTERFACES_CIRLOOPOPINTERFACE_H
 
+#include "clang/CIR/Dialect/IR/CIROpsEnums.h"
 #include "llvm/ADT/APInt.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"

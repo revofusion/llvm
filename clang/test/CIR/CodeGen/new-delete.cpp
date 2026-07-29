@@ -14,9 +14,9 @@ A *a() {
 
 // CIR: cir.func {{.*}} @_Z1av() -> !cir.ptr<!rec_A>{{.*}} {
 // CIR:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!cir.ptr<!rec_A>>
-// CIR:   %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_A>>
 // CIR:   %[[ALLOC_SIZE:.*]] = cir.const #cir.int<8> : !u64i
 // CIR:   %[[PTR:.*]] = cir.call @_Znwm(%[[ALLOC_SIZE]]) {{{.*}}builtin}
+// CIR:   %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_A>>
 // CIR:   cir.cleanup.scope {
 // CIR:     %[[PTR_A:.*]] = cir.cast bitcast %[[PTR]] : !cir.ptr<!void> -> !cir.ptr<!rec_A>
 // CIR:     cir.store{{.*}} %[[PTR_A]], %[[NEW_RESULT]] : !cir.ptr<!rec_A>, !cir.ptr<!cir.ptr<!rec_A>>
@@ -30,8 +30,8 @@ A *a() {
 
 // LLVM: define {{.*}} ptr @_Z1av() {{.*}} personality ptr @__gxx_personality_v0 {
 // LLVM:   %[[RETVAL:.*]] = alloca ptr
-// LLVM:   %[[NEW_RESULT:.*]] = alloca ptr
 // LLVM:   %[[PTR:.*]] = call nonnull ptr @_Znwm(i64 8) #[[ATTR_BUILTIN_NEW:.*]]
+// LLVM:   %[[NEW_RESULT:.*]] = alloca ptr
 // LLVM:   br label %[[EH_SCOPE:.*]]
 // LLVM: [[EH_SCOPE]]:
 // LLVM:   store ptr %[[PTR]], ptr %[[NEW_RESULT]]
@@ -89,9 +89,9 @@ A *b() {
 
 // CIR: cir.func {{.*}} @_Z1bv() -> !cir.ptr<!rec_A>{{.*}} {
 // CIR:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!cir.ptr<!rec_A>>
-// CIR:   %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_A>>
 // CIR:   %[[ALLOC_SIZE:.*]] = cir.const #cir.int<8> : !u64i
 // CIR:   %[[PTR:.*]] = cir.call @_Znwm(%[[ALLOC_SIZE]]) {{{.*}}builtin}
+// CIR:   %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_A>>
 // CIR:   cir.cleanup.scope {
 // CIR:     %[[PTR_A:.*]] = cir.cast bitcast %[[PTR]] : !cir.ptr<!void> -> !cir.ptr<!rec_A>
 // CIR:     cir.store{{.*}} %[[PTR_A]], %[[NEW_RESULT]] : !cir.ptr<!rec_A>, !cir.ptr<!cir.ptr<!rec_A>>
@@ -105,8 +105,8 @@ A *b() {
 
 // LLVM: define {{.*}} ptr @_Z1bv() {{.*}} personality ptr @__gxx_personality_v0 {
 // LLVM:   %[[RETVAL:.*]] = alloca ptr
-// LLVM:   %[[NEW_RESULT:.*]] = alloca ptr
 // LLVM:   %[[PTR:.*]] = call nonnull ptr @_Znwm(i64 8) #[[ATTR_BUILTIN_NEW]]
+// LLVM:   %[[NEW_RESULT:.*]] = alloca ptr
 // LLVM:   br label %[[EH_SCOPE:.*]]
 // LLVM: [[EH_SCOPE]]:
 // LLVM:   store ptr %[[PTR]], ptr %[[NEW_RESULT]]
@@ -179,9 +179,9 @@ B *c() {
 
 // CIR: cir.func {{.*}} @_Z1cv() -> !cir.ptr<!rec_B>{{.*}} {
 // CIR:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!cir.ptr<!rec_B>>
-// CIR:   %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_B>>
 // CIR:   %[[ALLOC_SIZE:.*]] = cir.const #cir.int<4> : !u64i
 // CIR:   %[[PTR:.*]] = cir.call @_ZN1BnwEm(%[[ALLOC_SIZE]]) : (!u64i) -> !cir.ptr<!void>
+// CIR:   %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_B>>
 // CIR:   cir.cleanup.scope {
 // CIR:     %[[PTR_B:.*]] = cir.cast bitcast %[[PTR]] : !cir.ptr<!void> -> !cir.ptr<!rec_B>
 // CIR:     cir.store{{.*}} %[[PTR_B]], %[[NEW_RESULT]] : !cir.ptr<!rec_B>, !cir.ptr<!cir.ptr<!rec_B>>
@@ -195,8 +195,8 @@ B *c() {
 
 // LLVM: define {{.*}} ptr @_Z1cv() {{.*}} personality ptr @__gxx_personality_v0 {
 // LLVM:   %[[RETVAL:.*]] = alloca ptr
-// LLVM:   %[[NEW_RESULT:.*]] = alloca ptr
 // LLVM:   %[[PTR:.*]] = call ptr @_ZN1BnwEm(i64 4)
+// LLVM:   %[[NEW_RESULT:.*]] = alloca ptr
 // LLVM:   br label %[[EH_SCOPE:.*]]
 // LLVM: [[EH_SCOPE]]:
 // LLVM:   store ptr %[[PTR]], ptr %[[NEW_RESULT]]
@@ -261,11 +261,11 @@ C *test_new_delete_conditional(bool cond) {
 // CIR:   %[[FALSE:.*]] = cir.const #false
 // CIR:   cir.store %[[FALSE]], %[[CLEANUP_COND]]
 // CIR:   %[[TERN_RESULT:.*]] = cir.ternary
-// CIR:     %[[PTR_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!cir.ptr<!void>>
-// CIR:     %[[SIZE_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!u64i>
-// CIR:     %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_C>>
 // CIR:     %[[ALLOC_SIZE:.*]] = cir.const #cir.int<1> : !u64i
 // CIR:     %[[NEW_PTR:.*]] = cir.call @_Znwm(%[[ALLOC_SIZE]])
+// CIR:     %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_C>>
+// CIR:     %[[PTR_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!cir.ptr<!void>>
+// CIR:     %[[SIZE_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!u64i>
 // CIR:     cir.store {{.*}}%[[NEW_PTR]], %[[PTR_SAVE]]
 // CIR:     cir.store {{.*}}%[[ALLOC_SIZE]], %[[SIZE_SAVE]]
 // CIR:     cir.cleanup.scope {
@@ -338,13 +338,13 @@ C *test_new_delete_conditional_with_placement(bool cond, int tag) {
 // CIR-LABEL: @_Z42test_new_delete_conditional_with_placementbi
 // CIR:   %[[CLEANUP_COND:.*]] = cir.alloca "cleanup.cond" {{.*}} : !cir.ptr<!cir.bool>
 // CIR:   %[[TERN_RESULT:.*]] = cir.ternary
-// CIR:     %[[PTR_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!cir.ptr<!void>>
-// CIR:     %[[SIZE_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!u64i>
-// CIR:     %[[TAG_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!s32i>
-// CIR:     %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_C>>
 // CIR:     %[[ONE:.*]] = cir.const #cir.int<1> : !u64i
 // CIR:     %[[TAG_VAL:.*]] = cir.load{{.*}}
 // CIR:     %[[NEW_PTR:.*]] = cir.call @_Znwmi(%[[ONE]], %[[TAG_VAL]])
+// CIR:     %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_C>>
+// CIR:     %[[PTR_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!cir.ptr<!void>>
+// CIR:     %[[SIZE_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!u64i>
+// CIR:     %[[TAG_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!s32i>
 // CIR:     cir.store{{.*}} %[[NEW_PTR]], %[[PTR_SAVE]]
 // CIR:     cir.store{{.*}} %[[ONE]], %[[SIZE_SAVE]]
 // CIR:     cir.cleanup.scope {
@@ -427,11 +427,11 @@ D *test_new_delete_conditional_with_size(bool cond) {
 // CIR:   %[[FALSE:.*]] = cir.const #false
 // CIR:   cir.store %[[FALSE]], %[[CLEANUP_COND]]
 // CIR:   cir.ternary
-// CIR:     %[[PTR_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!cir.ptr<!void>>
-// CIR:     %[[SIZE_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!u64i>
-// CIR:     %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_D>>
 // CIR:     %[[ALLOC_SIZE:.*]] = cir.const #cir.int<1> : !u64i
 // CIR:     %[[NEW_PTR:.*]] = cir.call @_Znwm(%[[ALLOC_SIZE]])
+// CIR:     %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_D>>
+// CIR:     %[[PTR_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!cir.ptr<!void>>
+// CIR:     %[[SIZE_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!u64i>
 // CIR:     cir.store {{.*}}%[[NEW_PTR]], %[[PTR_SAVE]]
 // CIR:     cir.store {{.*}}%[[ALLOC_SIZE]], %[[SIZE_SAVE]]
 // CIR:     cir.cleanup.scope {
@@ -502,14 +502,14 @@ D *test_new_delete_conditional_array(bool cond, int n) {
 // CIR:   %[[FALSE:.*]] = cir.const #false
 // CIR:   cir.store %[[FALSE]], %[[CLEANUP_COND]]
 // CIR:   cir.ternary
-// CIR:     %[[PTR_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!cir.ptr<!void>>
-// CIR:     %[[SIZE_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!u64i>
-// CIR:     %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_D>>
 // CIR:     %[[N:.*]] = cir.load {{.*}} : !cir.ptr<!s32i>, !s32i
 // CIR:     %[[N_EXT:.*]] = cir.cast integral %[[N]] : !s32i -> !s64i
 // CIR:     %result, %overflow = cir.add.overflow %{{.*}}, %{{.*}} : !u64i -> !u64i
 // CIR:     %[[ALLOC_SIZE:.*]] = cir.select
 // CIR:     %[[NEW_PTR:.*]] = cir.call @_Znam(%[[ALLOC_SIZE]])
+// CIR:     %[[NEW_RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_D>>
+// CIR:     %[[PTR_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!cir.ptr<!void>>
+// CIR:     %[[SIZE_SAVE:.*]] = cir.alloca "cond-cleanup.save" {{.*}} : !cir.ptr<!u64i>
 // CIR:     cir.store {{.*}}%[[NEW_PTR]], %[[PTR_SAVE]]
 // CIR:     cir.store {{.*}}%[[ALLOC_SIZE]], %[[SIZE_SAVE]]
 // CIR:     cir.cleanup.scope {

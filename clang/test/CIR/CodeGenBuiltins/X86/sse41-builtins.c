@@ -90,3 +90,16 @@ __m128 test_mm_blend_ps(__m128 V1, __m128 V2) {
   // OGCG: shufflevector <4 x float> %{{.*}}, <4 x float> %{{.*}}, <4 x i32> <i32 0, i32 5, i32 6, i32 3>
   return _mm_blend_ps(V1, V2, 6);
 }
+
+__m128 test_mm_round_ps_mxcsr(__m128 x) {
+  // CIR-LABEL: test_mm_round_ps_mxcsr
+  // CIR: %[[IMM:.*]] = cir.const #cir.int<12> : !s32i
+  // CIR: %{{.*}} = cir.call_llvm_intrinsic "x86.sse41.round.ps" %{{.*}}, %[[IMM]] : (!cir.vector<4 x !cir.float>, !s32i) -> !cir.vector<4 x !cir.float>
+
+  // LLVM-LABEL: test_mm_round_ps_mxcsr
+  // LLVM: call <4 x float> @llvm.x86.sse41.round.ps(<4 x float> %{{.*}}, i32 12)
+
+  // OGCG-LABEL: test_mm_round_ps_mxcsr
+  // OGCG: call <4 x float> @llvm.x86.sse41.round.ps(<4 x float> %{{.*}}, i32 12)
+  return _mm_round_ps(x, _MM_FROUND_CUR_DIRECTION | _MM_FROUND_NO_EXC);
+}

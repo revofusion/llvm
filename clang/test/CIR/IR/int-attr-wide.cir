@@ -1,0 +1,19 @@
+// RUN: cir-opt %s --verify-roundtrip | FileCheck %s
+
+!s128i_bitint = !cir.int<s, 128, bitint>
+!u128i_bitint = !cir.int<u, 128, bitint>
+
+module {
+  // Parsing these attributes constructs 128-bit APInts even though their
+  // spellings fit in the parser's signed or unsigned 64-bit input type.
+  // Round-trip verification exercises parsing, verification, and printing
+  // without narrowing the APInt to a native integer.
+  // CHECK-LABEL: cir.func @wide_int_attrs
+  cir.func @wide_int_attrs() {
+    // CHECK: cir.const #cir.int<-9223372036854775808> : !s128i_bitint
+    %0 = cir.const #cir.int<-9223372036854775808> : !s128i_bitint
+    // CHECK: cir.const #cir.int<18446744073709551615> : !u128i_bitint
+    %1 = cir.const #cir.int<18446744073709551615> : !u128i_bitint
+    cir.return
+  }
+}

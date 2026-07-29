@@ -403,6 +403,49 @@ void CIRGenFunction::emitAutoVarDecl(const VarDecl &d) {
   emitAutoVarCleanups(emission);
 }
 
+void CIRGenFunction::emitLoopConditionVariable(
+    const VarDecl &d, DeferredLoopConditionCleanup &condCleanup) {
+  assert(d.hasLocalStorage() && "loop condition variable is not local");
+
+  if (d.getType().getAddressSpace() == LangAS::opencl_local)
+    cgm.errorNYI(d.getSourceRange(),
+                 "emitLoopConditionVariable: OpenCL local address space");
+
+  CIRGenFunction::VarDeclContext varDeclCtx{*this, &d};
+  CIRGenFunction::AutoVarEmission emission = emitAutoVarAlloca(d);
+
+  const bool needsCleanup =
+      d.needsDestruction(getContext()) != QualType::DK_none ||
+      d.hasAttr<CleanupAttr>();
+  assert(!cir::MissingFeatures::emitLifetimeMarkers());
+
+  Address activeFlag = Address::invalid();
+  if (needsCleanup) {
+    mlir::Location loc = getLoc(d.getSourceRange());
+    activeFlag = createTempAllocaWithoutCast(
+        builder.getBoolTy(), CharUnits::One(), loc, "cond.cleanup.isactive",
+        /*arraySize=*/nullptr,
+        builder.getBestAllocaInsertPoint(getCurFunctionEntryBlock()));
+    // The loop cleanup structurally encloses initialization. Reset the flag on
+    // every evaluation so a throwing initializer does not destroy an object
+    // whose construction did not complete.
+    builder.createFlagStore(loc, false, activeFlag.getPointer());
+  }
+
+  emitAutoVarInit(emission);
+
+  if (needsCleanup) {
+    mlir::Location loc = getLoc(d.getSourceRange());
+    builder.createFlagStore(loc, true, activeFlag.getPointer());
+  }
+
+  DeferredLoopConditionCleanup::CaptureScope capture(condCleanup);
+  emitAutoVarCleanups(emission);
+
+  if (needsCleanup)
+    condCleanup.initWithActiveFlag(activeFlag);
+}
+
 void CIRGenFunction::emitVarDecl(const VarDecl &d) {
   // If the declaration has external storage, don't emit it now, allow it to be
   // emitted lazily on its first use.

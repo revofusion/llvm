@@ -1,0 +1,11 @@
+// RUN: cir-opt %s -verify-diagnostics
+
+!u8i = !cir.int<u, 8>
+
+module {
+  cir.func @unsigned_value_too_large() {
+    // expected-error@+1 {{integer value too large for the given type}}
+    %0 = cir.const #cir.int<256> : !u8i
+    cir.return
+  }
+}

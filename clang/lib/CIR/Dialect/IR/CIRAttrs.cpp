@@ -16,6 +16,7 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/ADT/SmallString.h"
 
 //===-----------------------------------------------------------------===//
 // RecordMembers
@@ -363,17 +364,26 @@ mlir::ParseResult parseIntLiteral(mlir::AsmParser &parser, llvm::APInt &value,
 
 void printIntLiteral(mlir::AsmPrinter &p, llvm::APInt value,
                      cir::IntTypeInterface ty) {
-  if (ty.isSigned())
-    p << value.getSExtValue();
-  else
-    p << value.getZExtValue();
+  mlir::Type rawType = ty;
+  auto intType = mlir::dyn_cast<cir::IntTypeInterface>(rawType);
+
+  llvm::SmallString<32> spelling;
+  value.toString(spelling, /*Radix=*/10,
+                 /*Signed=*/intType && intType.isSigned(),
+                 /*formatAsCLiteral=*/false);
+  p << spelling;
 }
 
 LogicalResult IntAttr::verify(function_ref<InFlightDiagnostic()> emitError,
                               cir::IntTypeInterface type, llvm::APInt value) {
-  if (value.getBitWidth() != type.getWidth())
+  mlir::Type rawType = type;
+  auto intType = mlir::dyn_cast<cir::IntTypeInterface>(rawType);
+  if (!intType)
+    return emitError() << "expected a CIR integer type";
+
+  if (value.getBitWidth() != intType.getWidth())
     return emitError() << "type and value bitwidth mismatch: "
-                       << type.getWidth() << " != " << value.getBitWidth();
+                       << intType.getWidth() << " != " << value.getBitWidth();
   return success();
 }
 

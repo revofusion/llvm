@@ -160,3 +160,58 @@ __m256i test1_mm256_insertf128_si256(__m256i a, __m128i b) {
   // OGCG-NEXT:    ret <4 x i64> [[TMP2]]
   return _mm256_insertf128_si256(a, b, 1);
 }
+
+__m256d test_mm256_permute2f128_pd(__m256d a, __m256d b) {
+  // CIR-LABEL: @test_mm256_permute2f128_pd(
+  // CIR: [[A:%.*]] = cir.load align(32) %0 : !cir.ptr<!cir.vector<4 x !cir.double>>, !cir.vector<4 x !cir.double>
+  // CIR: [[B:%.*]] = cir.load align(32) %1 : !cir.ptr<!cir.vector<4 x !cir.double>>, !cir.vector<4 x !cir.double>
+  // CIR: cir.vec.shuffle([[A]], [[B]] : !cir.vector<4 x !cir.double>) [#cir.int<2> : !s32i, #cir.int<3> : !s32i, #cir.int<6> : !s32i, #cir.int<7> : !s32i] : !cir.vector<4 x !cir.double>
+
+  // LLVM-LABEL: @test_mm256_permute2f128_pd(
+  // LLVM: [[LLVM_A:%.*]] = load <4 x double>, ptr %{{.*}}, align 32
+  // LLVM: [[LLVM_B:%.*]] = load <4 x double>, ptr %{{.*}}, align 32
+  // LLVM: shufflevector <4 x double> [[LLVM_A]], <4 x double> [[LLVM_B]], <4 x i32> <i32 2, i32 3, i32 6, i32 7>
+
+  // OGCG-LABEL: @test_mm256_permute2f128_pd(
+  // OGCG-SAME: <4 x double> {{[^%]*}}[[OGCG_A:%[^,]+]], <4 x double> {{[^%]*}}[[OGCG_B:%[^,)]+]])
+  // OGCG: shufflevector <4 x double> [[OGCG_A]], <4 x double> [[OGCG_B]], <4 x i32> <i32 2, i32 3, i32 6, i32 7>
+  return _mm256_permute2f128_pd(a, b, 0x31);
+}
+
+__m256 test_mm256_permute2f128_ps(__m256 a, __m256 b) {
+  // CIR-LABEL: @test_mm256_permute2f128_ps(
+  // CIR: [[A:%.*]] = cir.load align(32) %0 : !cir.ptr<!cir.vector<8 x !cir.float>>, !cir.vector<8 x !cir.float>
+  // CIR: [[B:%.*]] = cir.load align(32) %1 : !cir.ptr<!cir.vector<8 x !cir.float>>, !cir.vector<8 x !cir.float>
+  // CIR: cir.vec.shuffle([[B]], [[A]] : !cir.vector<8 x !cir.float>) [#cir.int<4> : !s32i, #cir.int<5> : !s32i, #cir.int<6> : !s32i, #cir.int<7> : !s32i, #cir.int<12> : !s32i, #cir.int<13> : !s32i, #cir.int<14> : !s32i, #cir.int<15> : !s32i] : !cir.vector<8 x !cir.float>
+
+  // LLVM-LABEL: @test_mm256_permute2f128_ps(
+  // LLVM: [[LLVM_A:%.*]] = load <8 x float>, ptr %{{.*}}, align 32
+  // LLVM: [[LLVM_B:%.*]] = load <8 x float>, ptr %{{.*}}, align 32
+  // LLVM: shufflevector <8 x float> [[LLVM_B]], <8 x float> [[LLVM_A]], <8 x i32> <i32 4, i32 5, i32 6, i32 7, i32 12, i32 13, i32 14, i32 15>
+
+  // OGCG-LABEL: @test_mm256_permute2f128_ps(
+  // OGCG-SAME: <8 x float> {{[^%]*}}[[OGCG_A:%[^,]+]], <8 x float> {{[^%]*}}[[OGCG_B:%[^,)]+]])
+  // OGCG: shufflevector <8 x float> [[OGCG_B]], <8 x float> [[OGCG_A]], <8 x i32> <i32 4, i32 5, i32 6, i32 7, i32 12, i32 13, i32 14, i32 15>
+  return _mm256_permute2f128_ps(a, b, 0x13);
+}
+
+__m256i test_mm256_permute2f128_si256(__m256i a, __m256i b) {
+  // CIR-LABEL: @test_mm256_permute2f128_si256(
+  // CIR: [[A:%.*]] = cir.cast bitcast %{{.*}} : !cir.vector<4 x !s64i> -> !cir.vector<8 x !s32i>
+  // CIR: [[B:%.*]] = cir.cast bitcast %{{.*}} : !cir.vector<4 x !s64i> -> !cir.vector<8 x !s32i>
+  // CIR: [[PERM:%.*]] = cir.vec.shuffle([[A]], [[B]] : !cir.vector<8 x !s32i>) [#cir.int<0> : !s32i, #cir.int<1> : !s32i, #cir.int<2> : !s32i, #cir.int<3> : !s32i, #cir.int<8> : !s32i, #cir.int<9> : !s32i, #cir.int<10> : !s32i, #cir.int<11> : !s32i] : !cir.vector<8 x !s32i>
+  // CIR: cir.cast bitcast [[PERM]] : !cir.vector<8 x !s32i> -> !cir.vector<4 x !s64i>
+
+  // LLVM-LABEL: @test_mm256_permute2f128_si256(
+  // LLVM: [[A:%.*]] = bitcast <4 x i64> %{{.*}} to <8 x i32>
+  // LLVM: [[B:%.*]] = bitcast <4 x i64> %{{.*}} to <8 x i32>
+  // LLVM: [[PERM:%.*]] = shufflevector <8 x i32> [[A]], <8 x i32> [[B]], <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 8, i32 9, i32 10, i32 11>
+  // LLVM: bitcast <8 x i32> [[PERM]] to <4 x i64>
+
+  // OGCG-LABEL: @test_mm256_permute2f128_si256(
+  // OGCG: [[A:%.*]] = bitcast <4 x i64> %{{.*}} to <8 x i32>
+  // OGCG: [[B:%.*]] = bitcast <4 x i64> %{{.*}} to <8 x i32>
+  // OGCG: [[PERM:%.*]] = shufflevector <8 x i32> [[A]], <8 x i32> [[B]], <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 8, i32 9, i32 10, i32 11>
+  // OGCG: bitcast <8 x i32> [[PERM]] to <4 x i64>
+  return _mm256_permute2f128_si256(a, b, 0x20);
+}

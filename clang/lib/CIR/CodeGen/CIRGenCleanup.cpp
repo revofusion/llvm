@@ -754,6 +754,11 @@ void *EHScopeStack::pushCleanup(CleanupKind kind, size_t size) {
       skipCleanupScope = true;
   }
 
+  // A loop condition variable's cleanups are represented by the loop op's
+  // per-evaluation cleanup region rather than a nested cir.cleanup.scope.
+  if (capturingLoopConditionCleanups)
+    skipCleanupScope = true;
+
   cir::CleanupScopeOp cleanupScope = nullptr;
   if (!skipCleanupScope) {
     CIRGenBuilderTy &builder = cgf->getBuilder();
@@ -923,21 +928,14 @@ void CIRGenFunction::deactivateCleanupBlock(EHScopeStack::stable_iterator c,
   scope.setActive(false);
 }
 
-static void emitCleanup(CIRGenFunction &cgf, cir::CleanupScopeOp cleanupScope,
-                        EHScopeStack::Cleanup *cleanup,
-                        EHScopeStack::Cleanup::Flags flags,
-                        Address activeFlag) {
+static void emitCleanupBody(CIRGenFunction &cgf,
+                            EHScopeStack::Cleanup *cleanup,
+                            EHScopeStack::Cleanup::Flags flags,
+                            Address activeFlag, mlir::Location loc) {
   CIRGenBuilderTy &builder = cgf.getBuilder();
-  mlir::Block &block = cleanupScope.getCleanupRegion().back();
-
-  mlir::OpBuilder::InsertionGuard guard(builder);
-  builder.setInsertionPointToStart(&block);
-
-  // Ask the cleanup to emit itself.
   assert(cgf.haveInsertPoint() && "expected insertion point");
 
   if (activeFlag.isValid()) {
-    mlir::Location loc = cleanupScope.getLoc();
     mlir::Value isActive = builder.createFlagLoad(loc, activeFlag.getPointer());
     cir::IfOp::create(builder, loc, isActive,
                       /*withElseRegion=*/false,
@@ -948,10 +946,24 @@ static void emitCleanup(CIRGenFunction &cgf, cir::CleanupScopeOp cleanupScope,
                                "cleanup ended with no insertion point?");
                         builder.createYield(loc);
                       });
-  } else {
-    cleanup->emit(cgf, flags);
-    assert(cgf.haveInsertPoint() && "cleanup ended with no insertion point?");
+    return;
   }
+
+  cleanup->emit(cgf, flags);
+  assert(cgf.haveInsertPoint() && "cleanup ended with no insertion point?");
+}
+
+static void emitCleanup(CIRGenFunction &cgf, cir::CleanupScopeOp cleanupScope,
+                        EHScopeStack::Cleanup *cleanup,
+                        EHScopeStack::Cleanup::Flags flags,
+                        Address activeFlag) {
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Block &block = cleanupScope.getCleanupRegion().back();
+
+  mlir::OpBuilder::InsertionGuard guard(builder);
+  builder.setInsertionPointToStart(&block);
+
+  emitCleanupBody(cgf, cleanup, flags, activeFlag, cleanupScope.getLoc());
 
   mlir::Block &cleanupRegionLastBlock = cleanupScope.getCleanupRegion().back();
   if (cleanupRegionLastBlock.empty() ||
@@ -1113,6 +1125,63 @@ void CIRGenFunction::popCleanupBlock(bool forDeactivation) {
   scope.markEmitted();
   ehStack.popCleanup();
   emitCleanup(*this, cleanupScope, cleanup, cleanupFlags, cleanupActiveFlag);
+}
+
+void CIRGenFunction::initLoopConditionCleanupsWithFlag(
+    EHScopeStack::stable_iterator depth, Address activeFlag) {
+  assert(activeFlag.isValid() && "condition cleanup needs an active flag");
+
+  for (auto it = ehStack.begin(), end = ehStack.find(depth); it != end; ++it) {
+    EHCleanupScope &scope = cast<EHCleanupScope>(*it);
+    assert(!scope.getCleanupScopeOp() &&
+           "captured loop-condition cleanup owns a cleanup scope");
+    assert(!scope.hasActiveFlag() && "cleanup already has an active flag");
+    scope.setActiveFlag(activeFlag);
+    scope.setTestFlagInNormalCleanup(scope.isNormalCleanup());
+    scope.setTestFlagInEHCleanup(scope.isEHCleanup());
+  }
+}
+
+void CIRGenFunction::emitLoopConditionCleanups(
+    EHScopeStack::stable_iterator depth, mlir::Location loc) {
+  while (ehStack.stable_begin() != depth) {
+    assert(isa<EHCleanupScope>(*ehStack.begin()) && "top not a cleanup!");
+    EHCleanupScope &scope = cast<EHCleanupScope>(*ehStack.begin());
+    assert(!scope.getCleanupScopeOp() &&
+           "captured loop-condition cleanup owns a cleanup scope");
+
+    EHScopeStack::Cleanup::Flags cleanupFlags;
+    if (scope.isNormalCleanup())
+      cleanupFlags.setIsNormalCleanupKind();
+    if (scope.isEHCleanup())
+      cleanupFlags.setIsEHCleanupKind();
+
+    Address activeFlag =
+        scope.shouldTestFlagInNormalCleanup() ||
+                scope.shouldTestFlagInEHCleanup()
+            ? scope.getActiveFlag()
+            : Address::invalid();
+
+    auto *cleanupSource = reinterpret_cast<char *>(scope.getCleanupBuffer());
+    alignas(EHScopeStack::ScopeStackAlignment) char
+        cleanupBufferStack[8 * sizeof(void *)];
+    std::unique_ptr<char[]> cleanupBufferHeap;
+    size_t cleanupSize = scope.getCleanupSize();
+    EHScopeStack::Cleanup *cleanup;
+    if (cleanupSize <= sizeof(cleanupBufferStack)) {
+      memcpy(cleanupBufferStack, cleanupSource, cleanupSize);
+      cleanup = reinterpret_cast<EHScopeStack::Cleanup *>(cleanupBufferStack);
+    } else {
+      cleanupBufferHeap.reset(new char[cleanupSize]);
+      memcpy(cleanupBufferHeap.get(), cleanupSource, cleanupSize);
+      cleanup =
+          reinterpret_cast<EHScopeStack::Cleanup *>(cleanupBufferHeap.get());
+    }
+
+    scope.markEmitted();
+    ehStack.popCleanup();
+    emitCleanupBody(*this, cleanup, cleanupFlags, activeFlag, loc);
+  }
 }
 
 /// Pops cleanup blocks until the given savepoint is reached.

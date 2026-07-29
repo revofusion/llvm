@@ -1281,10 +1281,14 @@ emitArrayConstant(CIRGenModule &cgm, mlir::Type desiredType,
     elements.back() = cir::ZeroAttr::get(fillerType);
     commonElementType = nullptr;
   } else if (elements.size() != arrayBound) {
-    elements.resize(arrayBound, filler);
-
-    if (filler.getType() != commonElementType)
+    // An array with no explicitly initialized elements still has a common
+    // element type: the filler's. Preserve the array representation instead
+    // of turning a homogeneous array into an anonymous packed record.
+    if (elements.empty())
+      commonElementType = filler.getType();
+    else if (filler.getType() != commonElementType)
       commonElementType = {};
+    elements.resize(arrayBound, filler);
   }
 
   if (commonElementType) {
@@ -1392,6 +1396,11 @@ private:
     // Handle attribute constant LValues.
     if (auto attr = mlir::dyn_cast<mlir::Attribute>(c.value)) {
       if (auto gv = mlir::dyn_cast<cir::GlobalViewAttr>(attr)) {
+        mlir::Type destTy = cgm.getTypes().convertTypeForMem(destType);
+        assert(!gv.getIndices() && "Global view is already indexed");
+        if (value.getLValueOffset().isZero())
+          return cir::GlobalViewAttr::get(destTy, gv.getSymbol());
+
         // The flat byte offset must be resolved against the *referenced
         // global's* actual storage type, not against the GlobalViewAttr's
         // declared pointee type. They can differ: e.g. a string literal
@@ -1403,15 +1412,21 @@ private:
         // This mirrors the direct-to-LLVM lowering, which builds the GEP over
         // the global's storage type (see CIRAttrToValue::visitCirAttr for
         // GlobalViewAttr).
-        mlir::Type baseTy =
-            mlir::cast<cir::PointerType>(gv.getType()).getPointee();
+        mlir::Type baseTy;
         if (mlir::Operation *symOp =
                 cgm.getGlobalValue(gv.getSymbol().getValue())) {
           if (auto globalOp = mlir::dyn_cast<cir::GlobalOp>(symOp))
             baseTy = globalOp.getSymType();
         }
-        mlir::Type destTy = cgm.getTypes().convertTypeForMem(destType);
-        assert(!gv.getIndices() && "Global view is already indexed");
+        if (!baseTy) {
+          auto ptrTy = mlir::dyn_cast<cir::PointerType>(gv.getType());
+          if (!ptrTy) {
+            cgm.errorNYI(
+                "ConstantLValue: non-zero offset on integer global view");
+            return {};
+          }
+          baseTy = ptrTy.getPointee();
+        }
         return cir::GlobalViewAttr::get(destTy, gv.getSymbol(),
                                         getOffset(baseTy));
       }
@@ -1436,7 +1451,7 @@ mlir::Attribute ConstantLValueEmitter::tryEmit() {
   // non-zero null pointer and addrspace casts that aren't trivially
   // represented in LLVM IR.
   mlir::Type destTy = cgm.getTypes().convertTypeForMem(destType);
-  assert(mlir::isa<cir::PointerType>(destTy));
+  assert((mlir::isa<cir::IntType, cir::PointerType>(destTy)));
 
   // If there's no base at all, this is a null or absolute pointer,
   // possibly cast back to an integer type.
@@ -1455,8 +1470,8 @@ mlir::Attribute ConstantLValueEmitter::tryEmit() {
   if (!result.hasOffsetApplied)
     value = applyOffset(result).value;
 
-  // Convert to the appropriate type; this could be an lvalue for
-  // an integer. FIXME: performAddrSpaceCast
+  // Convert to the appropriate type; an APValue lvalue can initialize either
+  // a pointer or an integer through a pointer-to-integer constant cast.
   if (mlir::isa<cir::PointerType>(destTy)) {
     if (auto attr = mlir::dyn_cast<mlir::Attribute>(value))
       return attr;
@@ -1464,7 +1479,20 @@ mlir::Attribute ConstantLValueEmitter::tryEmit() {
     return {};
   }
 
-  cgm.errorNYI("ConstantLValueEmitter: other?");
+  if (!mlir::isa<cir::IntType>(destTy)) {
+    cgm.errorNYI("ConstantLValueEmitter: unsupported destination type");
+    return {};
+  }
+
+  if (auto attr = mlir::dyn_cast<mlir::Attribute>(value)) {
+    if (auto globalView = mlir::dyn_cast<cir::GlobalViewAttr>(attr)) {
+      assert(globalView.getType() == destTy &&
+             "integer global view has unexpected type");
+      return globalView;
+    }
+  }
+  cgm.errorNYI(
+      "ConstantLValueEmitter: integer address without global provenance");
   return {};
 }
 
@@ -1495,15 +1523,16 @@ ConstantLValueEmitter::tryEmitBase(const APValue::LValueBase &base) {
       cir::FuncOp fop = cgm.getAddrOfFunction(fd);
       CIRGenBuilderTy &builder = cgm.getBuilder();
       mlir::MLIRContext *mlirContext = builder.getContext();
-      // Use the destination pointer type (e.g. struct field type), not
+      // Use the destination view type (e.g. a struct field type), not
       // fop.getFunctionType(), so initializers stay valid when a no-prototype
       // FuncOp is later replaced by a prototyped definition with the same
-      // symbol. CIR allows the view type to differ from the symbol's type.
-      mlir::Type ptrTy = cgm.getTypes().convertTypeForMem(destType);
-      assert(mlir::isa<cir::PointerType>(ptrTy) &&
-             "function address in constant must be a pointer");
+      // symbol. An integer view retains the function symbol and its provenance
+      // until GlobalViewAttr lowering emits the required ptrtoint.
+      mlir::Type viewTy = cgm.getTypes().convertTypeForMem(destType);
+      assert((mlir::isa<cir::IntType, cir::PointerType>(viewTy)) &&
+             "function address constant must initialize pointer or integer");
       return cir::GlobalViewAttr::get(
-          ptrTy,
+          viewTy,
           mlir::FlatSymbolRefAttr::get(mlirContext, fop.getSymNameAttr()));
     }
 
@@ -2095,10 +2124,7 @@ mlir::Attribute ConstantEmitter::tryEmitPrivate(const APValue &value,
     const auto *fieldDecl = cast<FieldDecl>(memberDecl);
     const RecordDecl *parent = fieldDecl->getParent();
     const unsigned memberIndex =
-        parent->isUnion()
-            ? fieldDecl->getFieldIndex()
-            : cgm.getTypes().getCIRGenRecordLayout(parent).getCIRFieldNo(
-                  fieldDecl);
+        cgm.getTypes().getCIRGenRecordLayout(parent).getCIRFieldNo(fieldDecl);
     return builder.getDataMemberAttr(cirTy, memberIndex);
   }
   case APValue::LValue:

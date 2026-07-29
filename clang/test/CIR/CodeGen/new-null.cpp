@@ -28,25 +28,29 @@ S *test_nothrow_new() {
 
 // CHECK: cir.func {{.*}} @_Z16test_nothrow_newv()
 // CHECK:   %[[ALLOC:.*]] = cir.call @_ZnwmRKSt9nothrow_t({{.*}}) nothrow
+// CHECK:   %[[RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!rec_S>>
+// CHECK:   %[[NULL_S:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!rec_S>
+// CHECK:   cir.store {{.*}} %[[NULL_S]], %[[RESULT]]
 // CHECK:   %[[NULL:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!void>
 // CHECK:   %[[IS_NOT_NULL:.*]] = cir.cmp ne %[[ALLOC]], %[[NULL]] : !cir.ptr<!void>
 // CHECK:   cir.if %[[IS_NOT_NULL]] {
 // CHECK:     cir.cleanup.scope {
 // CHECK:       %[[CAST:.*]] = cir.cast bitcast %[[ALLOC]] : !cir.ptr<!void> -> !cir.ptr<!rec_S>
+// CHECK:       cir.store {{.*}} %[[CAST]], %[[RESULT]]
 // CHECK:       cir.call @_ZN1SC1Ev(%[[CAST]])
 // CHECK:     } cleanup eh {
 // CHECK:       cir.call @_ZdlPvRKSt9nothrow_t(%[[ALLOC]], {{.*}}) nothrow
 // CHECK:     } loc(
 // CHECK:   } loc(
-// CHECK-NEXT: %[[LOADED:.*]] = cir.load
-// CHECK:   %[[NULL_S:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!rec_S>
-// CHECK:   cir.select if %[[IS_NOT_NULL]] then %[[LOADED]] else %[[NULL_S]]
-
+// CHECK-NEXT: %[[LOADED:.*]] = cir.load {{.*}} %[[RESULT]]
 // LLVM: define {{.*}} ptr @_Z16test_nothrow_newv() {{.*}}personality ptr @__gxx_personality_v0
 // LLVM:   %[[ALLOC:.*]] = call {{.*}} ptr @_ZnwmRKSt9nothrow_t(i64 noundef 4, {{.*}})
+// LLVM:   %[[RESULT:.*]] = alloca ptr
+// LLVM:   store ptr null, ptr %[[RESULT]]
 // LLVM:   %[[CMP:.*]] = icmp ne ptr %[[ALLOC]], null
 // LLVM:   br i1 %[[CMP]], label %[[NOT_NULL:.*]], label %[[CONT:.*]]
 // LLVM: [[NOT_NULL]]:
+// LLVM:   store ptr %[[ALLOC]], ptr %[[RESULT]]
 // LLVM:   invoke void @_ZN1SC1Ev({{.*}} %[[ALLOC]])
 // LLVM:     to label {{.*}} unwind label %[[LPAD:.*]]
 // LLVM: [[LPAD]]:
@@ -55,7 +59,7 @@ S *test_nothrow_new() {
 // LLVM:   call void @_ZdlPvRKSt9nothrow_t({{.*}} %[[ALLOC]], {{.*}})
 // LLVM:   resume
 // LLVM: [[CONT]]:
-// LLVM:   select i1 %[[CMP]], ptr {{.*}}, ptr null
+// LLVM:   load ptr, ptr %[[RESULT]]
 
 // OGCG: define {{.*}} ptr @_Z16test_nothrow_newv() {{.*}}personality ptr @__gxx_personality_v0
 // OGCG:   %[[ALLOC:.*]] = call {{.*}} ptr @_ZnwmRKSt9nothrow_t(i64 noundef 4, {{.*}})
@@ -81,29 +85,34 @@ int *test_nothrow_new_init() {
 
 // CHECK: cir.func {{.*}} @_Z21test_nothrow_new_initv()
 // CHECK:   %[[ALLOC:.*]] = cir.call @_ZnwmRKSt9nothrow_t({{.*}}) nothrow
+// CHECK:   %[[RESULT:.*]] = cir.alloca "__new_result" {{.*}} : !cir.ptr<!cir.ptr<!s32i>>
+// CHECK:   %[[NULL_I:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!s32i>
+// CHECK:   cir.store {{.*}} %[[NULL_I]], %[[RESULT]]
 // CHECK:   %[[NULL:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!void>
 // CHECK:   %[[IS_NOT_NULL:.*]] = cir.cmp ne %[[ALLOC]], %[[NULL]] : !cir.ptr<!void>
 // CHECK:   cir.if %[[IS_NOT_NULL]] {
 // CHECK:     cir.cleanup.scope {
 // CHECK:       %[[CAST:.*]] = cir.cast bitcast %[[ALLOC]] : !cir.ptr<!void> -> !cir.ptr<!s32i>
+// CHECK:       cir.store {{.*}} %[[CAST]], %[[RESULT]]
 // CHECK:       %[[FORTY_TWO:.*]] = cir.const #cir.int<42> : !s32i
 // CHECK:       cir.store {{.*}} %[[FORTY_TWO]], %[[CAST]]
 // CHECK:     } cleanup eh {
 // CHECK:       cir.call @_ZdlPvRKSt9nothrow_t(%[[ALLOC]], {{.*}}) nothrow
 // CHECK:     } loc(
 // CHECK:   } loc(
-// CHECK-NEXT: %[[LOADED_I:.*]] = cir.load
-// CHECK:   %[[NULL_I:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!s32i>
-// CHECK:   cir.select if %[[IS_NOT_NULL]] then %[[LOADED_I]] else %[[NULL_I]]
+// CHECK-NEXT: %[[LOADED_I:.*]] = cir.load {{.*}} %[[RESULT]]
 
 // LLVM: define {{.*}} ptr @_Z21test_nothrow_new_initv()
 // LLVM:   %[[ALLOC:.*]] = call {{.*}} ptr @_ZnwmRKSt9nothrow_t(i64 noundef 4, {{.*}})
+// LLVM:   %[[RESULT:.*]] = alloca ptr
+// LLVM:   store ptr null, ptr %[[RESULT]]
 // LLVM:   %[[CMP:.*]] = icmp ne ptr %[[ALLOC]], null
 // LLVM:   br i1 %[[CMP]], label %[[NOT_NULL:.*]], label %[[CONT:.*]]
 // LLVM: [[NOT_NULL]]:
+// LLVM:   store ptr %[[ALLOC]], ptr %[[RESULT]]
 // LLVM:   store i32 42, ptr %[[ALLOC]], align 4
 // LLVM: [[CONT]]:
-// LLVM:   select i1 %[[CMP]], ptr {{.*}}, ptr null
+// LLVM:   load ptr, ptr %[[RESULT]]
 
 // OGCG: define {{.*}} ptr @_Z21test_nothrow_new_initv()
 // OGCG:   %[[ALLOC:.*]] = call {{.*}} ptr @_ZnwmRKSt9nothrow_t(i64 noundef 4, {{.*}})

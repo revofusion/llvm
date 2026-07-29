@@ -287,6 +287,11 @@ public:
   clang::ASTContext &getASTContext() const { return astContext; }
   const clang::TargetInfo &getTarget() const { return target; }
   const clang::CodeGenOptions &getCodeGenOpts() const { return codeGenOpts; }
+  /// Aeneas producer metadata is an opt-in extension of textual CIR, so
+  /// ordinary Clang CIR invocations remain byte-for-byte compatible.
+  bool shouldEmitAeneasMetadata() const {
+    return codeGenOpts.EmitAeneasCIRMetadata;
+  }
   clang::DiagnosticsEngine &getDiags() const { return diags; }
   CIRGenTypes &getTypes() { return genTypes; }
   const clang::LangOptions &getLangOpts() const { return langOpts; }
@@ -1083,9 +1088,11 @@ private:
   llvm::MapVector<clang::GlobalDecl, llvm::StringRef> mangledDeclNames;
   llvm::StringMap<clang::GlobalDecl, llvm::BumpPtrAllocator> manglings;
 
-  // FIXME: should we use llvm::TrackingVH<mlir::Operation> here?
-  llvm::MapVector<StringRef, mlir::Operation *> replacements;
-  /// Call replaceAllUsesWith on all pairs in replacements.
+  // Store replacement targets by exact symbol name: the corresponding
+  // operation may be recreated or erased before replacements are applied.
+  llvm::StringMap<mlir::StringAttr> replacements;
+  /// Resolve replacement chains and rewrite all module-scope symbol uses in
+  /// one batched traversal before erasing any source functions.
   void applyReplacements();
 
   bool getCPUAndFeaturesAttributes(GlobalDecl gd,

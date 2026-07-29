@@ -413,6 +413,105 @@ unsigned test_builtin_popcountg_u8(unsigned char x) {
 // OGCG-LABEL: _Z25test_builtin_popcountg_u8h
 // OGCG:         %{{.+}} = call i8 @llvm.ctpop.i8(i8 %{{.+}})
 
+int test_builtin_popcountg_u5_bitint(unsigned _BitInt(5) x) {
+  return __builtin_popcountg(x);
+}
+
+// CIR-LABEL: test_builtin_popcountg_u5_bitint
+// CIR:         [[EXT5:%.+]] = cir.cast integral {{%.+}} : !cir.int<u, 5, bitint> -> !u8i
+// CIR-NEXT:    [[POPCOUNT5:%.+]] = cir.popcount [[EXT5]] : !u8i
+// CIR-NEXT:    {{%.+}} = cir.cast integral [[POPCOUNT5]] : !u8i -> !s32i
+
+// LLVM-LABEL: test_builtin_popcountg_u5_bitint
+// LLVM:         [[EXT5:%.*]] = zext i5 {{%.*}} to i8
+// LLVM-NEXT:    [[POPCOUNT5:%.*]] = call i8 @llvm.ctpop.i8(i8 [[EXT5]])
+// LLVM-NEXT:    [[RESULT5:%.*]] = zext i8 [[POPCOUNT5]] to i32
+
+int test_builtin_popcountg_u60_bitint(unsigned _BitInt(60) x) {
+  return __builtin_popcountg(x);
+}
+
+// CIR-LABEL: test_builtin_popcountg_u60_bitint
+// CIR:         [[EXT60:%.+]] = cir.cast integral {{%.+}} : !cir.int<u, 60, bitint> -> !u64i
+// CIR-NEXT:    [[POPCOUNT60:%.+]] = cir.popcount [[EXT60]] : !u64i
+// CIR-NEXT:    {{%.+}} = cir.cast integral [[POPCOUNT60]] : !u64i -> !s32i
+
+// LLVM-LABEL: test_builtin_popcountg_u60_bitint
+// LLVM:         [[EXT60:%.*]] = zext i60 {{%.*}} to i64
+// LLVM-NEXT:    [[POPCOUNT60:%.*]] = call i64 @llvm.ctpop.i64(i64 [[EXT60]])
+// LLVM-NEXT:    [[RESULT60:%.*]] = trunc i64 [[POPCOUNT60]] to i32
+
+int test_builtin_popcountg_u8_bitint(unsigned _BitInt(8) x) {
+  return __builtin_popcountg(x);
+}
+
+// CIR-LABEL: test_builtin_popcountg_u8_bitint
+// CIR:         [[POPCOUNT8:%.+]] = cir.popcount {{%.+}} : !u8i_bitint
+// CIR-NEXT:    {{%.+}} = cir.cast integral [[POPCOUNT8]] : !u8i_bitint -> !s32i
+
+// LLVM-LABEL: test_builtin_popcountg_u8_bitint
+// LLVM:         [[POPCOUNT8:%.*]] = call i8 @llvm.ctpop.i8(i8 {{%.*}})
+// LLVM-NEXT:    [[RESULT8:%.*]] = zext i8 [[POPCOUNT8]] to i32
+
+int test_builtin_popcountg_u16_bitint(unsigned _BitInt(16) x) {
+  return __builtin_popcountg(x);
+}
+
+// CIR-LABEL: test_builtin_popcountg_u16_bitint
+// CIR:         [[POPCOUNT16:%.+]] = cir.popcount {{%.+}} : !u16i_bitint
+// CIR-NEXT:    {{%.+}} = cir.cast integral [[POPCOUNT16]] : !u16i_bitint -> !s32i
+
+// LLVM-LABEL: test_builtin_popcountg_u16_bitint
+// LLVM:         [[POPCOUNT16:%.*]] = call i16 @llvm.ctpop.i16(i16 {{%.*}})
+// LLVM-NEXT:    [[RESULT16:%.*]] = zext i16 [[POPCOUNT16]] to i32
+
+int test_builtin_popcountg_u32_bitint(unsigned _BitInt(32) x) {
+  return __builtin_popcountg(x);
+}
+
+// CIR-LABEL: test_builtin_popcountg_u32_bitint
+// CIR:         [[POPCOUNT32:%.+]] = cir.popcount {{%.+}} : !u32i_bitint
+// CIR-NEXT:    {{%.+}} = cir.cast integral [[POPCOUNT32]] : !u32i_bitint -> !s32i
+
+// LLVM-LABEL: test_builtin_popcountg_u32_bitint
+// LLVM:         [[POPCOUNT32:%.*]] = call i32 @llvm.ctpop.i32(i32 {{%.*}})
+
+int test_builtin_popcountg_u64_bitint(unsigned _BitInt(64) x) {
+  return __builtin_popcountg(x);
+}
+
+// CIR-LABEL: test_builtin_popcountg_u64_bitint
+// CIR:         [[POPCOUNT64:%.+]] = cir.popcount {{%.+}} : !u64i_bitint
+// CIR-NEXT:    {{%.+}} = cir.cast integral [[POPCOUNT64]] : !u64i_bitint -> !s32i
+
+// LLVM-LABEL: test_builtin_popcountg_u64_bitint
+// LLVM:         [[POPCOUNT64:%.*]] = call i64 @llvm.ctpop.i64(i64 {{%.*}})
+// LLVM-NEXT:    [[RESULT64:%.*]] = trunc i64 [[POPCOUNT64]] to i32
+
+int test_builtin_popcountg_u128_bitint(unsigned _BitInt(128) x) {
+  return __builtin_popcountg(x);
+}
+
+// CIR-LABEL: test_builtin_popcountg_u128_bitint
+// CIR:         [[POPCOUNT128:%.+]] = cir.popcount {{%.+}} : !u128i_bitint
+// CIR-NEXT:    {{%.+}} = cir.cast integral [[POPCOUNT128]] : !u128i_bitint -> !s32i
+
+// LLVM-LABEL: test_builtin_popcountg_u128_bitint
+// LLVM:         [[POPCOUNT128:%.*]] = call i128 @llvm.ctpop.i128(i128 {{%.*}})
+// LLVM-NEXT:    [[RESULT128:%.*]] = trunc i128 [[POPCOUNT128]] to i32
+
+int test_builtin_popcountg_u129_bitint(unsigned _BitInt(129) x) {
+  return __builtin_popcountg(x);
+}
+
+// CIR-LABEL: test_builtin_popcountg_u129_bitint
+// CIR:         [[POPCOUNT129:%.+]] = cir.call_llvm_intrinsic "ctpop" {{%.+}} : (!cir.int<u, 129, bitint>) -> !cir.int<u, 129, bitint>
+// CIR-NEXT:    {{%.+}} = cir.cast integral [[POPCOUNT129]] : !cir.int<u, 129, bitint> -> !s32i
+
+// LLVM-LABEL: test_builtin_popcountg_u129_bitint
+// LLVM:         [[POPCOUNT129:%.*]] = call i129 @llvm.ctpop.i129(i129 {{%.*}})
+// LLVM-NEXT:    [[RESULT129:%.*]] = trunc i129 [[POPCOUNT129]] to i32
+
 #if defined(__SIZEOF_INT128__) && __SIZEOF_INT128__ == 16
 using u128 = unsigned __int128;
 

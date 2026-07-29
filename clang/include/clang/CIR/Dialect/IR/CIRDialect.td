@@ -46,6 +46,7 @@ def CIR_Dialect : Dialect {
     static llvm::StringRef getHotAttrName() { return "hot"; }
     static llvm::StringRef getNoDuplicatesAttrName() { return "noduplicate"; }
     static llvm::StringRef getConvergentAttrName() { return "convergent"; }
+    static llvm::StringRef getAlwaysInlineAttrName() { return "always_inline"; }
     static llvm::StringRef getNoUnwindAttrName() { return "nounwind"; }
     static llvm::StringRef getModuleLevelAsmAttrName() { return "cir.module_asm"; }
     static llvm::StringRef getGlobalCtorsAttrName() { return "cir.global_ctors"; }

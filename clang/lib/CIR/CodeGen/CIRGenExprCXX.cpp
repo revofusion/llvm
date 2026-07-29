@@ -122,7 +122,7 @@ CIRGenFunction::emitCXXMemberPointerCallExpr(const CXXMemberCallExpr *ce,
   assert(!cir::MissingFeatures::opCallMustTail());
   return emitCall(cgm.getTypes().arrangeCXXMethodCall(argsList, fpt, required,
                                                       /*PrefixSize=*/0),
-                  callee, returnValue, argsList, nullptr, loc);
+                  callee, returnValue, argsList, nullptr, loc, ce);
 }
 
 RValue CIRGenFunction::emitCXXMemberOrOperatorMemberCallExpr(
@@ -320,7 +320,7 @@ RValue CIRGenFunction::emitCXXMemberOrOperatorCall(
   assert((ce || currSrcLoc) && "expected source location");
   mlir::Location loc = ce ? getLoc(ce->getExprLoc()) : *currSrcLoc;
   assert(!cir::MissingFeatures::opCallMustTail());
-  return emitCall(fnInfo, callee, returnValue, args, nullptr, loc);
+  return emitCall(fnInfo, callee, returnValue, args, nullptr, loc, ce);
 }
 
 static void emitNullBaseClassInitialization(CIRGenFunction &cgf,
@@ -1744,11 +1744,27 @@ mlir::Value CIRGenFunction::emitCXXNewExpr(const CXXNewExpr *e) {
     elementTy = convertTypeForMem(e->getAllocatedType());
   else
     elementTy = convertTypeForMem(allocType);
+  // The result is formed inside the new-delete cleanup and, for a nothrow
+  // allocation, inside the allocation null-check. Materialize the merge slot
+  // in the block enclosing both regions so neither a cleanup-local nor a
+  // branch-local SSA value escapes its defining region.
+  Address resultPtr = Address::invalid();
+  if (useNewDeleteCleanup || nullCheck) {
+    mlir::Type resultTy = builder.getPointerTo(elementTy);
+    resultPtr = createTempAlloca(
+        resultTy, allocation.getAlignment(), getLoc(e->getSourceRange()),
+        "__new_result", /*arraySize=*/nullptr, /*alloca=*/nullptr,
+        builder.saveInsertionPoint());
+    if (nullCheck) {
+      mlir::Value nullPtr =
+          builder.getNullPtr(resultTy, getLoc(e->getSourceRange())).getResult();
+      builder.createStore(getLoc(e->getSourceRange()), nullPtr, resultPtr);
+    }
+  }
 
   // Lambda that emits the init sequence: cleanup setup, cookie init,
   // bitcast + initializer, and cleanup deactivation.
   Address result = Address::invalid();
-  Address resultPtr = Address::invalid();
   auto emitInit = [&]() {
     EHScopeStack::stable_iterator operatorDeleteCleanup;
     mlir::Operation *cleanupDominator = nullptr;
@@ -1760,9 +1776,6 @@ mlir::Value CIRGenFunction::emitCXXNewExpr(const CXXNewExpr *e) {
       cleanupDominator =
           cir::UnreachableOp::create(builder, getLoc(e->getSourceRange()))
               .getOperation();
-      resultPtr = createTempAlloca(builder.getPointerTo(elementTy),
-                                   allocation.getAlignment(),
-                                   getLoc(e->getSourceRange()), "__new_result");
     }
 
     if (allocSize != allocSizeWithoutCookie) {
@@ -1774,8 +1787,8 @@ mlir::Value CIRGenFunction::emitCXXNewExpr(const CXXNewExpr *e) {
     result = builder.createElementBitCast(getLoc(e->getSourceRange()),
                                           allocation, elementTy);
 
-    // Store the result pointer before initialization so that it is available
-    // to the cleanup if the initializer throws.
+    // Store the result before initialization. The normal continuation reloads
+    // it only after the cleanup and allocation-null-check regions have closed.
     if (resultPtr.isValid())
       builder.createStore(getLoc(e->getSourceRange()), result.getPointer(),
                           resultPtr);
@@ -1794,57 +1807,32 @@ mlir::Value CIRGenFunction::emitCXXNewExpr(const CXXNewExpr *e) {
     emitNewInitializer(*this, e, allocType, elementTy, result, numElements,
                        allocSizeWithoutCookie);
 
-    // Deactivate the 'operator delete' cleanup if we finished
-    // initialization.
+    // Deactivate the 'operator delete' cleanup if initialization completed.
+    // The enclosing-block result slot carries the pointer past this scope.
     if (useNewDeleteCleanup) {
       deactivateCleanupBlock(operatorDeleteCleanup, cleanupDominator);
       cleanupDominator->erase();
-      cir::LoadOp loadResult =
-          builder.createLoad(getLoc(e->getSourceRange()), resultPtr);
-      result = result.withPointer(loadResult.getResult());
     }
   };
 
-  cir::IfOp nullCheckOp;
   if (nullCheck) {
+    mlir::Location loc = getLoc(e->getSourceRange());
     mlir::Value isNotNull = builder.createPtrIsNotNull(allocation.getPointer());
-    nullCheckOp =
-        cir::IfOp::create(builder, getLoc(e->getSourceRange()), isNotNull,
-                          /*withElseRegion=*/false,
-                          /*thenBuilder=*/
-                          [&](mlir::OpBuilder &, mlir::Location loc) {
-                            emitInit();
-                            builder.createYield(loc);
-                          });
+    cir::IfOp ifOp = cir::IfOp::create(
+        builder, loc, isNotNull,
+        /*withElseRegion=*/false,
+        /*thenBuilder=*/
+        [&](mlir::OpBuilder &, mlir::Location) { emitInit(); });
+    terminateStructuredRegionBody(ifOp.getThenRegion(), loc);
   } else {
     emitInit();
   }
 
-  mlir::Value resultValue = result.getPointer();
+  if (resultPtr.isValid())
+    return builder.createLoad(getLoc(e->getSourceRange()), resultPtr)
+        .getResult();
 
-  if (nullCheck) {
-    mlir::Type resultTy = resultValue.getType();
-
-    // If we needed a NewDeleteCleanup, allocation may have been modified
-    // inside the cir.if (e.g. by cookie adjustment). Use the result stored
-    // in the alloca instead, since the alloca dominates this point.
-    mlir::Value trueVal;
-    if (useNewDeleteCleanup) {
-      trueVal = builder.createLoad(getLoc(e->getSourceRange()), resultPtr)
-                    .getResult();
-    } else {
-      trueVal = allocation.getPointer();
-    }
-    if (trueVal.getType() != resultTy)
-      trueVal = builder.createBitcast(trueVal, resultTy);
-    mlir::Value nullPtr =
-        builder.getNullPtr(resultTy, getLoc(e->getSourceRange())).getResult();
-    resultValue =
-        builder.createSelect(getLoc(e->getSourceRange()),
-                             nullCheckOp.getCondition(), trueVal, nullPtr);
-  }
-
-  return resultValue;
+  return result.getPointer();
 }
 
 void CIRGenFunction::emitDeleteCall(const FunctionDecl *deleteFD,

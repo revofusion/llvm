@@ -187,3 +187,21 @@ __m256i test_mm256_alignr_epi8(__m256i a, __m256i b) {
   // OGCG: shufflevector <32 x i8> {{.*}}, <32 x i8> {{.*}}, <32 x i32> <i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15, i32 32, i32 33, i32 18, i32 19, i32 20, i32 21, i32 22, i32 23, i32 24, i32 25, i32 26, i32 27, i32 28, i32 29, i32 30, i32 31, i32 48, i32 49>
   return _mm256_alignr_epi8(a, b, 2);
 }
+
+__m256i test_mm256_permute2x128_si256(__m256i a, __m256i b) {
+  // CIR-LABEL: test_mm256_permute2x128_si256
+  // CIR: [[B:%.*]] = cir.load align(32) %1 : !cir.ptr<!cir.vector<4 x !s64i>>, !cir.vector<4 x !s64i>
+  // CIR: [[ZERO:%.*]] = cir.const #cir.zero : !cir.vector<4 x !s64i>
+  // CIR: cir.vec.shuffle([[ZERO]], [[B]] : !cir.vector<4 x !s64i>) [#cir.int<0> : !s32i, #cir.int<1> : !s32i, #cir.int<6> : !s32i, #cir.int<7> : !s32i] : !cir.vector<4 x !s64i>
+
+  // LLVM-LABEL: test_mm256_permute2x128_si256
+  // LLVM: %{{.*}} = load <4 x i64>, ptr %{{.*}}, align 32
+  // LLVM: [[LLVM_B:%.*]] = load <4 x i64>, ptr %{{.*}}, align 32
+  // LLVM: shufflevector <4 x i64> zeroinitializer, <4 x i64> [[LLVM_B]], <4 x i32> <i32 0, i32 1, i32 6, i32 7>
+
+  // OGCG-LABEL: test_mm256_permute2x128_si256
+  // OGCG: %{{.*}} = load <4 x i64>, ptr %{{.*}}, align 32
+  // OGCG: [[OGCG_B:%.*]] = load <4 x i64>, ptr %{{.*}}, align 32
+  // OGCG: shufflevector <4 x i64> zeroinitializer, <4 x i64> [[OGCG_B]], <4 x i32> <i32 0, i32 1, i32 6, i32 7>
+  return _mm256_permute2x128_si256(a, b, 0x38);
+}

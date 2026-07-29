@@ -605,13 +605,14 @@ public:
 
   cir::StoreOp createStore(mlir::Location loc, mlir::Value val, Address dst,
                            bool isVolatile = false,
+                           bool isNontemporal = false,
                            mlir::IntegerAttr align = {},
                            cir::SyncScopeKindAttr scope = {},
                            cir::MemOrderAttr order = {}) {
     if (!align)
       align = getAlignmentAttr(dst.getAlignment());
     return CIRBaseBuilderTy::createStore(loc, val, dst.getPointer(), isVolatile,
-                                         align, scope, order);
+                                         isNontemporal, align, scope, order);
   }
 
   /// Create a cir.complex.real_ptr operation that derives a pointer to the real

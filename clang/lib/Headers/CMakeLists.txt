@@ -405,6 +405,21 @@ set(llvm_libc_wrapper_files
   llvm_libc_wrappers/time.h
 )
 
+# compiler-rt is commonly built through LLVM_ENABLE_RUNTIMES in a separate
+# CMake invocation. Make its public fuzzer header part of Clang's resource
+# headers even when compiler-rt is not configured in this build.
+set(compiler_rt_fuzzer_include_dir
+  "${LLVM_MAIN_SRC_DIR}/../compiler-rt/include")
+if(EXISTS
+   "${compiler_rt_fuzzer_include_dir}/fuzzer/FuzzedDataProvider.h")
+  set(compiler_rt_fuzzer_files
+    fuzzer/FuzzedDataProvider.h
+    )
+  set(compiler_rt_resource_header_targets
+    fuzzer-resource-headers
+    )
+endif()
+
 set(zos_wrapper_files
   zos_wrappers/builtins.h
 )
@@ -454,6 +469,11 @@ function(clang_generate_header td_option td_file out_file)
   set(generated_files ${generated_files} PARENT_SCOPE)
 endfunction(clang_generate_header)
 
+
+# Copy compiler-rt's public fuzzer headers to the Clang resource directory.
+foreach( f ${compiler_rt_fuzzer_files} )
+  copy_header_to_output_dir(${compiler_rt_fuzzer_include_dir} ${f})
+endforeach( f )
 
 # Copy header files from the source directory to the build directory
 foreach( f ${files} ${cuda_wrapper_files} ${cuda_wrapper_bits_files}
@@ -569,6 +589,7 @@ add_dependencies("clang-resource-headers"
                  "openmp-resource-headers"
                  "llvm-libc-resource-headers"
                  "windows-resource-headers"
+                 ${compiler_rt_resource_header_targets}
                  "utility-resource-headers")
 
 # Core/common headers
@@ -601,6 +622,10 @@ add_header_target("openmp-resource-headers" ${openmp_wrapper_files})
 add_header_target("llvm-offload-resource-headers" ${llvm_libc_wrapper_files})
 add_header_target("windows-resource-headers" ${windows_only_files})
 add_header_target("utility-resource-headers" ${utility_files})
+if(compiler_rt_fuzzer_files)
+  add_header_target("fuzzer-resource-headers"
+                    "${compiler_rt_fuzzer_include_dir}/fuzzer/FuzzedDataProvider.h")
+endif()
 
 get_clang_resource_dir(header_install_dir SUBDIR include)
 target_include_directories(clang-resource-headers INTERFACE
@@ -614,6 +639,13 @@ install(
   FILES ${files} ${generated_files}
   DESTINATION ${header_install_dir}
   COMPONENT clang-resource-headers)
+
+if(compiler_rt_fuzzer_files)
+  install(
+    FILES "${compiler_rt_fuzzer_include_dir}/fuzzer/FuzzedDataProvider.h"
+    DESTINATION ${header_install_dir}/fuzzer
+    COMPONENT clang-resource-headers)
+endif()
 
 install(
   FILES ${cuda_wrapper_files}
@@ -654,6 +686,14 @@ install(
   FILES ${zos_wrapper_files}
   DESTINATION ${header_install_dir}/zos_wrappers
   COMPONENT clang-resource-headers)
+
+if(compiler_rt_fuzzer_files)
+  install(
+    FILES "${compiler_rt_fuzzer_include_dir}/fuzzer/FuzzedDataProvider.h"
+    DESTINATION ${header_install_dir}/fuzzer
+    EXCLUDE_FROM_ALL
+    COMPONENT fuzzer-resource-headers)
+endif()
 
 #############################################################
 # Install rules for separate header lists
@@ -908,6 +948,11 @@ if (NOT LLVM_ENABLE_IDE)
                            DEPENDS webassembly-resource-headers
                            COMPONENT webassembly-resource-headers)
 
+  if(compiler_rt_fuzzer_files)
+    add_llvm_install_targets(install-fuzzer-resource-headers
+                             DEPENDS fuzzer-resource-headers
+                             COMPONENT fuzzer-resource-headers)
+  endif()
   add_llvm_install_targets(install-hlsl-resource-headers
                            DEPENDS hlsl-resource-headers
                            COMPONENT hlsl-resource-headers)

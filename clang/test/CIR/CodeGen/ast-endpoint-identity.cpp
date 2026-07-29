@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++17 -fclangir -emit-cir %s -o - | FileCheck %s
+// RUN: %clang -target x86_64-unknown-linux-gnu -std=c++17 -emit-cir %s -o - | FileCheck %s --check-prefix=REPLACE
 
 struct Base {};
 struct Derived : Base {};
@@ -45,6 +46,33 @@ struct Destroy {
 void implicitDestroy() { Destroy value; }
 
 void explicitDestroy(Destroy *value) { value->~Destroy(); }
+
+using size_t = __SIZE_TYPE__;
+void *operator new(size_t, void *) noexcept;
+
+struct AliasDestroy {
+  int value;
+  explicit AliasDestroy(int input = 0) : value(input) {}
+  AliasDestroy(const AliasDestroy &other) : value(other.value) {}
+  ~AliasDestroy() {}
+};
+
+template <class T, class... Args>
+T *constructAlias(T *location, Args &&...args) {
+  return ::new (location) T(static_cast<Args &&>(args)...);
+}
+
+template <class T>
+void explicitDestroyTemplate(T *value) {
+  value->~T();
+}
+
+void instantiateExplicitDestroyTemplate(AliasDestroy *value) {
+  constructAlias(value, 1);
+  explicitDestroyTemplate(value);
+}
+
+void automaticAliasDestroy() { AliasDestroy value; }
 
 // CHECK-DAG: cir.global{{.*}}@__const._Z14memberPointersv.nullMethod{{.*}}ast_member_pointer_target = {pointee_kind = "function", record_usr = "c:@S@Owner"}
 // CHECK-DAG: cir.global{{.*}}@__const._Z14memberPointersv.method{{.*}}ast_member_pointer_target = {pointee_kind = "function", record_usr = "c:@S@Owner"}
@@ -109,3 +137,16 @@ void explicitDestroy(Destroy *value) { value->~Destroy(); }
 
 // CHECK-LABEL: cir.func{{.*}}@_Z15explicitDestroyP7Destroy
 // CHECK: cir.call{{.*}}ast_destructor_call = {callee_symbol = "_ZN7DestroyD1Ev", destructor_usr = "{{[^"]+}}", is_explicit = true, variant = "complete"}
+
+// Replacing the complete destructor with its emitted base entry point must
+// normalize both halves of the exact producer identity.
+// REPLACE-LABEL: cir.func{{.*}}explicitDestroyTemplateI12AliasDestroy
+// REPLACE: cir.call{{.*}}@_ZN12AliasDestroyD2Ev{{.*}}ast_destructor_call = {callee_symbol = "_ZN12AliasDestroyD2Ev", destructor_usr = "{{[^"]+}}", is_explicit = true, variant = "base"}
+
+// Function replacement must also normalize the lifecycle identity stored on
+// the automatic object that observes the constructor and destructor calls.
+// REPLACE-LABEL: cir.func{{.*}}@_Z21automaticAliasDestroyv
+// REPLACE: cir.alloca "value"{{.*}}ast_automatic_object_identity = {begin_raw = {{[0-9]+}} : i64, cleanup_kind = "cxx_destructor", constructor_symbol = "_ZN12AliasDestroyC2Ei"
+// REPLACE-SAME: destructor_symbol = "_ZN12AliasDestroyD2Ev"
+// REPLACE: cir.call @_ZN12AliasDestroyC2Ei
+// REPLACE: cir.call @_ZN12AliasDestroyD2Ev
