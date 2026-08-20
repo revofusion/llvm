@@ -14,6 +14,7 @@
 #include "CIRGenConstantEmitter.h"
 #include "CIRGenFunction.h"
 #include "CIRGenModule.h"
+#include "CIRGenTypes.h"
 #include "CIRGenValue.h"
 #include "TargetInfo.h"
 #include "mlir/Dialect/Ptr/IR/MemorySpaceInterfaces.h"
@@ -47,48 +48,27 @@ static mlir::Location getFieldLocationWithIdentity(CIRGenFunction &cgf,
     return loc;
 
   const RecordDecl *record = field->getParent();
-  llvm::SmallString<256> memberUSR;
-  llvm::SmallString<256> declaringRecordUSR;
-  if (!record || clang::index::generateUSRForDecl(field, memberUSR) ||
-      clang::index::generateUSRForDecl(record, declaringRecordUSR) ||
-      memberUSR.empty() || declaringRecordUSR.empty())
+  const std::optional<std::string> memberID =
+      fieldDeclIdentity(cgf.getCIRGenModule(), field);
+  const mlir::StringAttr declaringRecordAttr =
+      record ? cgf.getCIRGenModule().exactRecordUSRAttr(record)
+             : mlir::StringAttr{};
+  const std::optional<std::string> declaringRecordID =
+      declaringRecordAttr
+          ? std::optional<std::string>(declaringRecordAttr.getValue().str())
+          : std::nullopt;
+  if (!memberID.has_value() || !declaringRecordID.has_value() ||
+      memberID->empty() || declaringRecordID->empty())
     return loc;
 
   mlir::MLIRContext *context = &cgf.getMLIRContext();
   llvm::SmallVector<mlir::NamedAttribute, 2> metadata;
   metadata.emplace_back("ast_member_decl_usr",
-                        mlir::StringAttr::get(context, memberUSR));
+                        mlir::StringAttr::get(context, *memberID));
   metadata.emplace_back("ast_declaring_record_usr",
-                        mlir::StringAttr::get(context, declaringRecordUSR));
+                        mlir::StringAttr::get(context, *declaringRecordID));
   return mlir::FusedLoc::get(
       {loc}, mlir::DictionaryAttr::get(context, metadata), context);
-}
-
-/// Attach source declaration identity and the AST physical offset to the
-/// operation that materializes a field address. The offset is deliberately
-/// recorded in bits, matching ASTContext::getFieldOffset, so consumers never
-/// need to infer it from CIR field indexes.
-static void setFieldIdentityAttrs(CIRGenFunction &cgf, mlir::Value address,
-                                  const FieldDecl *field) {
-  if (!field)
-    return;
-  const RecordDecl *record = field->getParent();
-  llvm::SmallString<256> memberUSR;
-  llvm::SmallString<256> declaringRecordUSR;
-  if (!record || clang::index::generateUSRForDecl(field, memberUSR) ||
-      clang::index::generateUSRForDecl(record, declaringRecordUSR) ||
-      memberUSR.empty() || declaringRecordUSR.empty())
-    return;
-  mlir::Operation *op = address.getDefiningOp();
-  if (!op)
-    return;
-  op->setAttr("ast_member_decl_usr",
-              mlir::StringAttr::get(&cgf.getMLIRContext(), memberUSR));
-  op->setAttr("ast_declaring_record_usr",
-              mlir::StringAttr::get(&cgf.getMLIRContext(), declaringRecordUSR));
-  op->setAttr("ast_member_offset_bits",
-              cgf.getBuilder().getI64IntegerAttr(static_cast<int64_t>(
-                  cgf.getContext().getFieldOffset(field))));
 }
 
 /// Get the address of a zero-sized field within a record. Zero-sized fields
@@ -158,9 +138,9 @@ Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
   // For most cases fieldName is the same as field->getName() but for lambdas,
   // which do not currently carry the name, so it can be passed down from the
   // CaptureStmt.
-  mlir::Value addr = builder.createGetMember(loc, fieldPtr, base.getPointer(),
-                                             fieldName, idx);
-  setFieldIdentityAttrs(*this, addr, field);
+  mlir::Value addr =
+      builder.createGetMember(loc, fieldPtr, base.getPointer(), fieldName, idx);
+  cgm.setFieldEndpointMetadata(addr.getDefiningOp(), field);
 
   // If the field is potentially overlapping, the record member uses the base
   // subobject type. Cast to the complete object pointer type expected by
@@ -456,7 +436,8 @@ void CIRGenFunction::emitStoreThroughExtVectorComponentLValue(RValue src,
 }
 
 void CIRGenFunction::emitStoreThroughLValue(RValue src, LValue dst,
-                                            bool isInit) {
+                                            bool isInit,
+                                            QualType sourceType) {
   if (!dst.isSimple()) {
     if (dst.isVectorElt()) {
       // Read/modify/write the vector, inserting the new element
@@ -473,7 +454,7 @@ void CIRGenFunction::emitStoreThroughLValue(RValue src, LValue dst,
       return emitStoreThroughExtVectorComponentLValue(src, dst);
 
     assert(dst.isBitField() && "Unknown LValue type");
-    emitStoreThroughBitfieldLValue(src, dst);
+    emitStoreThroughBitfieldLValue(src, dst, sourceType);
     return;
 
     cgm.errorNYI(dst.getPointer().getLoc(),
@@ -576,8 +557,8 @@ static bool isAAPCS(const TargetInfo &targetInfo) {
   return targetInfo.getABI().starts_with("aapcs");
 }
 
-mlir::Value CIRGenFunction::emitStoreThroughBitfieldLValue(RValue src,
-                                                           LValue dst) {
+mlir::Value CIRGenFunction::emitStoreThroughBitfieldLValue(
+    RValue src, LValue dst, QualType sourceType) {
 
   const CIRGenBitFieldInfo &info = dst.getBitFieldInfo();
   mlir::Type resLTy = convertTypeForMem(dst.getType());
@@ -589,9 +570,16 @@ mlir::Value CIRGenFunction::emitStoreThroughBitfieldLValue(RValue src,
 
   assert(currSrcLoc && "must pass in source location");
 
-  return builder.createSetBitfield(*currSrcLoc, resLTy, ptr,
-                                   ptr.getElementType(), src.getValue(), info,
-                                   dst.isVolatileQualified(), useVoaltile);
+  mlir::Value result = builder.createSetBitfield(
+      *currSrcLoc, resLTy, ptr, ptr.getElementType(), src.getValue(), info,
+      dst.isVolatileQualified(), useVoaltile);
+  auto set = result.getDefiningOp<cir::SetBitfieldOp>();
+  assert(set && "bit-field store builder must return cir.set_bitfield");
+  if (sourceType.isNull())
+    sourceType = dst.getType();
+  cgm.setBitfieldStoreMetadata(set.getOperation(), sourceType, dst.getType(),
+                               set.getBitfieldInfo().getStorageType());
+  return result;
 }
 
 RValue CIRGenFunction::emitLoadOfBitfieldLValue(LValue lv, SourceLocation loc) {
@@ -621,7 +609,7 @@ Address CIRGenFunction::getAddrOfBitFieldStorage(LValue base,
   auto rec = cast<cir::RecordType>(base.getAddress().getElementType());
   cir::GetMemberOp sea = getBuilder().createGetMember(
       loc, fieldPtr, base.getPointer(), field->getName(), index);
-  setFieldIdentityAttrs(*this, sea.getResult(), field);
+  cgm.setFieldEndpointMetadata(sea.getOperation(), field);
   CharUnits offset = CharUnits::fromQuantity(
       rec.getElementOffset(cgm.getDataLayout().layout, index));
   return Address(sea, base.getAlignment().alignmentAtOffset(offset));
@@ -867,6 +855,11 @@ mlir::Value CIRGenFunction::emitLoadOfScalar(Address addr, bool isVolatile,
   assert(!cir::MissingFeatures::opLoadEmitScalarRangeCheck());
 
   mlir::Value loadOp = builder.createLoad(getLoc(loc), addr, isVolatile);
+  // A member-pointer load names its target class in the AST regardless of
+  // where the storage lives (heap, global array, aggregate member). Publish
+  // that typed fact on the load so consumers never reconstruct it from the
+  // anonymous ABI carrier record.
+  cgm.setMemberPointerTargetMetadata(loadOp.getDefiningOp(), ty);
   mlir::Value result = emitFromMemory(loadOp, ty);
   if (!ty->isBooleanType() && ty->hasBooleanRepresentation())
     assert(result.getType() == convertType(ty) &&
@@ -1959,6 +1952,98 @@ void CIRGenFunction::emitAnyExprToMem(const Expr *e, Address location,
   llvm_unreachable("bad evaluation kind");
 }
 
+namespace {
+
+/// Collect the CXXBindTemporaryExpr nodes which can produce the value of one
+/// MaterializeTemporaryExpr. This follows only value-preserving wrappers and
+/// result alternatives. In particular, it never descends into constructor or
+/// call arguments, whose temporary objects own different physical storage.
+class MaterializedTemporaryCleanupBinderCollector {
+public:
+  void collect(const Expr *expr) {
+    if (!expr)
+      return;
+    expr = expr->IgnoreParens();
+
+    if (const auto *binding = dyn_cast<CXXBindTemporaryExpr>(expr)) {
+      for (const CXXBindTemporaryExpr *existing : bindings) {
+        if (existing == binding) {
+          ambiguous = true;
+          return;
+        }
+      }
+      bindings.push_back(binding);
+      return;
+    }
+
+    // A nested materialization owns a different alloca. Do not let its
+    // cleanup identity leak onto the outer temporary's storage.
+    if (isa<MaterializeTemporaryExpr>(expr))
+      return;
+    if (const auto *cleanups = dyn_cast<ExprWithCleanups>(expr))
+      return collect(cleanups->getSubExpr());
+    if (const auto *defaultArg = dyn_cast<CXXDefaultArgExpr>(expr))
+      return collect(defaultArg->getExpr());
+    if (const auto *defaultInit = dyn_cast<CXXDefaultInitExpr>(expr))
+      return collect(defaultInit->getExpr());
+    if (const auto *constant = dyn_cast<ConstantExpr>(expr))
+      return collect(constant->getSubExpr());
+    if (const auto *substitution = dyn_cast<SubstNonTypeTemplateParmExpr>(expr))
+      return collect(substitution->getReplacement());
+    if (const auto *generic = dyn_cast<GenericSelectionExpr>(expr))
+      return collect(generic->getResultExpr());
+    if (const auto *choice = dyn_cast<ChooseExpr>(expr))
+      return collect(choice->getChosenSubExpr());
+    if (const auto *opaque = dyn_cast<OpaqueValueExpr>(expr))
+      return collect(opaque->getSourceExpr());
+
+    if (const auto *conditional = dyn_cast<AbstractConditionalOperator>(expr)) {
+      collect(conditional->getTrueExpr());
+      collect(conditional->getFalseExpr());
+      return;
+    }
+
+    if (const auto *cast = dyn_cast<CastExpr>(expr)) {
+      switch (cast->getCastKind()) {
+      case CK_NoOp:
+      // Aggregate codegen emits these same-type result conversions by
+      // visiting their subexpression directly. In particular, a functional
+      // cast used as a member-call base wraps its exact CXXBindTemporaryExpr
+      // in CK_ConstructorConversion.
+      case CK_ConstructorConversion:
+      case CK_UserDefinedConversion:
+      case CK_DerivedToBase:
+      case CK_UncheckedDerivedToBase:
+        return collect(cast->getSubExpr());
+      default:
+        return;
+      }
+    }
+
+    if (const auto *member = dyn_cast<MemberExpr>(expr)) {
+      if (!member->isArrow()) {
+        if (const auto *field = dyn_cast<FieldDecl>(member->getMemberDecl());
+            field && !field->isBitField() &&
+            !field->getType()->isReferenceType())
+          return collect(member->getBase());
+      }
+      return;
+    }
+
+    if (const auto *binary = dyn_cast<BinaryOperator>(expr)) {
+      if (binary->getOpcode() == BO_Comma)
+        return collect(binary->getRHS());
+      if (binary->getOpcode() == BO_PtrMemD)
+        return collect(binary->getLHS());
+    }
+  }
+
+  llvm::SmallVector<const CXXBindTemporaryExpr *, 2> bindings;
+  bool ambiguous = false;
+};
+
+} // namespace
+
 void CIRGenFunction::setMaterializedTemporaryIdentity(
     const MaterializeTemporaryExpr *temporary, Address address) {
   // The alloca result is the lifetime token followed by the cleanup machinery.
@@ -1968,42 +2053,82 @@ void CIRGenFunction::setMaterializedTemporaryIdentity(
   // declaration. The opaque instance token distinguishes distinct evaluations
   // of the same AST node, such as two uses of one default argument.
   cir::AllocaOp alloca = address.getUnderlyingAllocaOp();
-  if (!alloca || alloca.getAstMaterializeTemporaryIdentityAttr())
+  if (!alloca)
     return;
-  // Region builders may emit this alloca while their enclosing structured
-  // operation is still detached. curFn remains the authoritative owner.
-  auto function = mlir::dyn_cast_or_null<cir::FuncOp>(curFn);
-  SourceLocation begin = temporary->getBeginLoc();
-  SourceLocation end = temporary->getEndLoc();
-  if (!function || begin.isInvalid() || end.isInvalid())
-    return;
+  cgm.setObjectStorageMetadata(alloca.getOperation(), temporary->getType());
 
-  CIRGenBuilderTy &builder = getBuilder();
-  mlir::NamedAttrList identity;
-  identity.set("function",
-               mlir::FlatSymbolRefAttr::get(function.getSymNameAttr()));
-  identity.set("begin_raw", builder.getI64IntegerAttr(begin.getRawEncoding()));
-  identity.set("end_raw", builder.getI64IntegerAttr(end.getRawEncoding()));
-  std::optional<uint64_t> declarationOrdinal =
-      getTemporaryDeclarationOrdinal(temporary);
-  if (!declarationOrdinal)
-    return;
-  identity.set("declaration_ordinal",
-               builder.getI64IntegerAttr(*declarationOrdinal));
-  mlir::StringAttr instanceToken;
-  if (mlir::ArrayAttr identities = alloca.getAstTemporaryObjectIdentitiesAttr();
-      identities && !identities.empty()) {
-    if (mlir::DictionaryAttr temporaryIdentity =
-            mlir::dyn_cast<mlir::DictionaryAttr>(*identities.begin()))
+  if (!alloca.getAstMaterializeTemporaryIdentityAttr()) {
+    // Region builders may emit this alloca while their enclosing structured
+    // operation is still detached. curFn remains the authoritative owner.
+    auto function = mlir::dyn_cast_or_null<cir::FuncOp>(curFn);
+    auto global = mlir::dyn_cast_or_null<cir::GlobalOp>(curFn);
+    SourceLocation begin = temporary->getBeginLoc();
+    SourceLocation end = temporary->getEndLoc();
+    if ((!function && !global) || begin.isInvalid() || end.isInvalid())
+      return;
+
+    CIRGenBuilderTy &builder = getBuilder();
+    mlir::NamedAttrList identity;
+    identity.set("owner", mlir::FlatSymbolRefAttr::get(
+                              function ? function.getSymNameAttr()
+                                       : global.getSymNameAttr()));
+    identity.set("owner_kind",
+                 builder.getStringAttr(function ? "function" : "global"));
+    if (function)
+      identity.set("function",
+                   mlir::FlatSymbolRefAttr::get(function.getSymNameAttr()));
+    identity.set("begin_raw",
+                 builder.getI64IntegerAttr(begin.getRawEncoding()));
+    identity.set("end_raw", builder.getI64IntegerAttr(end.getRawEncoding()));
+    std::optional<uint64_t> declarationOrdinal =
+        getMaterializedTemporaryDeclarationOrdinal(temporary);
+    if (!declarationOrdinal)
+      return;
+    identity.set("declaration_ordinal",
+                 builder.getI64IntegerAttr(*declarationOrdinal));
+    mlir::StringAttr instanceToken;
+    if (mlir::ArrayAttr identities =
+            alloca.getAstTemporaryObjectIdentitiesAttr();
+        identities && !identities.empty()) {
+      if (mlir::DictionaryAttr temporaryIdentity =
+              mlir::dyn_cast<mlir::DictionaryAttr>(*identities.begin()))
+        instanceToken =
+            temporaryIdentity.getAs<mlir::StringAttr>("instance_token");
+    }
+    if (!instanceToken)
       instanceToken =
-          temporaryIdentity.getAs<mlir::StringAttr>("instance_token");
+          builder.getStringAttr(getMaterializedTemporaryInstanceToken());
+    identity.set("instance_token", instanceToken);
+    alloca.setAstMaterializeTemporaryIdentityAttr(
+        identity.getDictionary(&getMLIRContext()));
   }
-  if (!instanceToken)
-    instanceToken =
-        builder.getStringAttr(getMaterializedTemporaryInstanceToken());
-  identity.set("instance_token", instanceToken);
-  alloca.setAstMaterializeTemporaryIdentityAttr(
-      identity.getDictionary(&getMLIRContext()));
+
+  // Bind every exact result alternative before construction starts. Cleanup
+  // scopes can snapshot the alloca's identity list while emitting a branch, so
+  // attaching identities lazily from the later aggregate visitor can leave a
+  // structurally valid cleanup with a partial or absent producer list.
+  MaterializedTemporaryCleanupBinderCollector collector;
+  collector.collect(temporary->getSubExpr());
+  if (collector.ambiguous) {
+    cgm.errorNYI(temporary->getSourceRange(),
+                 "materialized temporary has an ambiguous exact "
+                 "CXXBindTemporaryExpr producer");
+    return;
+  }
+  const Expr *storageExpr =
+      temporary->getSubExpr()->skipRValueSubobjectAdjustments();
+  if (collector.bindings.empty() &&
+      storageExpr->getType().isDestructedType() ==
+          QualType::DK_cxx_destructor &&
+      !setMaterializedConversionTemporaryObjectIdentity(temporary, address)) {
+    cgm.errorNYI(temporary->getSourceRange(),
+                 "materialized temporary cleanup has no exact "
+                 "CXXBindTemporaryExpr or conversion-constructor producer");
+    return;
+  }
+  for (const CXXBindTemporaryExpr *binding : collector.bindings)
+    setCXXBindTemporaryObjectIdentity(binding, binding->getTemporary(),
+                                      address);
 }
 
 static Address createReferenceTemporary(CIRGenFunction &cgf,
@@ -2343,7 +2468,8 @@ LValue CIRGenFunction::emitBinaryOperatorLValue(const BinaryOperator *e) {
 
     SourceLocRAIIObject loc{*this, getLoc(e->getSourceRange())};
     if (lv.isBitField())
-      emitStoreThroughBitfieldLValue(rv, lv);
+      emitStoreThroughBitfieldLValue(
+          rv, lv, e->getRHS()->IgnoreParenImpCasts()->getType());
     else
       emitStoreThroughLValue(rv, lv);
 
@@ -2583,9 +2709,8 @@ RValue CIRGenFunction::emitCall(clang::QualType calleeTy,
   assert(!cir::MissingFeatures::opCallMustTail());
 
   cir::CIRCallOpInterface callOp;
-  RValue callResult =
-      emitCall(funcInfo, callee, returnValue, args, &callOp,
-               getLoc(e->getExprLoc()), e);
+  RValue callResult = emitCall(funcInfo, callee, returnValue, args, &callOp,
+                               getLoc(e->getExprLoc()), e);
 
   assert(!cir::MissingFeatures::generateDebugInfo());
 
@@ -2985,8 +3110,13 @@ mlir::Value CIRGenFunction::createDummyValue(mlir::Location loc,
 Address CIRGenFunction::createMemTempWithoutCast(QualType ty,
                                                  mlir::Location loc,
                                                  const Twine &name) {
-  return createTempAllocaWithoutCast(
+  Address result = createTempAllocaWithoutCast(
       convertTypeForMem(ty), getContext().getTypeAlignInChars(ty), loc, name);
+  if (cir::AllocaOp tempAlloca = result.getUnderlyingAllocaOp()) {
+    cgm.setObjectStorageMetadata(tempAlloca.getOperation(), ty);
+    cgm.setObjectArrayAllocationMetadata(tempAlloca.getOperation(), ty);
+  }
+  return result;
 }
 
 Address CIRGenFunction::createMemTemp(QualType ty, mlir::Location loc,
@@ -3004,8 +3134,11 @@ Address CIRGenFunction::createMemTemp(QualType ty, CharUnits align,
   Address result =
       createTempAlloca(convertTypeForMem(ty), /*destAddrSpace=*/{}, align, loc,
                        name, /*arraySize=*/nullptr, alloca, ip);
-  if (cir::AllocaOp tempAlloca = result.getUnderlyingAllocaOp())
+  if (cir::AllocaOp tempAlloca = result.getUnderlyingAllocaOp()) {
     cgm.setMemberPointerTargetMetadata(tempAlloca.getOperation(), ty);
+    cgm.setObjectStorageMetadata(tempAlloca.getOperation(), ty);
+    cgm.setObjectArrayAllocationMetadata(tempAlloca.getOperation(), ty);
+  }
   if (ty->isConstantMatrixType()) {
     assert(!cir::MissingFeatures::matrixType());
     cgm.errorNYI(loc, "temporary matrix value");

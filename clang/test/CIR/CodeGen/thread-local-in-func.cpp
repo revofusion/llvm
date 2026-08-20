@@ -117,7 +117,7 @@ void test_ctor(int param) {
 //
 // CIR-BOTH:   %[[GET_CONST_TLS_INIT:.*]] = cir.get_global thread_local static_local @_ZZ9test_ctoriE10const_init : !cir.ptr<!rec_Ctor>
 // CIR-BOTH:   %[[FIVE:.*]] = cir.const #cir.int<5> : !s32i
-// CIR-BOTH:   cir.call @_ZN4CtorC1Ei(%[[GET_CONST_TLS_INIT]], %[[FIVE]]) : (!cir.ptr<!rec_Ctor> {{.*}}) -> ()
+// CIR-BOTH:   cir.call @_ZN4CtorC1Ei(%[[GET_CONST_TLS_INIT]], %[[FIVE]]) {{.*}} : (!cir.ptr<!rec_Ctor> {{.*}}) -> ()
 // CIR-BEFORE-LPP:   cir.yield
 //
 // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s8i
@@ -140,7 +140,7 @@ void test_ctor(int param) {
 // CIR-BOTH:   %[[ADD1:.*]] = cir.add nsw %[[LOAD_PARAM]], %[[LOAD_LOCAL]] : !s32i
 // CIR-BOTH:   %[[CALL:.*]] = cir.call @_Z5get_iv() : () -> (!s32i {{.*}})
 // CIR-BOTH:   %[[ADD2:.*]] = cir.add nsw %[[ADD1]], %[[CALL]] : !s32i
-// CIR-BOTH:   cir.call @_ZN4CtorC1Ei(%[[GET_TLS_INIT]], %[[ADD2]]) : (!cir.ptr<!rec_Ctor> {{.*}}) -> ()
+// CIR-BOTH:   cir.call @_ZN4CtorC1Ei(%[[GET_TLS_INIT]], %[[ADD2]]) {{.*}} : (!cir.ptr<!rec_Ctor> {{.*}}) -> ()
 // CIR-BEFORE-LPP:   cir.yield
 //
 // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s8i
@@ -252,7 +252,7 @@ void test_ctordtor(int param) {
 // CIR-BEFORE-LLP: cir.local_init thread_local @_ZZ13test_ctordtoriE10const_init ctor {
 // CIR-BEFORE-LPP:   %[[GET_CONST_TLS_INIT:.*]] = cir.get_global thread_local static_local @_ZZ13test_ctordtoriE10const_init : !cir.ptr<!rec_CtorDtor>
 // CIR-BEFORE-LPP:   %[[FIVE:.*]] = cir.const #cir.int<5> : !s32i
-// CIR-BEFORE-LPP:   cir.call @_ZN8CtorDtorC1Ei(%[[GET_CONST_TLS_INIT]], %[[FIVE:.*]]) : (!cir.ptr<!rec_CtorDtor> {{.*}}) -> ()
+// CIR-BEFORE-LPP:   cir.call @_ZN8CtorDtorC1Ei(%[[GET_CONST_TLS_INIT]], %[[FIVE:.*]]) {{.*}} : (!cir.ptr<!rec_CtorDtor> {{.*}}) -> ()
 // CIR-BEFORE-LPP:   cir.yield
 // CIR-BEFORE-LPP: } dtor 
 // CIR-BEFORE-LPP:   %[[GET_TLS_DEL:.*]] = cir.get_global thread_local static_local @_ZZ13test_ctordtoriE10const_init : !cir.ptr<!rec_CtorDtor>
@@ -267,7 +267,7 @@ void test_ctordtor(int param) {
 // CIR: cir.if %[[IS_UNINIT]] {
 // CIR:   %[[GET_CONST_TLS_INIT:.*]] = cir.get_global thread_local static_local @_ZZ13test_ctordtoriE10const_init : !cir.ptr<!rec_CtorDtor>
 // CIR:   %[[FIVE:.*]] = cir.const #cir.int<5> : !s32i
-// CIR:   cir.call @_ZN8CtorDtorC1Ei(%[[GET_CONST_TLS_INIT]], %[[FIVE:.*]]) : (!cir.ptr<!rec_CtorDtor> {{.*}}) -> ()
+// CIR:   cir.call @_ZN8CtorDtorC1Ei(%[[GET_CONST_TLS_INIT]], %[[FIVE:.*]]) {{.*}} : (!cir.ptr<!rec_CtorDtor> {{.*}}) -> ()
 // CIR:   %[[GET_CONST_TLS_DEL:.*]] = cir.get_global thread_local static_local @_ZZ13test_ctordtoriE10const_init : !cir.ptr<!rec_CtorDtor>
 // CIR:   %[[GET_DEL_FUNC:.*]] = cir.get_global @_ZN8CtorDtorD1Ev : !cir.ptr<!cir.func<(!cir.ptr<!rec_CtorDtor>)>>
 // CIR:   %[[DEL_FUNC_DECAY:.*]] = cir.cast bitcast %[[GET_DEL_FUNC]] : !cir.ptr<!cir.func<(!cir.ptr<!rec_CtorDtor>)>> -> !cir.ptr<!cir.func<(!cir.ptr<!void>)>>
@@ -286,7 +286,7 @@ void test_ctordtor(int param) {
 // CIR-BEFORE-LPP:   %[[ADD1:.*]] = cir.add nsw %[[LOAD_PARAM]], %[[LOAD_LOCAL]] : !s32i
 // CIR-BEFORE-LPP:   %[[CALL:.*]] = cir.call @_Z5get_iv() : () -> (!s32i {{.*}})
 // CIR-BEFORE-LPP:   %[[ADD2:.*]] = cir.add nsw %[[ADD1]], %[[CALL]] : !s32i
-// CIR-BEFORE-LPP:   cir.call @_ZN8CtorDtorC1Ei(%[[GET_TLS_INIT]], %[[ADD2]]) : (!cir.ptr<!rec_CtorDtor> {{.*}}) -> ()
+// CIR-BEFORE-LPP:   cir.call @_ZN8CtorDtorC1Ei(%[[GET_TLS_INIT]], %[[ADD2]]) {{.*}} : (!cir.ptr<!rec_CtorDtor> {{.*}}) -> ()
 // CIR-BEFORE-LPP:   cir.yield
 // CIR-BEFORE-LPP: } dtor {
 // CIR-BEFORE-LPP:   %[[GET_TLS_DEL:.*]] = cir.get_global thread_local static_local @_ZZ13test_ctordtoriE4init : !cir.ptr<!rec_CtorDtor>
@@ -305,7 +305,7 @@ void test_ctordtor(int param) {
 // CIR:   %[[ADD1:.*]] = cir.add nsw %[[LOAD_PARAM]], %[[LOAD_LOCAL]] : !s32i
 // CIR:   %[[CALL:.*]] = cir.call @_Z5get_iv() : () -> (!s32i {{.*}})
 // CIR:   %[[ADD2:.*]] = cir.add nsw %[[ADD1]], %[[CALL]] : !s32i
-// CIR:   cir.call @_ZN8CtorDtorC1Ei(%[[GET_TLS_INIT]], %[[ADD2]]) : (!cir.ptr<!rec_CtorDtor> {{.*}}) -> ()
+// CIR:   cir.call @_ZN8CtorDtorC1Ei(%[[GET_TLS_INIT]], %[[ADD2]]) {{.*}} : (!cir.ptr<!rec_CtorDtor> {{.*}}) -> ()
 // CIR:   %[[GET_TLS_DEL:.*]] = cir.get_global thread_local static_local @_ZZ13test_ctordtoriE4init : !cir.ptr<!rec_CtorDtor>
 // CIR:   %[[GET_DEL_FUNC:.*]] = cir.get_global @_ZN8CtorDtorD1Ev : !cir.ptr<!cir.func<(!cir.ptr<!rec_CtorDtor>)>>
 // CIR:   %[[DEL_FUNC_DECAY:.*]] = cir.cast bitcast %[[GET_DEL_FUNC]] : !cir.ptr<!cir.func<(!cir.ptr<!rec_CtorDtor>)>> -> !cir.ptr<!cir.func<(!cir.ptr<!void>)>>

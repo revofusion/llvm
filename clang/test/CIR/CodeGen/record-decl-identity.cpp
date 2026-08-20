@@ -67,10 +67,10 @@ void instantiate_repeated_macro_record_identities() {
 
 // CIR-NOT: structural:
 // CIR: cir.empty_record_schemas = {{[^}]*}}"local_record_identity()::ScopedEvent436::EventFinalizer"{{[^}]*}}"local_record_identity()::ScopedEvent436::EventFinalizer.0"{{[^}]*}}
-// CIR-DAG: ScopedEvent436 = "c:@F@local_record_identity<#I>#@S@ScopedEvent436"
-// CIR-DAG: ScopedEvent436.0 = "c:@F@local_record_identity<#L>#@S@ScopedEvent436"
-// CIR-DAG: "local_record_identity()::ScopedEvent436::EventFinalizer" = "c:@F@local_record_identity<#I>#@S@ScopedEvent436@S@EventFinalizer"
-// CIR-DAG: "local_record_identity()::ScopedEvent436::EventFinalizer.0" = "c:@F@local_record_identity<#L>#@S@ScopedEvent436@S@EventFinalizer"
+// CIR-DAG: ScopedEvent436 = "c:@F@local_record_identity<#I>#@S@ScopedEvent436[[SCOPED_DECL_SUFFIX:#decl[.][0-9a-f]+]]"
+// CIR-DAG: ScopedEvent436.0 = "c:@F@local_record_identity<#L>#@S@ScopedEvent436[[SCOPED_DECL_SUFFIX]]"
+// CIR-DAG: "local_record_identity()::ScopedEvent436::EventFinalizer" = "c:@F@local_record_identity<#I>#@S@ScopedEvent436@S@EventFinalizer[[FINALIZER_DECL_SUFFIX:#decl[.][0-9a-f]+]]"
+// CIR-DAG: "local_record_identity()::ScopedEvent436::EventFinalizer.0" = "c:@F@local_record_identity<#L>#@S@ScopedEvent436@S@EventFinalizer[[FINALIZER_DECL_SUFFIX]]"
 // CIR-DAG: {{[^,}]*LambdaEventFinalizer[^=]*}} = "[[LAMBDA_SOURCE_ID:cxx-source-record:v1:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+:struct:[0-9]+:[^"]*]]"
 // CIR-DAG: {{[^,}]*LambdaEventFinalizer[^=]*}} = "[[LAMBDA_SOURCE_ID]]"
 // CIR-DAG: {{[^,}]*MacroEventFinalizerOne[^=]*}} = "[[MACRO_ONE_SOURCE_ID:cxx-source-record:v2:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+:struct:[0-9]+:[^"]*]]"

@@ -47,7 +47,7 @@ struct HasDtor {
 // CHECK-NEXT: acc.private.recipe @privatization__ZTS14NonDefaultCtor : !cir.ptr<!rec_NonDefaultCtor> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!rec_NonDefaultCtor> {{.*}}):
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.private.init" {{.*}} init : !cir.ptr<!rec_NonDefaultCtor>
-// CHECK-NEXT: cir.call @_ZN14NonDefaultCtorC1Ev(%[[ALLOCA]]) : (!cir.ptr<!rec_NonDefaultCtor>{{.*}}) -> ()
+// CHECK-NEXT: cir.call @_ZN14NonDefaultCtorC1Ev(%[[ALLOCA]]) {{.*}} : (!cir.ptr<!rec_NonDefaultCtor>{{.*}}) -> ()
 // CHECK-NEXT: acc.yield
 // CHECK-NEXT: }
 //
@@ -109,7 +109,7 @@ struct HasDtor {
 // CHECK-NEXT: %[[ITR_LOAD:.*]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
 // CHECK-NEXT: %[[DECAY:.*]] = cir.cast array_to_ptrdecay %[[ALLOCA]] : !cir.ptr<!cir.array<!rec_NonDefaultCtor x 5>> -> !cir.ptr<!rec_NonDefaultCtor>
 // CHECK-NEXT: %[[STRIDE:.*]] = cir.ptr_stride %[[DECAY]], %[[ITR_LOAD]] : (!cir.ptr<!rec_NonDefaultCtor>, !u64i) -> !cir.ptr<!rec_NonDefaultCtor>
-// CHECK-NEXT: cir.call @_ZN14NonDefaultCtorC1Ev(%[[STRIDE]]) : (!cir.ptr<!rec_NonDefaultCtor>{{.*}}) -> ()
+// CHECK-NEXT: cir.call @_ZN14NonDefaultCtorC1Ev(%[[STRIDE]]) {{.*}} : (!cir.ptr<!rec_NonDefaultCtor>{{.*}}) -> ()
 // CHECK-NEXT: cir.yield
 // CHECK-NEXT: } step {
 // CHECK-NEXT: %[[ITR_LOAD]] = cir.load %[[ITR]] : !cir.ptr<!u64i>, !u64i
@@ -184,7 +184,7 @@ extern "C" void acc_loop() {
   // CHECK-NEXT: %[[NOTDEFCTORARR:.*]] = cir.alloca "notDefCtorArr" {{.*}} init : !cir.ptr<!cir.array<!rec_NonDefaultCtor x 5>>
   HasDtor dtorArr[5];
   // CHECK-NEXT: %[[DTORARR:.*]] = cir.alloca "dtorArr" {{.*}} : !cir.ptr<!cir.array<!rec_HasDtor x 5>>
-  // CHECK-NEXT: cir.call @_ZN14NonDefaultCtorC1Ev(%[[NOTDEFCTOR]]) : (!cir.ptr<!rec_NonDefaultCtor>{{.*}}) -> ()
+  // CHECK-NEXT: cir.call @_ZN14NonDefaultCtorC1Ev(%[[NOTDEFCTOR]]) {{.*}} : (!cir.ptr<!rec_NonDefaultCtor>{{.*}}) -> ()
 
 #pragma acc loop private(someInt)
   for(int i = 0; i < 5; ++i);

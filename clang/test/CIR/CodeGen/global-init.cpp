@@ -33,12 +33,12 @@ NeedsCtor needsCtor;
 
 // CIR-BEFORE-LPP: cir.global external @needsCtor = ctor : !rec_NeedsCtor {
 // CIR-BEFORE-LPP:   %[[THIS:.*]] = cir.get_global @needsCtor : !cir.ptr<!rec_NeedsCtor>
-// CIR-BEFORE-LPP:   cir.call @_ZN9NeedsCtorC1Ev(%[[THIS]]) : (!cir.ptr<!rec_NeedsCtor> {{.*}}) -> ()
+// CIR-BEFORE-LPP:   cir.call @_ZN9NeedsCtorC1Ev(%[[THIS]]) {{.*}} : (!cir.ptr<!rec_NeedsCtor> {{.*}}) -> ()
 
 // CIR: cir.global external @needsCtor = #cir.zero : !rec_NeedsCtor
 // CIR: cir.func internal private @__cxx_global_var_init()
 // CIR:   %0 = cir.get_global @needsCtor : !cir.ptr<!rec_NeedsCtor>
-// CIR:   cir.call @_ZN9NeedsCtorC1Ev(%0) : (!cir.ptr<!rec_NeedsCtor> {{.*}}) -> ()
+// CIR:   cir.call @_ZN9NeedsCtorC1Ev(%0) {{.*}} : (!cir.ptr<!rec_NeedsCtor> {{.*}}) -> ()
 
 // LLVM: define internal void @__cxx_global_var_init()
 // LLVM:   call void @_ZN9NeedsCtorC1Ev(ptr noundef nonnull align 1 dereferenceable(1) @needsCtor)
@@ -81,7 +81,7 @@ NeedsCtorDtor needsCtorDtor;
 
 // CIR-BEFORE-LPP: cir.global external @needsCtorDtor = ctor : !rec_NeedsCtorDtor {
 // CIR-BEFORE-LPP:   %[[THIS:.*]] = cir.get_global @needsCtorDtor : !cir.ptr<!rec_NeedsCtorDtor>
-// CIR-BEFORE-LPP:   cir.call @_ZN13NeedsCtorDtorC1Ev(%[[THIS]]) : (!cir.ptr<!rec_NeedsCtorDtor> {{.*}}) -> ()
+// CIR-BEFORE-LPP:   cir.call @_ZN13NeedsCtorDtorC1Ev(%[[THIS]]) {{.*}} : (!cir.ptr<!rec_NeedsCtorDtor> {{.*}}) -> ()
 // CIR-BEFORE-LPP: } dtor {
 // CIR-BEFORE-LPP:   %[[THIS:.*]] = cir.get_global @needsCtorDtor : !cir.ptr<!rec_NeedsCtorDtor>
 // CIR-BEFORE-LPP:   cir.call @_ZN13NeedsCtorDtorD1Ev(%[[THIS]]) : (!cir.ptr<!rec_NeedsCtorDtor>) -> ()
@@ -89,7 +89,7 @@ NeedsCtorDtor needsCtorDtor;
 // CIR: cir.global external @needsCtorDtor = #cir.zero : !rec_NeedsCtorDtor
 // CIR: cir.func internal private @__cxx_global_var_init.2()
 // CIR:   %[[OBJ:.*]] = cir.get_global @needsCtorDtor : !cir.ptr<!rec_NeedsCtorDtor>
-// CIR:   cir.call @_ZN13NeedsCtorDtorC1Ev(%[[OBJ]]) : (!cir.ptr<!rec_NeedsCtorDtor> {{.*}}) -> ()
+// CIR:   cir.call @_ZN13NeedsCtorDtorC1Ev(%[[OBJ]]) {{.*}} : (!cir.ptr<!rec_NeedsCtorDtor> {{.*}}) -> ()
 // CIR:   %[[OBJ:.*]] = cir.get_global @needsCtorDtor : !cir.ptr<!rec_NeedsCtorDtor>
 // CIR:   %[[DTOR:.*]] = cir.get_global @_ZN13NeedsCtorDtorD1Ev : !cir.ptr<!cir.func<(!cir.ptr<!rec_NeedsCtorDtor>)>>
 // CIR:   %[[DTOR_CAST:.*]] = cir.cast bitcast %[[DTOR]] : !cir.ptr<!cir.func<(!cir.ptr<!rec_NeedsCtorDtor>)>> -> !cir.ptr<!cir.func<(!cir.ptr<!void>)>>

@@ -18,7 +18,7 @@ void store_bool_bitfield(B *b) {
 // CIR:         %[[TRUE:.+]] = cir.const #true
 // CIR:         %[[B_PTR:.+]] = cir.load align(8) %{{.+}} : !cir.ptr<!cir.ptr<!rec_B>>, !cir.ptr<!rec_B> {{.*}}
 // CIR:         %[[FLAG_PTR:.+]] = cir.get_member %[[B_PTR]][0] {{.*}} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
-// CIR:         cir.set_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] : !cir.ptr<!u8i>, %[[TRUE]] : !cir.bool) -> !cir.bool
+// CIR:         cir.set_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] : !cir.ptr<!u8i>, %[[TRUE]] : !cir.bool) {{.*}} -> !cir.bool
 
 // LLVM-LABEL: define {{.*}} void @_Z19store_bool_bitfieldP1B
 // LLVM:         %[[OLD:.+]] = load i8, ptr %{{.+}}
@@ -68,7 +68,7 @@ void compound_or_bool_bitfield(B *b, bool v) {
 // CIR:         %[[OLD_I32:.+]] = cir.cast bool_to_int %[[OLD]] : !cir.bool -> !s32i
 // CIR:         %[[OR:.+]] = cir.or %[[OLD_I32]], %[[V_I32]] : !s32i
 // CIR:         %[[NEW:.+]] = cir.cast int_to_bool %[[OR]] : !s32i -> !cir.bool
-// CIR:         cir.set_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] : !cir.ptr<!u8i>, %[[NEW]] : !cir.bool) -> !cir.bool
+// CIR:         cir.set_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] : !cir.ptr<!u8i>, %[[NEW]] : !cir.bool) {{.*}} -> !cir.bool
 
 // LLVM-LABEL: define {{.*}} void @_Z25compound_or_bool_bitfieldP1Bb
 // LLVM:         %[[CLEARED:.+]] = and i8 %{{.+}}, -2
@@ -83,7 +83,7 @@ void copy_bool_bitfield(B *b) {
 // CIR:         %[[OTHER_PTR:.+]] = cir.get_member %{{.+}}[0] {{.*}} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
 // CIR:         %[[OTHER:.+]] = cir.get_bitfield align(1) (#bfi_other, %[[OTHER_PTR]] {{.*ast_cast_expr.*}} : !cir.ptr<!u8i>) -> !cir.bool
 // CIR:         %[[FLAG_PTR:.+]] = cir.get_member %{{.+}}[0] {{.*}} : !cir.ptr<!rec_B> -> !cir.ptr<!u8i>
-// CIR:         cir.set_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] : !cir.ptr<!u8i>, %[[OTHER]] : !cir.bool) -> !cir.bool
+// CIR:         cir.set_bitfield align(1) (#bfi_flag, %[[FLAG_PTR]] : !cir.ptr<!u8i>, %[[OTHER]] : !cir.bool) {{.*}} -> !cir.bool
 
 // LLVM-LABEL: define {{.*}} void @_Z18copy_bool_bitfieldP1B
 // LLVM:         %[[OTHER_BYTE:.+]] = load i8, ptr %{{.+}}
@@ -122,7 +122,7 @@ void store_int_bitfield(M *m) {
 // CIR:         %[[FIVE:.+]] = cir.const #cir.int<5> : !s32i
 // CIR:         %[[N_PTR:.+]] = cir.get_member %{{.+}}[0] {{.*}} : !cir.ptr<!rec_M> -> !cir.ptr<!u8i>
 // CIR-NOT:     cir.cast bool_to_int
-// CIR:         cir.set_bitfield align(4) (#bfi_n, %[[N_PTR]] : !cir.ptr<!u8i>, %[[FIVE]] : !s32i) -> !s32i
+// CIR:         cir.set_bitfield align(4) (#bfi_n, %[[N_PTR]] : !cir.ptr<!u8i>, %[[FIVE]] : !s32i) {{.*}} -> !s32i
 
 // LLVM-LABEL: define {{.*}} void @_Z18store_int_bitfieldP1M
 // LLVM:         %[[OLD:.+]] = load i8, ptr %{{.+}}

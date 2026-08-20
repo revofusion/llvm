@@ -24,15 +24,15 @@ struct S f1() {
 
 // CIR:      cir.func{{.*}} @_Z2f1v() -> !rec_S
 // CIR-NEXT:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} init : !cir.ptr<!rec_S>
-// CIR-NEXT:   cir.call @_ZN1SC1Ev(%[[RETVAL]]) : (!cir.ptr<!rec_S> {{.*}}) -> ()
+// CIR-NEXT:   cir.call @_ZN1SC1Ev(%[[RETVAL]]){{.*}} : (!cir.ptr<!rec_S> {{.*}}) -> ()
 // CIR-NEXT:   %[[RET:.*]] = cir.load %[[RETVAL]] : !cir.ptr<!rec_S>, !rec_S
 // CIR-NEXT:   cir.return %[[RET]]
 
 // CIR-NOELIDE:      cir.func{{.*}} @_Z2f1v() -> !rec_S
 // CIR-NOELIDE-NEXT:   %[[RETVAL:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!rec_S>
 // CIR-NOELIDE-NEXT:   %[[S:.*]] = cir.alloca "s" {{.*}} init : !cir.ptr<!rec_S>
-// CIR-NOELIDE-NEXT:   cir.call @_ZN1SC1Ev(%[[S]]) : (!cir.ptr<!rec_S> {{.*}}) -> ()
-// CIR-NOELIDE-NEXT:   cir.copy %[[S]] to %[[RETVAL]] : !cir.ptr<!rec_S>
+// CIR-NOELIDE-NEXT:   cir.call @_ZN1SC1Ev(%[[S]]){{.*}} : (!cir.ptr<!rec_S> {{.*}}) -> ()
+// CIR-NOELIDE-NEXT:   cir.copy %[[S]] to %[[RETVAL]]{{.*}} : !cir.ptr<!rec_S>
 // CIR-NOELIDE-NEXT:   %[[RET:.*]] = cir.load %[[RETVAL]] : !cir.ptr<!rec_S>, !rec_S
 // CIR-NOELIDE-NEXT:   cir.return %[[RET]]
 

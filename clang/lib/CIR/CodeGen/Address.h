@@ -156,10 +156,25 @@ public:
   /// original alloca can still find it.
   cir::AllocaOp getUnderlyingAllocaOp() const {
     mlir::Value ptr = getPointer();
-    while (cir::CastOp castOp = ptr.getDefiningOp<cir::CastOp>()) {
-      if (!castOp.isAllocaPreservingCast())
-        break;
-      ptr = castOp.getSrc();
+    while (mlir::Operation *definingOp = ptr.getDefiningOp()) {
+      if (auto castOp = mlir::dyn_cast<cir::CastOp>(definingOp)) {
+        if (!castOp.isAllocaPreservingCast())
+          break;
+        ptr = castOp.getSrc();
+        continue;
+      }
+
+      // These operations preserve the storage root while selecting a
+      // subobject or array element. Cleanup identity belongs to that root;
+      // the exact AST identity tuple distinguishes multiple projected
+      // lifetimes sharing one allocation.
+      llvm::StringRef name = definingOp->getName().getStringRef();
+      if (name == "cir.get_member" || name == "cir.base_class_addr" ||
+          name == "cir.derived_class_addr" || name == "cir.ptr_stride") {
+        ptr = definingOp->getOperand(0);
+        continue;
+      }
+      break;
     }
     return ptr.getDefiningOp<cir::AllocaOp>();
   }

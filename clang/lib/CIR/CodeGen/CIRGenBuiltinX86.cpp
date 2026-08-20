@@ -2362,7 +2362,18 @@ CIRGenFunction::emitX86BuiltinExpr(unsigned builtinID, const CallExpr *expr) {
   case X86::BI__builtin_ia32_sqrtpd512: {
     mlir::Location loc = getLoc(expr->getExprLoc());
     mlir::Value arg = ops[0];
-    return cir::SqrtOp::create(builder, loc, arg.getType(), arg).getResult();
+    auto vectorType = mlir::cast<cir::VectorType>(arg.getType());
+    auto sqrt = cir::SqrtOp::create(builder, loc, arg.getType(), arg);
+    sqrt->setAttr(
+        "source_builtin",
+        builder.getStringAttr(getContext().BuiltinInfo.getName(builtinID)));
+    sqrt->setAttr("lane_count",
+                  builder.getI64IntegerAttr(vectorType.getSize()));
+    sqrt->setAttr("lane_type",
+                  mlir::TypeAttr::get(vectorType.getElementType()));
+    sqrt->setAttr("inactive_lane_semantics",
+                  builder.getStringAttr("none"));
+    return sqrt.getResult();
   }
   case X86::BI__builtin_ia32_pmuludq128:
   case X86::BI__builtin_ia32_pmuludq256:

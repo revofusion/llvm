@@ -31,7 +31,7 @@ void test(const char *fmt, __builtin_va_list ap) {
   vprintf(fmt, ap);
 }
 
-// CIR: cir.func always_inline internal private @__vprintfieee128.inline({{.*}}) -> !s32i
+// CIR: cir.func always_inline internal private dso_local @__vprintfieee128.inline({{.*}}) -> !s32i attributes {ast_decl_linkage_name = "__vprintfieee128", ast_decl_source_name = "vprintf", ast_decl_usr = "c:@F@vprintf",{{.*}} {
 // CIR:   cir.call @__vfprintf_chkieee128(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}})
 //
 // CIR: cir.func {{.*}} @test({{.*}})
@@ -44,7 +44,7 @@ void test(const char *fmt, __builtin_va_list ap) {
 // LLVM: define {{.*}} void @test{{.*}}
 // LLVM:   call i32 @__vprintfieee128.inline(ptr {{.*}} %{{.*}}, ptr {{.*}} %{{.*}})
 //
-// LLVM: attributes #[[ALWAYS_INLINE_ATTR]] = { alwaysinline }
+// LLVM: attributes #[[ALWAYS_INLINE_ATTR]] = { alwaysinline {{.*}} }
 
 // Note: OGCG emits these in the opposite order, but the content is the same.
 

@@ -59,7 +59,7 @@ char f2(CompleteS &s) {
 // CIR:   %[[S_ADDR:.*]] = cir.alloca "s" {{.*}} init const : !cir.ptr<!cir.ptr<!rec_CompleteS>>
 // CIR:   cir.store %[[ARG_S]], %[[S_ADDR]]
 // CIR:   %[[S_REF:.*]] = cir.load{{.*}} %[[S_ADDR]]
-// CIR:   %[[S_ADDR2:.*]] = cir.get_member %[[S_REF]][1] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "c:@S@CompleteS@FI@b", ast_member_offset_bits = 32 : i64, name = "b"}
+// CIR:   %[[S_ADDR2:.*]] = cir.get_member %[[S_REF]][1] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "clang-field:14:c:@S@CompleteS:c:@S@CompleteS@FI@b", ast_member_offset_bits = 32 : i64, name = "b"}
 // CIR:   %[[S_B:.*]] = cir.load{{.*}} %[[S_ADDR2]]
 
 // LLVM: define{{.*}} i8 @_Z2f2R9CompleteS(ptr{{.*}} %[[ARG_S:.*]])
@@ -92,8 +92,8 @@ void f3() {
 
 // CIR: cir.func{{.*}} @_Z2f3v()
 // CIR:   %[[O:.*]] = cir.alloca "o" {{.*}} : !cir.ptr<!rec_Outer>
-// CIR:   %[[O_I:.*]] = cir.get_member %[[O]][0] {ast_declaring_record_usr = "c:@S@Outer", ast_member_decl_usr = "c:@S@Outer@FI@i", ast_member_offset_bits = 0 : i64, name = "i"}
-// CIR:   %[[O_I_N:.*]] = cir.get_member %[[O_I]][0] {ast_declaring_record_usr = "c:@S@Inner", ast_member_decl_usr = "c:@S@Inner@FI@n", ast_member_offset_bits = 0 : i64, name = "n"}
+// CIR:   %[[O_I:.*]] = cir.get_member %[[O]][0] {ast_declaring_record_usr = "c:@S@Outer", ast_member_decl_usr = "clang-field:10:c:@S@Outer:c:@S@Outer@FI@i", ast_member_offset_bits = 0 : i64, ast_member_record_endpoint = {declaring_record_usr = "c:@S@Outer", field_decl_usr = "clang-field:10:c:@S@Outer:c:@S@Outer@FI@i", field_offset_bits = 0 : i64, field_storage_type = !rec_Inner, record_schema = !rec_Inner, record_usr = "c:@S@Inner", source_type = [{{.*}}]}, name = "i"}
+// CIR:   %[[O_I_N:.*]] = cir.get_member %[[O_I]][0] {ast_declaring_record_usr = "c:@S@Inner", ast_member_decl_usr = "clang-field:10:c:@S@Inner:c:@S@Inner@FI@n", ast_member_offset_bits = 0 : i64, name = "n"}
 
 // LLVM: define{{.*}} void @_Z2f3v()
 // LLVM:   %[[O:.*]] = alloca %struct.Outer, i64 1, align 4
@@ -120,7 +120,7 @@ void paren_expr() {
 // CIR:   %[[B_ADDR:.*]] = cir.alloca "b" {{.*}} init : !cir.ptr<!rec_Point>
 // CIR:   %[[CONST:.*]] = cir.get_global @[[PAREN_A]] : !cir.ptr<!rec_Point>
 // CIR:   cir.copy %[[CONST]] to %[[A_ADDR]] : !cir.ptr<!rec_Point>
-// CIR:   cir.copy %[[A_ADDR]] to %[[B_ADDR]] : !cir.ptr<!rec_Point>
+// CIR:   cir.copy %[[A_ADDR]] to %[[B_ADDR]] {{.*}} : !cir.ptr<!rec_Point>
 
 // LLVM: define{{.*}} void @_Z10paren_exprv()
 // LLVM:   %[[A_ADDR:.*]] = alloca %struct.Point, i64 1, align 4
@@ -144,7 +144,7 @@ void choose_expr() {
 // CIR:   %[[A_ADDR:.*]] = cir.alloca "a" {{.*}} : !cir.ptr<!rec_CompleteS>
 // CIR:   %[[B_ADDR:.*]] = cir.alloca "b" {{.*}} : !cir.ptr<!rec_CompleteS>
 // CIR:   %[[C_ADDR:.*]] = cir.alloca "c" {{.*}} init : !cir.ptr<!rec_CompleteS>
-// CIR:   cir.copy %[[A_ADDR]] to %[[C_ADDR]] : !cir.ptr<!rec_CompleteS>
+// CIR:   cir.copy %[[A_ADDR]] to %[[C_ADDR]] {{.*}} : !cir.ptr<!rec_CompleteS>
 
 // LLVM: define{{.*}} void @_Z11choose_exprv()
 // LLVM:   %[[A_ADDR:.*]] = alloca %struct.CompleteS, i64 1, align 4
@@ -170,7 +170,7 @@ void generic_selection() {
 // CIR:   %[[B_ADDR:.*]] = cir.alloca "b" {{.*}} : !cir.ptr<!rec_CompleteS>
 // CIR:   %[[C_ADDR:.*]] = cir.alloca "c" {{.*}} : !cir.ptr<!s32i>
 // CIR:   %[[D_ADDR:.*]] = cir.alloca "d" {{.*}} init : !cir.ptr<!rec_CompleteS>
-// CIR:   cir.copy %[[A_ADDR]] to %[[D_ADDR]] : !cir.ptr<!rec_CompleteS>
+// CIR:   cir.copy %[[A_ADDR]] to %[[D_ADDR]] {{.*}} : !cir.ptr<!rec_CompleteS>
 
 // LLVM: define{{.*}} void @_Z17generic_selectionv()
 // LLVM:   %1 = alloca %struct.CompleteS, i64 1, align 4
@@ -196,12 +196,12 @@ void designated_init_update_expr() {
 
 // CIR: %[[A_ADDR:.*]] = cir.alloca "a" {{.*}} : !cir.ptr<!rec_CompleteS>
 // CIR: %[[B_ADDR:.*]] = cir.alloca "b" {{.*}} init : !cir.ptr<!rec_Container>
-// CIR: %[[C_ADDR:.*]] = cir.get_member %[[B_ADDR]][0] {ast_declaring_record_usr = "c:struct.cpp@[[LOCAL_CONTAINER_RAW:[0-9]+]]@F@designated_init_update_expr#@S@Container", ast_member_decl_usr = "c:struct.cpp@[[LOCAL_CONTAINER_RAW]]@F@designated_init_update_expr#@S@Container@FI@c", ast_member_offset_bits = 0 : i64, name = "c"} : !cir.ptr<!rec_Container> -> !cir.ptr<!rec_CompleteS>
-// CIR: cir.copy %[[A_ADDR]] to %[[C_ADDR]] : !cir.ptr<!rec_CompleteS>
-// CIR: %[[ELEM_0_PTR:.*]] = cir.get_member %[[C_ADDR]][0] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "c:@S@CompleteS@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_CompleteS> -> !cir.ptr<!s32i>
+// CIR: %[[C_ADDR:.*]] = cir.get_member %[[B_ADDR]][0] {ast_declaring_record_usr = "c:struct.cpp@[[LOCAL_CONTAINER_RAW:[0-9]+]]@F@designated_init_update_expr#@S@Container[[LOCAL_CONTAINER_DECL:#decl[.][0-9a-f]+]]", ast_member_decl_usr = "clang-field:82:c:struct.cpp@[[LOCAL_CONTAINER_RAW]]@F@designated_init_update_expr#@S@Container[[LOCAL_CONTAINER_DECL]]:c:struct.cpp@[[LOCAL_CONTAINER_RAW]]@F@designated_init_update_expr#@S@Container@FI@c", ast_member_offset_bits = 0 : i64, ast_member_record_endpoint = {{.*}}record_schema = !rec_CompleteS, record_usr = "c:@S@CompleteS"{{.*}}, name = "c"} : !cir.ptr<!rec_Container> -> !cir.ptr<!rec_CompleteS>
+// CIR: cir.copy %[[A_ADDR]] to %[[C_ADDR]] {{.*}} : !cir.ptr<!rec_CompleteS>
+// CIR: %[[ELEM_0_PTR:.*]] = cir.get_member %[[C_ADDR]][0] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "clang-field:14:c:@S@CompleteS:c:@S@CompleteS@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_CompleteS> -> !cir.ptr<!s32i>
 // CIR: %[[CONST_1:.*]] = cir.const #cir.int<1> : !s32i
 // CIR: cir.store{{.*}} %[[CONST_1]], %[[ELEM_0_PTR]] : !s32i, !cir.ptr<!s32i>
-// CIR: %[[ELEM_1_PTR:.*]] = cir.get_member %[[C_ADDR]][1] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "c:@S@CompleteS@FI@b", ast_member_offset_bits = 32 : i64, name = "b"} : !cir.ptr<!rec_CompleteS> -> !cir.ptr<!s8i>
+// CIR: %[[ELEM_1_PTR:.*]] = cir.get_member %[[C_ADDR]][1] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "clang-field:14:c:@S@CompleteS:c:@S@CompleteS@FI@b", ast_member_offset_bits = 32 : i64, name = "b"} : !cir.ptr<!rec_CompleteS> -> !cir.ptr<!s8i>
 
 // LLVM: %[[A_ADDR:.*]] = alloca %struct.CompleteS, i64 1, align 4
 // LLVM: %[[B_ADDR:.*]] = alloca %struct.Container, i64 1, align 4
@@ -226,10 +226,10 @@ void atomic_init() {
 
 // CIR: cir.func{{.*}} @_Z11atomic_initv()
 // CIR:   %[[A_ADDR:.*]] = cir.alloca "a" {{.*}} : !cir.ptr<!rec_CompleteS>
-// CIR:   %[[ELEM_0_PTR:.*]] = cir.get_member %[[A_ADDR]][0] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "c:@S@CompleteS@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_CompleteS> -> !cir.ptr<!s32i>
+// CIR:   %[[ELEM_0_PTR:.*]] = cir.get_member %[[A_ADDR]][0] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "clang-field:14:c:@S@CompleteS:c:@S@CompleteS@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_CompleteS> -> !cir.ptr<!s32i>
 // CIR:   %[[CONST_0:.*]] = cir.const #cir.int<0> : !s32i
 // CIR:   cir.store{{.*}} %[[CONST_0]], %[[ELEM_0_PTR]] : !s32i, !cir.ptr<!s32i>
-// CIR:   %[[ELEM_1_PTR:.*]] = cir.get_member %[[A_ADDR]][1] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "c:@S@CompleteS@FI@b", ast_member_offset_bits = 32 : i64, name = "b"} : !cir.ptr<!rec_CompleteS> -> !cir.ptr<!s8i>
+// CIR:   %[[ELEM_1_PTR:.*]] = cir.get_member %[[A_ADDR]][1] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "clang-field:14:c:@S@CompleteS:c:@S@CompleteS@FI@b", ast_member_offset_bits = 32 : i64, name = "b"} : !cir.ptr<!rec_CompleteS> -> !cir.ptr<!s8i>
 // CIR:   %[[CONST_0:.*]] = cir.const #cir.int<0> : !s8i
 // CIR:   cir.store{{.*}} %[[CONST_0]], %[[ELEM_1_PTR]] : !s8i, !cir.ptr<!s8i>
 
@@ -259,11 +259,11 @@ struct PaddedAtomic {
 PaddedAtomic::PaddedAtomic(AtomicS1 input) : value(input) {}
 
 // CIR-LABEL: cir.func{{.*}} @_ZN12PaddedAtomicC2E8AtomicS1
-// CIR: %[[ATOMIC_FIELD:.*]] = cir.get_member %{{.*}}[0] {ast_declaring_record_usr = "c:@S@PaddedAtomic", ast_member_decl_usr = "c:@S@PaddedAtomic@FI@value", ast_member_offset_bits = 0 : i64, name = "value"} : !cir.ptr<!rec_PaddedAtomic> -> !cir.ptr<!rec_anon_struct>
+// CIR: %[[ATOMIC_FIELD:.*]] = cir.get_member %{{.*}}[0] {ast_declaring_record_usr = "c:@S@PaddedAtomic", ast_member_decl_usr = "clang-field:17:c:@S@PaddedAtomic:c:@S@PaddedAtomic@FI@value", ast_member_offset_bits = 0 : i64, name = "value"} : !cir.ptr<!rec_PaddedAtomic> -> !cir.ptr<!rec_anon_struct>
 // CIR: %[[ATOMIC_ZERO:.*]] = cir.const #cir.zero : !rec_anon_struct
 // CIR: cir.store align(8) %[[ATOMIC_ZERO]], %[[ATOMIC_FIELD]] : !rec_anon_struct, !cir.ptr<!rec_anon_struct>
 // CIR: %[[ATOMIC_VALUE:.*]] = cir.get_member %[[ATOMIC_FIELD]][0] {name = ""} : !cir.ptr<!rec_anon_struct> -> !cir.ptr<!rec_AtomicS1>
-// CIR: cir.copy %{{.*}} to %[[ATOMIC_VALUE]] : !cir.ptr<!rec_AtomicS1>
+// CIR: cir.copy %{{.*}} to %[[ATOMIC_VALUE]] {{.*}} : !cir.ptr<!rec_AtomicS1>
 
 // LLVM-LABEL: define{{.*}} void @_ZN12PaddedAtomicC2E8AtomicS1
 // LLVM: %[[LLVM_ATOMIC_FIELD:.*]] = getelementptr inbounds nuw %struct.PaddedAtomic, ptr %{{.*}}, i32 0, i32 0
@@ -374,9 +374,9 @@ void struct_with_const_member_expr() {
 
 // CIR: %[[A_ADDR:.*]] = cir.alloca "a" {{.*}} init : !cir.ptr<!s32i>
 // CIR: %[[REF_ADDR:.*]] = cir.alloca "ref.tmp0" {{.*}} : !cir.ptr<!rec_StructWithConstMember>
-// CIR: %[[ELEM_0_PTR:.*]] = cir.get_member %[[REF_ADDR]][0] {ast_declaring_record_usr = "c:@S@StructWithConstMember", ast_member_decl_usr = "c:@S@StructWithConstMember@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_StructWithConstMember> -> !cir.ptr<!u8i>
+// CIR: %[[ELEM_0_PTR:.*]] = cir.get_member %[[REF_ADDR]][0] {ast_declaring_record_usr = "c:@S@StructWithConstMember", ast_member_decl_usr = "clang-field:26:c:@S@StructWithConstMember:c:@S@StructWithConstMember@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_StructWithConstMember> -> !cir.ptr<!u8i>
 // CIR: %[[CONST_0:.*]] = cir.const #cir.int<0> : !s32i
-// CIR: %[[SET_BF:.*]] = cir.set_bitfield{{.*}} (#bfi_a, %[[ELEM_0_PTR]] : !cir.ptr<!u8i>, %[[CONST_0]] : !s32i) -> !s32i
+// CIR: %[[SET_BF:.*]] = cir.set_bitfield{{.*}} (#bfi_a, %[[ELEM_0_PTR]] : !cir.ptr<!u8i>, %[[CONST_0]] : !s32i) {{.*}} -> !s32i
 // CIR: %[[CONST_0:.*]] = cir.const #cir.int<0> : !s32i
 // CIR: cir.store{{.*}} %[[CONST_0]], %[[A_ADDR]] : !s32i, !cir.ptr<!s32i>
 
@@ -415,10 +415,10 @@ void calling_function_with_default_values() {
 }
 
 // CIR: %[[AGG_ADDR:.*]] = cir.alloca "agg.tmp0" {{.*}} : !cir.ptr<!rec_CompleteS>
-// CIR: %[[ELEM_0_PTR:.*]] = cir.get_member %[[AGG_ADDR]][0] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "c:@S@CompleteS@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_CompleteS> -> !cir.ptr<!s32i>
+// CIR: %[[ELEM_0_PTR:.*]] = cir.get_member %[[AGG_ADDR]][0] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "clang-field:14:c:@S@CompleteS:c:@S@CompleteS@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_CompleteS> -> !cir.ptr<!s32i>
 // CIR: %[[CONST_1:.*]] = cir.const #cir.int<1> : !s32i
 // CIR: cir.store{{.*}} %[[CONST_1]], %[[ELEM_0_PTR]] : !s32i, !cir.ptr<!s32i>
-// CIR: %[[ELEM_1_PTR:.*]] = cir.get_member %[[AGG_ADDR]][1] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "c:@S@CompleteS@FI@b", ast_member_offset_bits = 32 : i64, name = "b"} : !cir.ptr<!rec_CompleteS> -> !cir.ptr<!s8i>
+// CIR: %[[ELEM_1_PTR:.*]] = cir.get_member %[[AGG_ADDR]][1] {ast_declaring_record_usr = "c:@S@CompleteS", ast_member_decl_usr = "clang-field:14:c:@S@CompleteS:c:@S@CompleteS@FI@b", ast_member_offset_bits = 32 : i64, name = "b"} : !cir.ptr<!rec_CompleteS> -> !cir.ptr<!s8i>
 // CIR: %[[CONST_2:.*]] = cir.const #cir.int<2> : !s8i
 // CIR: cir.store{{.*}} %[[CONST_2]], %[[ELEM_1_PTR]] : !s8i, !cir.ptr<!s8i>
 // CIR: %[[TMP_AGG:.*]] = cir.load{{.*}} %[[AGG_ADDR]] : !cir.ptr<!rec_CompleteS>, !rec_CompleteS

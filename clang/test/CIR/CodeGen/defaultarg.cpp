@@ -39,7 +39,7 @@ void test_ctor_defaultarg() {
 // CIR: cir.func {{.*}} @_Z20test_ctor_defaultargv()
 // CIR:   %[[S:.*]] = cir.alloca "s" {{.*}} init : !cir.ptr<!rec_S>
 // CIR:   %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
-// CIR:   cir.call @_ZN1SC1Ei(%[[S]], %[[TWO]]) : (!cir.ptr<!rec_S> {{.*}}, !s32i {{.*}}) -> ()
+// CIR:   cir.call @_ZN1SC1Ei(%[[S]], %[[TWO]]) {{.*}} : (!cir.ptr<!rec_S> {{.*}}, !s32i {{.*}}) -> ()
 
 // LLVM: define{{.*}} @_Z20test_ctor_defaultargv()
 // LLVM:   %[[S:.*]] = alloca %struct.S

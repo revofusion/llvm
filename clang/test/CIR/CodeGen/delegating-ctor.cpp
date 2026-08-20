@@ -19,7 +19,7 @@ Delegating::Delegating() : Delegating(0) {}
 // CIR:   cir.store{{.*}} %[[THIS_ARG]], %[[THIS_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]]
 // CIR:   %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
-// CIR:   cir.call @_ZN10DelegatingC2Ei(%[[THIS]], %[[ZERO]]) : (!cir.ptr<!rec_Delegating> {{.*}}, !s32i {{.*}}) -> ()
+// CIR:   cir.call @_ZN10DelegatingC2Ei(%[[THIS]], %[[ZERO]]) {{.*}} : (!cir.ptr<!rec_Delegating> {{.*}}, !s32i {{.*}}) -> ()
 
 // LLVM: define {{.*}} @_ZN10DelegatingC2Ev(ptr {{.*}} %[[THIS_ARG:.*]])
 // LLVM:   %[[THIS_ADDR:.*]] = alloca ptr
@@ -198,7 +198,7 @@ Derived::Derived(const void *inVoid) { squawk(); }
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]]
 // CIR:   %[[VTT:.*]] = cir.load {{.*}} %[[VTT_ADDR]]
 // CIR:   %[[NULLPTR:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!void>
-// CIR:   cir.call @_ZN7DerivedC2EPKv(%[[THIS]], %[[VTT]], %[[NULLPTR]]) : (!cir.ptr<!rec_Derived> {{.*}}, !cir.ptr<!cir.ptr<!void>> {{.*}}, !cir.ptr<!void> {{.*}}) -> ()
+// CIR:   cir.call @_ZN7DerivedC2EPKv(%[[THIS]], %[[VTT]], %[[NULLPTR]]) {{.*}} : (!cir.ptr<!rec_Derived> {{.*}}, !cir.ptr<!cir.ptr<!void>> {{.*}}, !cir.ptr<!void> {{.*}}) -> ()
 // CIR:   cir.call @_Z5otherv() : () -> ()
 // CIR:   cir.return
 
@@ -307,7 +307,7 @@ Derived::Derived(const void *inVoid) { squawk(); }
 // CIR:   cir.store %[[THIS_ARG]], %[[THIS_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]]
 // CIR:   %[[NULLPTR:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!void>
-// CIR:   cir.call @_ZN7DerivedC1EPKv(%[[THIS]], %[[NULLPTR]]) : (!cir.ptr<!rec_Derived> {{.*}}, !cir.ptr<!void> {{.*}}) -> ()
+// CIR:   cir.call @_ZN7DerivedC1EPKv(%[[THIS]], %[[NULLPTR]]) {{.*}} : (!cir.ptr<!rec_Derived> {{.*}}, !cir.ptr<!void> {{.*}}) -> ()
 // CIR:   cir.call @_Z5otherv() : () -> ()
 // CIR:   cir.return
 

@@ -16,7 +16,7 @@ typedef union vec3 {
 vec3 ret_vec3() {
   // CIR-LABEL: ret_vec3
   // CIR: %[[RET_ALLOCA:.*]] = cir.alloca "__retval" {{.*}} : !cir.ptr<!rec_vec3>
-  // CIR: %[[GET_ANON:.*]] = cir.get_member %[[RET_ALLOCA]][0] {name = ""}
+  // CIR: %[[GET_ANON:.*]] = cir.get_member %[[RET_ALLOCA]][0] {{.*}}name = ""{{.*}}
   // CIR: %[[GET_X:.*]] = cir.get_member %[[GET_ANON]][0] {{.*name = "x".*}} : !cir.ptr<!rec_anon2E0> -> !cir.ptr<!cir.double>
   // CIR: %[[FIVE:.*]] = cir.const #cir.fp<5.{{.*}}> : !cir.double
   // CIR: cir.store{{.*}} %[[FIVE]], %[[GET_X]]

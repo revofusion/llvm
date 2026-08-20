@@ -3328,6 +3328,50 @@ LogicalResult cir::GetMemberOp::verify() {
   if (recordTy.getMembers()[getIndex()] != getType().getPointee())
     return emitError() << "member type mismatch";
 
+  if (auto endpoint = (*this)->getAttrOfType<mlir::DictionaryAttr>(
+          "ast_member_record_endpoint")) {
+    const auto directField =
+        (*this)->getAttrOfType<mlir::StringAttr>("ast_member_decl_usr");
+    const auto directOwner = (*this)->getAttrOfType<mlir::StringAttr>(
+        "ast_declaring_record_usr");
+    const auto directOffset =
+        (*this)->getAttrOfType<mlir::IntegerAttr>("ast_member_offset_bits");
+    const auto endpointField =
+        endpoint.getAs<mlir::StringAttr>("field_decl_usr");
+    const auto endpointOwner =
+        endpoint.getAs<mlir::StringAttr>("declaring_record_usr");
+    const auto endpointOffset =
+        endpoint.getAs<mlir::IntegerAttr>("field_offset_bits");
+    const auto storageType =
+        endpoint.getAs<mlir::TypeAttr>("field_storage_type");
+    const auto recordSchema =
+        endpoint.getAs<mlir::TypeAttr>("record_schema");
+    const auto recordUSR = endpoint.getAs<mlir::StringAttr>("record_usr");
+    const auto sourceType = endpoint.getAs<mlir::ArrayAttr>("source_type");
+    if (!directField || directField.getValue().empty() || !directOwner ||
+        directOwner.getValue().empty() || !directOffset || !endpointField ||
+        endpointField.getValue().empty() || !endpointOwner ||
+        endpointOwner.getValue().empty() || !endpointOffset || !storageType ||
+        !recordSchema || !recordUSR || recordUSR.getValue().empty() ||
+        !sourceType || sourceType.empty())
+      return emitError()
+             << "record member endpoint metadata is incomplete";
+    if (directField != endpointField || directOwner != endpointOwner ||
+        directOffset.getValue() != endpointOffset.getValue())
+      return emitError()
+             << "record member endpoint metadata contradicts direct "
+                "FieldDecl identity";
+    if (storageType.getValue() != getType().getPointee())
+      return emitError()
+             << "record member endpoint storage type does not match result "
+                "pointee";
+    const auto schema = dyn_cast<RecordType>(recordSchema.getValue());
+    if (!schema || !schema.getName())
+      return emitError()
+             << "record member endpoint schema is not an exact named CIR "
+                "record";
+  }
+
   return mlir::success();
 }
 

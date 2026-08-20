@@ -10,7 +10,7 @@ struct CtorDtor {
     int i;
 };
 // Wrappers & Aliases: 
-// CIR-LABEL: cir.func comdat linkonce_odr private hidden @_ZTW12maybe_inited() -> !cir.ptr<!s32i> {
+// CIR-LABEL: cir.func comdat linkonce_odr private hidden @_ZTW12maybe_inited() -> !cir.ptr<!s32i> attributes {ast_synthetic_callable_identity = {kind = "tls_wrapper", owner_usr = "c:@maybe_inited", symbol = "_ZTW12maybe_inited"}} {
 // CIR: %[[GET_INIT_FUNC:.*]] = cir.get_global @_ZTH12maybe_inited : !cir.ptr<!cir.func<()>>
 // CIR: %[[NULL:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!cir.func<()>>
 // CIR: %[[IS_VALID:.*]] = cir.cmp ne %[[GET_INIT_FUNC]], %[[NULL]] : !cir.ptr<!cir.func<()>>
@@ -20,32 +20,32 @@ struct CtorDtor {
 // CIR: %[[GET_GLOB:.*]] = cir.get_global thread_local @maybe_inited : !cir.ptr<!s32i>
 // CIR: cir.return %[[GET_GLOB]] : !cir.ptr<!s32i>
 
-// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW21definitely_inited_dyn() -> !cir.ptr<!s32i> {
+// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW21definitely_inited_dyn() -> !cir.ptr<!s32i> attributes {ast_synthetic_callable_identity = {kind = "tls_wrapper", owner_usr = "c:@definitely_inited_dyn", symbol = "_ZTW21definitely_inited_dyn"}} {
 // CIR: cir.call @_ZTH21definitely_inited_dyn() : () -> ()
 // CIR: %[[GET_GLOB:.*]] = cir.get_global thread_local @definitely_inited_dyn : !cir.ptr<!s32i>
 // CIR: cir.return %[[GET_GLOB]] : !cir.ptr<!s32i>
 
 // CIR: cir.func @_ZTH21definitely_inited_dyn() alias(@__tls_init)
 
-// CIR: cir.func comdat weak_odr private hidden @_ZTW17definitely_inited() -> !cir.ptr<!s32i> {
+// CIR: cir.func comdat weak_odr private hidden @_ZTW17definitely_inited() -> !cir.ptr<!s32i> attributes {ast_synthetic_callable_identity = {kind = "tls_wrapper", owner_usr = "c:@definitely_inited", symbol = "_ZTW17definitely_inited"}} {
 // CIR:   %[[GET_GLOB:.*]] = cir.get_global thread_local @definitely_inited : !cir.ptr<!s32i>
 // CIR:   cir.return %[[GET_GLOB]] : !cir.ptr<!s32i>
 
 // CIR: cir.func @_ZTH17tls_int_self_init() alias(@__tls_init)
 
-// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW17tls_int_self_init() -> !cir.ptr<!s32i> {
+// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW17tls_int_self_init() -> !cir.ptr<!s32i> attributes {ast_synthetic_callable_identity = {kind = "tls_wrapper", owner_usr = "c:@tls_int_self_init", symbol = "_ZTW17tls_int_self_init"}} {
 // CIR: cir.call @_ZTH17tls_int_self_init() : () -> ()
 // CIR: %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_int_self_init : !cir.ptr<!s32i>
 // CIR: cir.return %[[GET_GLOB]] : !cir.ptr<!s32i>
 
-// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW11tls_int_ref() -> !cir.ptr<!cir.ptr<!s32i>> {
+// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW11tls_int_ref() -> !cir.ptr<!cir.ptr<!s32i>> attributes {ast_synthetic_callable_identity = {kind = "tls_wrapper", owner_usr = "c:@tls_int_ref", symbol = "_ZTW11tls_int_ref"}} {
 // CIR: cir.call @_ZTH11tls_int_ref() : () -> ()
 // CIR: %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_int_ref : !cir.ptr<!cir.ptr<!s32i>>
 // CIR: cir.return %0 : !cir.ptr<!cir.ptr<!s32i>>
 
 // CIR: cir.func @_ZTH11tls_int_ref() alias(@__tls_init)
 
-// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW11tls_int_dyn() -> !cir.ptr<!s32i> {
+// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW11tls_int_dyn() -> !cir.ptr<!s32i> attributes {ast_synthetic_callable_identity = {kind = "tls_wrapper", owner_usr = "c:@tls_int_dyn", symbol = "_ZTW11tls_int_dyn"}} {
 // CIR: cir.call @_ZTH11tls_int_dyn() : () -> ()
 // CIR: %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_int_dyn : !cir.ptr<!s32i>
 // CIR: cir.return %[[GET_GLOB]] : !cir.ptr<!s32i>
@@ -68,7 +68,7 @@ struct CtorDtor {
 // CIR: }
 // CIR: cir.return
 
-// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW7tls_int() -> !cir.ptr<!s32i> {
+// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW7tls_int() -> !cir.ptr<!s32i> attributes {ast_synthetic_callable_identity = {kind = "tls_wrapper", owner_usr = "c:@tls_int", symbol = "_ZTW7tls_int"}} {
 // CIR: %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_int : !cir.ptr<!s32i>
 // CIR: cir.return %[[GET_GLOB]]
 

@@ -24,25 +24,25 @@ struct CtorDtor {
 
 // Wrappers & aliases.
 // CIR:       cir.global internal tls_dyn @__tls_guard = #cir.int<0> : !s8i {alignment = 1 : i64}
-// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW19tls_cd_dyn_not_used() -> !cir.ptr<!rec_CtorDtor> {
+// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW19tls_cd_dyn_not_used() -> !cir.ptr<!rec_CtorDtor> attributes {ast_synthetic_callable_identity = {kind = "tls_wrapper", owner_usr = "c:@tls_cd_dyn_not_used", symbol = "_ZTW19tls_cd_dyn_not_used"}} {
 // CIR: cir.call @_ZTH19tls_cd_dyn_not_used() : () -> ()
 // CIR: %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_cd_dyn_not_used : !cir.ptr<!rec_CtorDtor>
 // CIR: cir.return %[[GET_GLOB]] : !cir.ptr<!rec_CtorDtor>
 // CIR: cir.func @_ZTH19tls_cd_dyn_not_used() alias(@__tls_init)
 
-// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW10tls_cd_ref() -> !cir.ptr<!cir.ptr<!rec_CtorDtor>> {
+// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW10tls_cd_ref() -> !cir.ptr<!cir.ptr<!rec_CtorDtor>> attributes {ast_synthetic_callable_identity = {kind = "tls_wrapper", owner_usr = "c:@tls_cd_ref", symbol = "_ZTW10tls_cd_ref"}} {
 // CIR: cir.call @_ZTH10tls_cd_ref() : () -> ()
 // CIR: %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_cd_ref : !cir.ptr<!cir.ptr<!rec_CtorDtor>>
 // CIR: cir.return %[[GET_GLOB]] : !cir.ptr<!cir.ptr<!rec_CtorDtor>>
 // CIR: cir.func @_ZTH10tls_cd_ref() alias(@__tls_init)
 
-// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW10tls_cd_dyn() -> !cir.ptr<!rec_CtorDtor> {
+// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW10tls_cd_dyn() -> !cir.ptr<!rec_CtorDtor> attributes {ast_synthetic_callable_identity = {kind = "tls_wrapper", owner_usr = "c:@tls_cd_dyn", symbol = "_ZTW10tls_cd_dyn"}} {
 // CIR: cir.call @_ZTH10tls_cd_dyn() : () -> ()
 // CIR: %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_cd_dyn : !cir.ptr<!rec_CtorDtor>
 // CIR: cir.return %[[GET_GLOB]] : !cir.ptr<!rec_CtorDtor> 
 // CIR: cir.func @_ZTH10tls_cd_dyn() alias(@__tls_init)
 
-// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW6tls_cd() -> !cir.ptr<!rec_CtorDtor> {
+// CIR-LABEL: cir.func comdat weak_odr private hidden @_ZTW6tls_cd() -> !cir.ptr<!rec_CtorDtor> attributes {ast_synthetic_callable_identity = {kind = "tls_wrapper", owner_usr = "c:@tls_cd", symbol = "_ZTW6tls_cd"}} {
 // CIR: cir.call @_ZTH6tls_cd() : () -> ()
 // CIR: %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_cd : !cir.ptr<!rec_CtorDtor>
 // CIR: cir.return %[[GET_GLOB]] : !cir.ptr<!rec_CtorDtor>
@@ -124,7 +124,7 @@ thread_local CtorDtor tls_cd_dyn = get_i();
 // CIR-BEFORE-LPP:  cir.global external tls_dyn dyn_tls_refs = <"_ZTW10tls_cd_dyn", "_ZTH10tls_cd_dyn"> @tls_cd_dyn = ctor : !rec_CtorDtor {
 // CIR-BEFORE-LPP:    %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_cd_dyn : !cir.ptr<!rec_CtorDtor>
 // CIR-BEFORE-LPP:    %[[CALL:.*]] = cir.call @_Z5get_iv() : () -> (!s32i {llvm.noundef})
-// CIR-BEFORE-LPP:    cir.call @_ZN8CtorDtorC1Ei(%[[GET_GLOB]], %[[CALL]]) : (!cir.ptr<!rec_CtorDtor>
+// CIR-BEFORE-LPP:    cir.call @_ZN8CtorDtorC1Ei(%[[GET_GLOB]], %[[CALL]]) {{.*}} : (!cir.ptr<!rec_CtorDtor>
 // CIR-BEFORE-LPP:  } dtor {
 // CIR-BEFORE-LPP:    %[[GET_GLOB:.*]] = cir.get_global thread_local @tls_cd_dyn : !cir.ptr<!rec_CtorDtor>
 // CIR-BEFORE-LPP:    cir.call @_ZN8CtorDtorD1Ev(%[[GET_GLOB]]) : (!cir.ptr<!rec_CtorDtor>) -> ()

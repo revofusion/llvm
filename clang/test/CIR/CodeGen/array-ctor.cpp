@@ -18,7 +18,7 @@ void foo() {
 // CIR-BEFORE-LPP:   %[[ARRAY:.*]] = cir.alloca "s" {{.*}} init : !cir.ptr<!cir.array<!rec_S x 42>>
 // CIR-BEFORE-LPP:   cir.array.ctor %[[ARRAY]] : !cir.ptr<!cir.array<!rec_S x 42>> {
 // CIR-BEFORE-LPP:    ^bb0(%[[ARG:.*]]: !cir.ptr<!rec_S>):
-// CIR-BEFORE-LPP:      cir.call @_ZN1SC1Ev(%[[ARG]]) : (!cir.ptr<!rec_S>{{.*}}) -> ()
+// CIR-BEFORE-LPP:      cir.call @_ZN1SC1Ev(%[[ARG]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
 // CIR-BEFORE-LPP:    }
 // CIR-BEFORE-LPP:   cir.return
 // CIR-BEFORE-LPP: }
@@ -32,7 +32,7 @@ void foo() {
 // CIR:   cir.store %[[DECAY]], %[[ITER]] : !cir.ptr<!rec_S>, !cir.ptr<!cir.ptr<!rec_S>>
 // CIR:   cir.do {
 // CIR:     %[[CURRENT:.*]] = cir.load %[[ITER]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
-// CIR:     cir.call @_ZN1SC1Ev(%[[CURRENT]]) : (!cir.ptr<!rec_S>{{.*}}) -> ()
+// CIR:     cir.call @_ZN1SC1Ev(%[[CURRENT]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
 // CIR:     %[[CONST1:.*]] = cir.const #cir.int<1> : !u64i
 // CIR:     %[[NEXT:.*]] = cir.ptr_stride %[[CURRENT]], %[[CONST1]] : (!cir.ptr<!rec_S>, !u64i) -> !cir.ptr<!rec_S>
 // CIR:     cir.store %[[NEXT]], %[[ITER]] : !cir.ptr<!rec_S>, !cir.ptr<!cir.ptr<!rec_S>>
@@ -113,7 +113,7 @@ void multi_dimensional() {
 // CIR-BEFORE-LPP:       %[[FLAT:.*]] = cir.cast bitcast %[[S]] : !cir.ptr<!cir.array<!cir.array<!rec_S x 5> x 3>> -> !cir.ptr<!cir.array<!rec_S x 15>>
 // CIR-BEFORE-LPP:       cir.array.ctor %[[FLAT]] : !cir.ptr<!cir.array<!rec_S x 15>> {
 // CIR-BEFORE-LPP:        ^bb0(%[[ARG:.*]]: !cir.ptr<!rec_S>):
-// CIR-BEFORE-LPP:          cir.call @_ZN1SC1Ev(%[[ARG]]) : (!cir.ptr<!rec_S>{{.*}}) -> ()
+// CIR-BEFORE-LPP:          cir.call @_ZN1SC1Ev(%[[ARG]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
 // CIR-BEFORE-LPP:       }
 // CIR-BEFORE-LPP:       cir.return
 
@@ -126,7 +126,7 @@ void multi_dimensional() {
 // CIR:       cir.store %[[DECAY]], %[[ITER]] : !cir.ptr<!rec_S>, !cir.ptr<!cir.ptr<!rec_S>>
 // CIR:       cir.do {
 // CIR:         %[[CURRENT:.*]] = cir.load %[[ITER]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
-// CIR:         cir.call @_ZN1SC1Ev(%[[CURRENT]]) : (!cir.ptr<!rec_S>{{.*}}) -> ()
+// CIR:         cir.call @_ZN1SC1Ev(%[[CURRENT]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
 // CIR:         %[[CONST1:.*]] = cir.const #cir.int<1> : !u64i
 // CIR:         %[[NEXT:.*]] = cir.ptr_stride %[[CURRENT]], %[[CONST1]] : (!cir.ptr<!rec_S>, !u64i) -> !cir.ptr<!rec_S>
 // CIR:         cir.store %[[NEXT]], %[[ITER]] : !cir.ptr<!rec_S>, !cir.ptr<!cir.ptr<!rec_S>>

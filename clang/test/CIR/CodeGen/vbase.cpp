@@ -58,7 +58,7 @@ void ppp() { B b; }
 
 // CIR: cir.func {{.*}}@_Z1fv(){{.*}}
 // CIR:   %[[D:.+]] = cir.alloca "d" align(8) init : !cir.ptr<!rec_Derived>
-// CIR:   cir.call @_ZN7DerivedC1Ev(%[[D]]) nothrow : (!cir.ptr<!rec_Derived> {{.*}}) -> ()
+// CIR:   cir.call @_ZN7DerivedC1Ev(%[[D]]) nothrow {{.*}} : (!cir.ptr<!rec_Derived> {{.*}}) -> ()
 // CIR:   %[[VPTR_PTR:.+]] = cir.vtable.get_vptr %[[D]] : !cir.ptr<!rec_Derived> -> !cir.ptr<!cir.vptr>
 // CIR:   %[[VPTR:.+]] = cir.load align(8) %[[VPTR_PTR]] : !cir.ptr<!cir.vptr>, !cir.vptr
 // CIR:   %[[VPTR_I8:.+]] = cir.cast bitcast %[[VPTR]] : !cir.vptr -> !cir.ptr<!u8i>
@@ -75,7 +75,7 @@ void ppp() { B b; }
 
 // CIR: cir.func {{.*}}@_Z1gv(){{.*}}
 // CIR:   %[[DF:.+]] = cir.alloca "df" align(8) init : !cir.ptr<!rec_DerivedFinal>
-// CIR:   cir.call @_ZN12DerivedFinalC1Ev(%[[DF]]) nothrow : (!cir.ptr<!rec_DerivedFinal> {{.*}}) -> ()
+// CIR:   cir.call @_ZN12DerivedFinalC1Ev(%[[DF]]) nothrow {{.*}} : (!cir.ptr<!rec_DerivedFinal> {{.*}}) -> ()
 // CIR:   %[[BASE_THIS_2:.+]] = cir.base_class_addr %[[DF]] : !cir.ptr<!rec_DerivedFinal> nonnull [0] -> !cir.ptr<!rec_Base>
 // CIR:   cir.call @_ZN4Base1fEv(%[[BASE_THIS_2]]) : (!cir.ptr<!rec_Base> {{.*}}) -> ()
 // CIR:   cir.return

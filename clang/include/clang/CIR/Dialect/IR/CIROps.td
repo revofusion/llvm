@@ -587,9 +587,10 @@ def CIR_AllocaOp : CIR_Op<"alloca", [
 
     The optional `ast_materialize_temporary_identity` dictionary is producer
     metadata for the physical storage emitted by a
-    `MaterializeTemporaryExpr`. It records the owning concrete function symbol,
-    the function-local temporary `declaration_ordinal`, Clang source-location
-    provenance, and an opaque producer-minted `instance_token`. It may join the
+    `MaterializeTemporaryExpr`. It records the owning concrete CIR function
+    symbol, the temporary's stable preorder within the owning AST declaration
+    (`declaration_ordinal`), Clang source-location provenance, and an opaque
+    producer-minted `instance_token`. It may join the
     first binding only when the storage has one singleton
     `ast_temporary_object_identities` entry; it never stands in for plural
     binding alternatives, which each carry their own token.
@@ -598,35 +599,76 @@ def CIR_AllocaOp : CIR_Op<"alloca", [
     for destructor-bearing C++ temporary objects represented by one or more
     `CXXBindTemporaryExpr` nodes sharing materialized storage. It contains one
     dictionary per exact binding, in AST order. Each dictionary records the
-    exact owning concrete function symbol (`function`), the same stable
-    preorder identity within that function's AST (`declaration_ordinal`), raw
-    source provenance (`begin_raw`, `end_raw`), the binding-specific opaque
-    `instance_token`, cleanup kind (`cleanup_kind`), and exact ABI destructor
-    symbol (`destructor_symbol`). When Clang can form one, it also contains the
-    direct Clang destructor USR (`destructor_usr`). Each token and ordinal are
-    producer-owned joins across that binding's alloca, constructor, cleanup
+    exact owning concrete CIR function symbol (`function`), the same stable
+    preorder within the owning FunctionDecl body/initializers or synthesized
+    global-initializer VarDecl (`declaration_ordinal`), raw source provenance
+    (`begin_raw`, `end_raw`), the binding-specific opaque `instance_token`,
+    cleanup kind (`cleanup_kind`), exact ABI destructor symbol
+    (`destructor_symbol`), and direct canonical Clang destructor USR
+    (`destructor_usr`). A constructor-bearing binding likewise records both
+    `constructor_symbol` and `constructor_usr`. Aggregate initialization has
+    no constructor FunctionDecl or ABI call; that exact producer is instead
+    recorded as `constructor_kind = "implicit_aggregate_initialization"` plus
+    the canonical `constructor_record_usr`. Each token and ordinal is a
+    producer-owned join across that binding's alloca, constructor, cleanup
     flag, destructor, and compiler-created lifetime events.
+    When that binding is constructed directly into an automatic object's
+    storage, CIRGen records the destination's exact canonical VarDecl USR and
+    FunctionDecl preorder as `transferred_to_automatic_decl_usr` and
+    `transferred_to_automatic_decl_ordinal`. Consumers may treat the temporary
+    and automatic dictionaries as one lifetime only when those destination
+    facts and the function and special-member identities agree exactly.
     Raw IDs and source locations are provenance only; consumers must never use
     them to recover identity. The array is present as a singleton for one
-    binding and is omitted rather than guessed when no exact binding exists.
+    binding; inability to form an exact owner, ordinal, or USR is diagnosed by
+    the producer rather than emitted as identity-free cleanup IR.
 
     The optional `ast_automatic_object_identity` dictionary is producer
     metadata for the storage of an automatic C++ object with a nontrivial
     destructor. It records the concrete owning function (`function`), the
-    exact stable Clang canonical `VarDecl` USR (`declaration_usr`), cleanup kind
-    (`cleanup_kind`), and the exact ABI destructor symbol
-    (`destructor_symbol`). `begin_raw` and `end_raw` are producer provenance
-    only: they are not cross-process join keys. When direct construction
-    exists, it also records the ABI constructor symbol (`constructor_symbol`)
-    and whether that call must be observed
-    (`requires_observed_constructor_call`). The dictionary is attached to the
-    allocation actually used by the cleanup, including an NRVO return slot. It
-    is omitted rather than guessed when the producer cannot form a declaration
-    USR or when more than one automatic declaration shares the same
-    allocation. Consumers must pair automatic cleanup only through
-    `declaration_usr`, the attached function/destructor facts, and exact AST
-    facts—never through a raw location, allocation name, or source-text
-    spelling.
+    exact Clang canonical `VarDecl` USR (`declaration_usr`), the stable
+    FunctionDecl-body preorder (`declaration_ordinal`), whether Clang formed
+    the declaration through macro expansion
+    (`declaration_is_macro_expansion`), cleanup kind (`cleanup_kind`), and the
+    exact ABI destructor symbol and canonical USR (`destructor_symbol`,
+    `destructor_usr`). `begin_raw` and `end_raw` are producer provenance only:
+    they are not cross-process join keys. When direct construction exists, it
+    also records the ABI constructor symbol and canonical USR
+    (`constructor_symbol`, `constructor_usr`) and whether that call must be
+    observed (`requires_observed_constructor_call`). For guaranteed
+    copy-elision where the automatic initializer's direct constructor is
+    represented by one bound temporary on the same allocation, the automatic
+    dictionary carries that singleton temporary's exact constructor facts;
+    the temporary dictionary records the destination declaration USR and
+    ordinal described above. The dictionary is attached to the allocation
+    actually used by an ordinary cleanup or by one
+    exact NRVO owner. When multiple exact NRVO declarations share the return
+    allocation, the singular storage dictionary is deliberately absent and
+    each guarded destructor carries its own complete dictionary in
+    `ast_conditional_cleanup_identities`. Failure to form an exact declaration
+    or special-member USR is a producer diagnostic. Consumers must pair
+    ordinary automatic cleanup by the exact USR.
+    Only when both producer and consumer Clang facts identify a
+    macro-expanded declaration whose producer USR has no consumer-AST owner may
+    they join through the exact owning function and declaration ordinal; they
+    must never use a raw location, allocation name, source spelling, or
+    generated identifier.
+
+    The optional `ast_object_array_allocation` dictionary preserves the exact
+    Clang `QualType` authority for a fixed array of records allocated by an
+    automatic-variable or compiler-created temporary producer. It contains the
+    outer-to-inner constant extents (`array_extents`), the terminal canonical
+    `RecordDecl` USR
+    (`element_record_usr`), that declaration's exact CIR record schema
+    (`element_record_schema`), and the complete Clang ABI source-type layers
+    (`source_type`). Consumers must validate all four against the CIR alloca
+    type and must not recover a record from the allocation name or CIR shape.
+
+    The optional `ast_object_array_cleanup` dictionary authenticates
+    compiler-created cursor storage for a finite C++ object-array lifecycle.
+    `array_extent` is the exact producer-owned element count and `phase` is
+    `cursor`. Consumers must join this allocation to a cleanup loop through the
+    exact SSA address used by that loop; the allocation name is not evidence.
 
     The result type is a pointer to the input's type.
 
@@ -651,6 +693,8 @@ def CIR_AllocaOp : CIR_Op<"alloca", [
     OptionalAttr<DictionaryAttr>:$ast_materialize_temporary_identity,
     OptionalAttr<DictArrayAttr>:$ast_temporary_object_identities,
     OptionalAttr<DictionaryAttr>:$ast_automatic_object_identity,
+    OptionalAttr<DictionaryAttr>:$ast_object_array_allocation,
+    OptionalAttr<DictionaryAttr>:$ast_object_array_cleanup,
     ConfinedAttr<I64Attr, [IntMinValue<1>]>:$alignment,
     OptionalAttr<CIR_AnnotationArrayAttr>:$annotations
   );
@@ -962,14 +1006,20 @@ def CIR_IfOp : CIR_Op<"if", [
 
     The optional `ast_conditional_cleanup_identities` array is producer-owned
     metadata for a `cir.if` that guards destruction of conditionally
-    constructed C++ temporary storage. It is a verbatim copy of the complete
-    `ast_temporary_object_identities` array attached to the alloca passed to
-    that guard's destructor, including every exact function, declaration
-    ordinal, source provenance, binding-specific instance token, and
-    constructor/destructor fact. It is absent rather than inferred when the
-    guarded address has no producer array. Consumers must use the attached
-    array directly and must never recover associations from the condition,
-    alloca name, source location, or operation name.
+    constructed C++ storage. For a materialized temporary it is a verbatim
+    copy of the complete `ast_temporary_object_identities` array attached to
+    the alloca. For an NRVO automatic object it contains that exact VarDecl's
+    `ast_automatic_object_identity`, plus the producer-owned
+    `cleanup_guard_site_ordinal` for this destructor emission, even when other
+    mutually exclusive sites destroy the same NRVO lifetime or other NRVO
+    declarations share the return alloca. The dictionaries retain every exact
+    function, declaration ordinal, source provenance, binding-specific
+    instance token when applicable, and constructor/destructor fact. It is
+    absent rather than inferred when the guarded address has no producer
+    identity.
+    Consumers must use the attached array directly and must never
+    recover associations from the condition, alloca name, source location, or
+    operation name.
 
   }];
   let arguments = (ins
@@ -2281,6 +2331,9 @@ def CIR_WhileOp : CIR_WhileOpBase<"while"> {
 }
 
 def CIR_DoWhileOp : CIR_WhileOpBase<"do"> {
+  let arguments = (ins
+    OptionalAttr<DictionaryAttr>:$ast_object_array_cleanup
+  );
   let regions = (region MinSizedRegion<1>:$body, MinSizedRegion<1>:$cond);
   let assemblyFormat = " $body `while` $cond attr-dict";
 
@@ -2291,6 +2344,14 @@ def CIR_DoWhileOp : CIR_WhileOpBase<"do"> {
   let description = [{
     Represents a C/C++ do-while loop. Identical to `cir.while` but the
     condition is evaluated after the body.
+
+    A compiler-generated finite object-array loop carries
+    `ast_object_array_cleanup`. Its `array_extent` comes from the originating
+    `cir.array.ctor` or `cir.array.dtor`; `phase` is `constructor`,
+    `partial_destructor`, or `complete_destructor`. The matching cursor alloca
+    carries the same extent with `phase = "cursor"`. Consumers must validate
+    the loop's captured begin pointer and cursor address by exact SSA/storage
+    identity and must reject missing, dynamic, or contradictory evidence.
 
     Example:
 
@@ -3733,6 +3794,15 @@ def CIR_GetMemberOp : CIR_Op<"get_member", [Pure]> {
     It expects a pointer to the base record as well as the name of the member
     and its field index.
 
+    Source-derived record fields also carry `ast_member_decl_usr`,
+    `ast_declaring_record_usr`, and `ast_member_offset_bits`. If the field's
+    terminal AST endpoint is a record, `ast_member_record_endpoint` binds that
+    FieldDecl to its exact storage type, terminal RecordDecl USR and CIR schema,
+    and complete Clang source-type layers. Type-converting transformations must
+    convert the embedded storage/schema TypeAttrs and preserve the remaining
+    endpoint facts exactly. Consumers must reject partial or contradictory
+    endpoint dictionaries rather than selecting a record by name or shape.
+
     Example:
     ```
     // Suppose we have a record with multiple members.
@@ -4385,6 +4455,13 @@ def CIR_CallOp : CIR_CallOpBase<"call", [NoRegionArguments]> {
     If the operation represents an indirect call, the `callee` attribute is
     empty. The first operand of this operation must be a pointer to the callee
     function. The rest operands are arguments to the callee function.
+
+    A direct C++ constructor call may carry `ast_constructor_call`, a producer
+    dictionary containing the canonical constructor USR, the exact emitted ABI
+    `callee_symbol`, the cleanup-sidecar `canonical_symbol`, and the ABI
+    `variant`. The two symbols are intentionally distinct when the call uses a
+    base-object entry point. Consumers must use this join rather than deriving
+    a constructor variant from mangled-name spelling.
 
     Example:
 
@@ -5196,6 +5273,10 @@ def CIR_ArrayCtor : CIR_Op<"array.ctor", [
     and `num_elements` provides the runtime element count (for example `new
     T[n]`).
 
+    For the fixed form, `ast_object_array_cleanup.array_extent` records the
+    exact producer-owned element count. Lowering propagates it to the generated
+    constructor and partial-destructor loops and their shared cursor storage.
+
     Examples:
 
     ```
@@ -5224,7 +5305,8 @@ def CIR_ArrayCtor : CIR_Op<"array.ctor", [
 
   let arguments = (ins
     Arg<CIR_AnyPtrType, "array or element address", [MemWrite, MemRead]>:$addr,
-    Optional<CIR_AnyIntType>:$num_elements
+    Optional<CIR_AnyIntType>:$num_elements,
+    OptionalAttr<DictionaryAttr>:$ast_object_array_cleanup
   );
 
   let regions = (region SizedRegion<1>:$body, AnyRegion:$partial_dtor);
@@ -5290,6 +5372,10 @@ def CIR_ArrayDtor : CIR_Op<"array.dtor", [
     and `num_elements` provides the runtime element count (e.g. from an array
     cookie for `delete[]`).
 
+    For the fixed form, `ast_object_array_cleanup.array_extent` records the
+    exact producer-owned element count. Lowering propagates it to the generated
+    complete-destructor loop and its cursor storage.
+
     When `dtor_may_throw` is present, the element destructor call may throw
     an exception.
 
@@ -5321,7 +5407,8 @@ def CIR_ArrayDtor : CIR_Op<"array.dtor", [
   let arguments = (ins
     Arg<CIR_AnyPtrType, "array or element address", [MemWrite, MemRead]>:$addr,
     Optional<CIR_AnyIntType>:$num_elements,
-    UnitProp:$dtor_may_throw
+    UnitProp:$dtor_may_throw,
+    OptionalAttr<DictionaryAttr>:$ast_object_array_cleanup
   );
 
   let regions = (region SizedRegion<1>:$body);
@@ -6846,8 +6933,17 @@ class CIR_UnaryFPToFPBuiltinOp<string mnemonic, string llvmOpName>
   let llvmOp = llvmOpName;
 }
 
-def CIR_SqrtOp : CIR_UnaryFPToFPBuiltinOp<"sqrt", "SqrtOp"> {
+def CIR_SqrtOp : CIR_Op<"sqrt", [Pure, SameOperandsAndResultType]> {
   let summary = "Floating-point square root operation";
+  let arguments = (ins CIR_AnyFloatOrVecOfFloatType:$src,
+    OptionalAttr<StrAttr>:$source_builtin,
+    OptionalAttr<I64Attr>:$lane_count,
+    OptionalAttr<TypeAttr>:$lane_type,
+    OptionalAttr<StrAttr>:$inactive_lane_semantics);
+  let results = (outs CIR_AnyFloatOrVecOfFloatType:$result);
+
+  let assemblyFormat = "$src `:` type($src) attr-dict";
+  let llvmOp = "SqrtOp";
   
   let description = [{
     Computes the square root of a floating-point value or vector.
@@ -6857,6 +6953,13 @@ def CIR_SqrtOp : CIR_UnaryFPToFPBuiltinOp<"sqrt", "SqrtOp"> {
       • a vector whose element type is floating-point.
 
     The result type must match the input type exactly.
+
+    Builtin lowering also records the exact source builtin, lane count and lane
+    type, and whether any vector lanes are inactive. Scalar operations use one
+    lane with `not_applicable`; elementwise vector operations use `none` because
+    every lane is active. Scalar-in-vector wrappers retain their untouched lanes
+    structurally through `cir.vec.insert`, rather than attributing them to the
+    scalar square-root operation.
 
     Examples:
       // scalar

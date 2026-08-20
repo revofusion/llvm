@@ -17,7 +17,7 @@ struct HasNonTrivialArray {
     NonTrivial arr[3];
 };
 
-// CIR-LABEL: cir.func no_inline comdat linkonce_odr @_ZN18HasNonTrivialArrayC2ERKS_({{.*}}) special_member<#cir.cxx_ctor<!rec_HasNonTrivialArray, copy>> 
+// CIR-LABEL: cir.func no_inline comdat linkonce_odr {{.*}}@_ZN18HasNonTrivialArrayC2ERKS_({{.*}}) special_member<#cir.cxx_ctor<!rec_HasNonTrivialArray, copy>> 
 // CIR: %[[THIS_ALLOCA:.*]] = cir.alloca "this" {{.*}} init : !cir.ptr<!cir.ptr<!rec_HasNonTrivialArray>>
 // CIR: %[[RHS_ALLOCA:.*]] = cir.alloca "" {{.*}} init const : !cir.ptr<!cir.ptr<!rec_HasNonTrivialArray>>
 // CIR: %[[ITR_ALLOCA:.*]] = cir.alloca "arrayinit.temp" {{.*}} : !cir.ptr<!cir.ptr<!rec_NonTrivial>>
@@ -34,7 +34,7 @@ struct HasNonTrivialArray {
 // CIR:   %[[IDX:.*]] = cir.ptr_diff %[[ITR_LOAD]], %[[THIS_ARR_DECAY]] : !cir.ptr<!rec_NonTrivial> -> !s64i
 // CIR:   %[[IDX_CAST:.*]] = cir.cast integral %[[IDX]] : !s64i -> !u64i
 // CIR:   %[[RHS_ELT:.*]] = cir.get_element %[[RHS_ARR]][%[[IDX_CAST]] : !u64i] : !cir.ptr<!cir.array<!rec_NonTrivial x 3>> -> !cir.ptr<!rec_NonTrivial>
-// CIR:   cir.call @_ZN10NonTrivialC1ERKS_(%[[ITR_LOAD]], %[[RHS_ELT]]) : (!cir.ptr<!rec_NonTrivial> {{.*}}, !cir.ptr<!rec_NonTrivial> {{.*}}) -> ()
+// CIR:   cir.call @_ZN10NonTrivialC1ERKS_(%[[ITR_LOAD]], %[[RHS_ELT]]){{.*}} : (!cir.ptr<!rec_NonTrivial> {{.*}}, !cir.ptr<!rec_NonTrivial> {{.*}}) -> ()
 // CIR:   %[[ONE:.*]] = cir.const #cir.int<1> : !s64i
 // CIR:   %[[NEXT_ITR:.*]] = cir.ptr_stride %[[ITR_LOAD]], %[[ONE]] : (!cir.ptr<!rec_NonTrivial>, !s64i) -> !cir.ptr<!rec_NonTrivial>
 // CIR:   cir.store align(8) %[[NEXT_ITR]], %[[ITR_ALLOCA]] : !cir.ptr<!rec_NonTrivial>, !cir.ptr<!cir.ptr<!rec_NonTrivial>>
@@ -174,7 +174,7 @@ struct HasMultiDimArray {
 // CIR:       %[[IDX3:.*]] = cir.ptr_diff %[[ITR3_LOAD]], %[[ARR2_DECAY]] : !cir.ptr<!rec_NonTrivial> -> !s64i
 // CIR:       %[[IDX3_CAST:.*]] = cir.cast integral %[[IDX3]] : !s64i -> !u64i
 // CIR:       %[[RHS_ELT3:.*]] = cir.get_element %[[RHS_ELT2]][%[[IDX3_CAST]] : !u64i] : !cir.ptr<!cir.array<!rec_NonTrivial x 4>> -> !cir.ptr<!rec_NonTrivial>
-// CIR:       cir.call @_ZN10NonTrivialC1ERKS_(%[[ITR3_LOAD]], %[[RHS_ELT3]]) : (!cir.ptr<!rec_NonTrivial> {{.*}}, !cir.ptr<!rec_NonTrivial> {{.*}}) -> ()
+// CIR:       cir.call @_ZN10NonTrivialC1ERKS_(%[[ITR3_LOAD]], %[[RHS_ELT3]]){{.*}} : (!cir.ptr<!rec_NonTrivial> {{.*}}, !cir.ptr<!rec_NonTrivial> {{.*}}) -> ()
 // CIR:       %[[ONE:.*]] = cir.const #cir.int<1> : !s64i
 // CIR:       %[[NEXT_ITR3:.*]] = cir.ptr_stride %[[ITR3_LOAD]], %[[ONE]] : (!cir.ptr<!rec_NonTrivial>, !s64i) -> !cir.ptr<!rec_NonTrivial>
 // CIR:       cir.store {{.*}}%[[NEXT_ITR3]], %[[ITR3_ALLOCA]] : !cir.ptr<!rec_NonTrivial>, !cir.ptr<!cir.ptr<!rec_NonTrivial>>

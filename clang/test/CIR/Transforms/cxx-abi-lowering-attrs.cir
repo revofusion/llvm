@@ -5,10 +5,15 @@
 !s32i = !cir.int<s, 32>
 !rec_Other = !cir.struct<"Other" padded {!u8i}>
 !rec_Struct = !cir.struct<"Struct" {!cir.data_member<!s32i in !rec_Other>}>
-// CHECK: !rec_Struct = !cir.struct<"Struct" {!s64i}>
+// CHECK-DAG: !rec_Struct = !cir.struct<"Struct" {!s64i}>
 
 !dmp = !cir.data_member<!s32i in !rec_Other>
 !dmp_ptr = !cir.ptr<!cir.data_member<!s32i in !rec_Other>>
+!dmp_array = !cir.array<!dmp x 2>
+!rec_Endpoint = !cir.struct<"Endpoint" {!dmp}>
+!rec_MemberOwner = !cir.struct<"MemberOwner" {!rec_Endpoint}>
+// CHECK-DAG: !rec_Endpoint = !cir.struct<"Endpoint" {!s64i}>
+// CHECK-DAG: !rec_MemberOwner = !cir.struct<"MemberOwner" {!rec_Endpoint}>
 
 // cir::GlobalViewAttr
 #global = #cir.global_view<@whatever> : !cir.ptr<!rec_Struct>
@@ -36,6 +41,36 @@ module attributes {cir.triple = "x86_64-unknown-linux-gnu"} {
     %constptr2 = cir.const #cir.ptr<null> : !dmp_ptr
     // CHECK: cir.const #cir.ptr<null> : !cir.ptr<!s64i>
 
+    // A null pointer constant is reconstructed because its record schema is
+    // ABI-dependent. Preserve the complete cast endpoint authority while
+    // rewriting the schema embedded in the metadata dictionary.
+    %null_record = cir.const #cir.ptr<null> : !cir.ptr<!rec_Struct> {ast_cast_expr = {cast_kind = "NullToPointer", is_explicit = false, is_part_of_explicit_cast = false, result_record_presence = "record", result_record_schema = !rec_Struct, result_record_usr = "c:@S@Struct", result_type_spelling = "Struct *", source_record_presence = "no_record", source_type_spelling = "nullptr_t"}}
+    // CHECK: %[[NULL_RECORD:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!rec_Struct> {ast_cast_expr = {cast_kind = "NullToPointer", is_explicit = false, is_part_of_explicit_cast = false, result_record_presence = "record", result_record_schema = !rec_Struct, result_record_usr = "c:@S@Struct", result_type_spelling = "Struct *", source_record_presence = "no_record", source_type_spelling = "nullptr_t"}}
+
+    // Reconstructing a byte-storage-to-record cast must preserve the typed AST
+    // destination declaration pair while rewriting its ABI-dependent schema.
+    // The byte source remains explicitly schema-free.
+    %null_byte = cir.const #cir.ptr<null> : !cir.ptr<!u8i>
+    // CHECK: %[[NULL_BYTE:.*]] = cir.const #cir.ptr<null> : !cir.ptr<!u8i>
+    %byte_to_record = cir.cast bitcast %null_byte : !cir.ptr<!u8i> -> !cir.ptr<!rec_Struct> {ast_cast_expr = {cast_kind = "BitCast", is_explicit = true, is_part_of_explicit_cast = true, result_record_presence = "record", result_record_schema = !rec_Struct, result_record_usr = "c:@S@Struct", result_type_spelling = "Struct *", source_record_presence = "no_record", source_type_spelling = "unsigned char *"}}
+    // CHECK: %{{.*}} = cir.cast bitcast %[[NULL_BYTE]] : !cir.ptr<!u8i> -> !cir.ptr<!rec_Struct> {ast_cast_expr = {cast_kind = "BitCast", is_explicit = true, is_part_of_explicit_cast = true, result_record_presence = "record", result_record_schema = !rec_Struct, result_record_usr = "c:@S@Struct", result_type_spelling = "Struct *", source_record_presence = "no_record", source_type_spelling = "unsigned char *"}}
+
+    // Both ordinary cast rewrites retain every authenticated endpoint field.
+    %record_bool = cir.cast ptr_to_bool %null_record : !cir.ptr<!rec_Struct> -> !cir.bool {ast_cast_expr = {cast_kind = "PointerToBoolean", is_explicit = false, is_part_of_explicit_cast = false, result_record_presence = "no_record", result_type_spelling = "_Bool", source_record_presence = "record", source_record_schema = !rec_Struct, source_record_usr = "c:@S@Struct", source_type_spelling = "Struct *"}}
+    // CHECK: %{{.*}} = cir.cast ptr_to_bool %[[NULL_RECORD]] : !cir.ptr<!rec_Struct> -> !cir.bool {ast_cast_expr = {cast_kind = "PointerToBoolean", is_explicit = false, is_part_of_explicit_cast = false, result_record_presence = "no_record", result_type_spelling = "_Bool", source_record_presence = "record", source_record_schema = !rec_Struct, source_record_usr = "c:@S@Struct", source_type_spelling = "Struct *"}}
+    %record_bitcast = cir.cast bitcast %null_record : !cir.ptr<!rec_Struct> -> !cir.ptr<!u8i> {ast_cast_expr = {cast_kind = "BitCast", is_explicit = true, is_part_of_explicit_cast = true, result_record_presence = "no_record", result_type_spelling = "void *", source_record_presence = "record", source_record_schema = !rec_Struct, source_record_usr = "c:@S@Struct", source_type_spelling = "Struct *"}}
+    // CHECK: %{{.*}} = cir.cast bitcast %[[NULL_RECORD]] : !cir.ptr<!rec_Struct> -> !cir.ptr<!u8i> {ast_cast_expr = {cast_kind = "BitCast", is_explicit = true, is_part_of_explicit_cast = true, result_record_presence = "no_record", result_type_spelling = "void *", source_record_presence = "record", source_record_schema = !rec_Struct, source_record_usr = "c:@S@Struct", source_type_spelling = "Struct *"}}
+
+    // A cast between two record endpoints retains the USR/TypeAttr pair for
+    // each side while the source record's ABI-dependent member is rewritten.
+    %record_to_record = cir.cast bitcast %null_record : !cir.ptr<!rec_Struct> -> !cir.ptr<!rec_Other> {ast_cast_expr = {cast_kind = "BitCast", is_explicit = true, is_part_of_explicit_cast = true, result_record_presence = "record", result_record_schema = !rec_Other, result_record_usr = "c:@S@Other", result_type_spelling = "Other *", source_record_presence = "record", source_record_schema = !rec_Struct, source_record_usr = "c:@S@Struct", source_type_spelling = "Struct *"}}
+    // CHECK: %{{.*}} = cir.cast bitcast %[[NULL_RECORD]] : !cir.ptr<!rec_Struct> -> !cir.ptr<!rec_Other> {ast_cast_expr = {cast_kind = "BitCast", is_explicit = true, is_part_of_explicit_cast = true, result_record_presence = "record", result_record_schema = !rec_Other, result_record_usr = "c:@S@Other", result_type_spelling = "Other *", source_record_presence = "record", source_record_schema = !rec_Struct, source_record_usr = "c:@S@Struct", source_type_spelling = "Struct *"}}
+
+    // Structural alloca flags and the exact materialization identity survive
+    // reconstruction together.
+    %materialized = cir.alloca "materialized" align(8) init const cleanup_dest_slot : !cir.ptr<!dmp> {ast_materialize_temporary_identity = {begin_raw = 31 : i64, declaration_ordinal = 2 : i64, end_raw = 37 : i64, function = @helper, instance_token = "mte.instance.2", owner = @helper, owner_kind = "function"}}
+    // CHECK: %{{.*}} = cir.alloca "materialized" align(8) init const cleanup_dest_slot : !cir.ptr<!s64i> {ast_materialize_temporary_identity = {begin_raw = 31 : i64, declaration_ordinal = 2 : i64, end_raw = 37 : i64, function = @helper, instance_token = "mte.instance.2", owner = @helper, owner_kind = "function"}}
+
     // The alloca is reconstructed because !dmp lowers to !s64i. Preserve the
     // producer-owned CXXBindTemporaryExpr identity exactly while doing so.
     %temporary = cir.alloca "temporary" align(8) : !cir.ptr<!dmp> {ast_temporary_object_identities = [{begin_raw = 17 : i64, cleanup_kind = "cxx_destructor", declaration_ordinal = 0 : i64, destructor_symbol = "_ZN1SD1Ev", end_raw = 19 : i64, function = @helper, instance_token = "cxx.temporary.instance.0", requires_observed_constructor_call = false}]}
@@ -45,6 +80,18 @@ module attributes {cir.triple = "x86_64-unknown-linux-gnu"} {
     // identity attached to an NRVO-capable cleanup slot.
     %automatic = cir.alloca "automatic" align(8) : !cir.ptr<!dmp> {ast_automatic_object_identity = {begin_raw = 23 : i64, cleanup_kind = "cxx_destructor", destructor_symbol = "_ZN1SD1Ev", end_raw = 29 : i64, function = @helper, requires_observed_constructor_call = false}}
     // CHECK: %{{.*}} = cir.alloca "automatic" align(8) : !cir.ptr<!s64i> {ast_automatic_object_identity = {begin_raw = 23 : i64, cleanup_kind = "cxx_destructor", destructor_symbol = "_ZN1SD1Ev", end_raw = 29 : i64, function = @helper, requires_observed_constructor_call = false}}
+
+    // Reconstructed compiler-created object arrays retain their exact
+    // QualType/RecordDecl allocation authority.
+    %object_array = cir.alloca "object_array" align(8) : !cir.ptr<!dmp_array> {ast_object_array_allocation = {array_extents = [2 : i64], element_record_schema = !rec_Struct, element_record_usr = "c:@S@Struct", source_type = [{align_bits = 64 : i64, bit_width = 128 : i64, clang_address_space = 0 : i64, is_atomic = false, is_const = false, is_restrict = false, is_volatile = false, kind = "value", target_address_space = 0 : i64}]}}
+    // CHECK: %{{.*}} = cir.alloca "object_array" align(8) : !cir.ptr<!cir.array<!s64i x 2>> {ast_object_array_allocation = {array_extents = [2], element_record_schema = !rec_Struct, element_record_usr = "c:@S@Struct", source_type = [{align_bits = 64 : i64, bit_width = 128 : i64, clang_address_space = 0 : i64, is_atomic = false, is_const = false, is_restrict = false, is_volatile = false, kind = "value", target_address_space = 0 : i64}]}}
+
+    // A reconstructed member projection keeps the authoritative
+    // FieldDecl/RecordDecl endpoint pair while rewriting the endpoint's body.
+    %member_owner = cir.alloca "member_owner" align(8) : !cir.ptr<!rec_MemberOwner>
+    // CHECK: %[[MEMBER_OWNER:.*]] = cir.alloca "member_owner" align(8) : !cir.ptr<!rec_MemberOwner>
+    %member = cir.get_member %member_owner[0] {ast_declaring_record_usr = "c:@S@MemberOwner", ast_member_decl_usr = "clang-field:16:c:@S@MemberOwner:c:@S@MemberOwner@FI@member", ast_member_offset_bits = 0 : i64, ast_member_record_endpoint = {declaring_record_usr = "c:@S@MemberOwner", field_decl_usr = "clang-field:16:c:@S@MemberOwner:c:@S@MemberOwner@FI@member", field_offset_bits = 0 : i64, field_storage_type = !rec_Endpoint, record_schema = !rec_Endpoint, record_usr = "c:@S@Endpoint", source_type = [{align_bits = 64 : i64, bit_width = 64 : i64, clang_address_space = 0 : i64, is_atomic = false, is_const = false, is_restrict = false, is_volatile = false, kind = "value", target_address_space = 0 : i64}]}, name = "member"} : !cir.ptr<!rec_MemberOwner> -> !cir.ptr<!rec_Endpoint>
+    // CHECK: %{{.*}} = cir.get_member %[[MEMBER_OWNER]][0] {ast_declaring_record_usr = "c:@S@MemberOwner", ast_member_decl_usr = "clang-field:16:c:@S@MemberOwner:c:@S@MemberOwner@FI@member", ast_member_offset_bits = 0 : i64, ast_member_record_endpoint = {declaring_record_usr = "c:@S@MemberOwner", field_decl_usr = "clang-field:16:c:@S@MemberOwner:c:@S@MemberOwner@FI@member", field_offset_bits = 0 : i64, field_storage_type = !rec_Endpoint, record_schema = !rec_Endpoint, record_usr = "c:@S@Endpoint", source_type = [{align_bits = 64 : i64, bit_width = 64 : i64, clang_address_space = 0 : i64, is_atomic = false, is_const = false, is_restrict = false, is_volatile = false, kind = "value", target_address_space = 0 : i64}]}, name = "member"} : !cir.ptr<!rec_MemberOwner> -> !cir.ptr<!rec_Endpoint>
 
     // cir::ConstRecordAttr
     %constrecord = cir.const #cir.const_record<{#cir.data_member<null> : !dmp }> : !rec_Struct

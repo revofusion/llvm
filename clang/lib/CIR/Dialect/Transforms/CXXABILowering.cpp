@@ -238,6 +238,27 @@ mlir::Attribute rewriteAttribute(const mlir::TypeConverter &tc,
       .DefaultUnreachable("unrewritten illegal attribute kind");
 }
 
+/// Copy every attribute not explicitly reconstructed by a dedicated lowering
+/// pattern. Attribute values that contain ABI-dependent types are rewritten
+/// recursively so producer metadata remains attached without keeping the
+/// replacement operation illegal.
+static void copyAndRewriteAttrs(
+    mlir::Operation *source, mlir::Operation *destination,
+    const mlir::TypeConverter &typeConverter,
+    llvm::ArrayRef<llvm::StringRef> reconstructedAttrs) {
+  if (!destination)
+    return;
+
+  for (const mlir::NamedAttribute &attr : source->getAttrs()) {
+    if (llvm::is_contained(reconstructedAttrs, attr.getName().getValue()))
+      continue;
+    destination->setAttr(
+        attr.getName(),
+        rewriteAttribute(typeConverter, source->getContext(), attr.getValue()));
+  }
+}
+
+
 #define GET_ABI_LOWERING_PATTERNS
 #include "clang/CIR/Dialect/IR/CIRLowering.inc"
 #undef GET_ABI_LOWERING_PATTERNS
@@ -337,16 +358,8 @@ mlir::LogicalResult CIRAllocaOpABILowering::matchAndRewrite(
   cir::AllocaOp loweredOp = cir::AllocaOp::create(
       rewriter, op.getLoc(), loweredAllocaPtrTy, op.getName(),
       op.getAlignmentAttr(), /*dynAllocSize=*/adaptor.getDynAllocSize());
-  loweredOp.setInit(op.getInit());
-  loweredOp.setConstant(op.getConstant());
-  loweredOp.setAnnotationsAttr(op.getAnnotationsAttr());
-  loweredOp.setAstMaterializeTemporaryIdentityAttr(
-      op.getAstMaterializeTemporaryIdentityAttr());
-  loweredOp.setAstTemporaryObjectIdentitiesAttr(
-      op.getAstTemporaryObjectIdentitiesAttr());
-  loweredOp.setAstAutomaticObjectIdentityAttr(
-      op.getAstAutomaticObjectIdentityAttr());
-  cir::copyDiscardableAttrs(op.getOperation(), loweredOp.getOperation());
+  copyAndRewriteAttrs(op.getOperation(), loweredOp.getOperation(),
+                      *getTypeConverter(), {"name", "alignment"});
 
   rewriter.replaceOp(op, loweredOp);
   return mlir::success();
@@ -368,8 +381,8 @@ mlir::LogicalResult CIRCastOpABILowering::matchAndRewrite(
       else
         loweredResult = lowerModule->getCXXABI().lowerMethodBitcast(
             op, destTy, adaptor.getSrc(), rewriter);
-      cir::copyDiscardableAttrs(op.getOperation(),
-                                loweredResult.getDefiningOp());
+      copyAndRewriteAttrs(op.getOperation(), loweredResult.getDefiningOp(),
+                          *getTypeConverter(), {"kind"});
       rewriter.replaceOp(op, loweredResult);
       return mlir::success();
     }
@@ -381,8 +394,8 @@ mlir::LogicalResult CIRCastOpABILowering::matchAndRewrite(
       else
         loweredResult = lowerModule->getCXXABI().lowerMethodToBoolCast(
             op, adaptor.getSrc(), rewriter);
-      cir::copyDiscardableAttrs(op.getOperation(),
-                                loweredResult.getDefiningOp());
+      copyAndRewriteAttrs(op.getOperation(), loweredResult.getDefiningOp(),
+                          *getTypeConverter(), {"kind"});
       rewriter.replaceOp(op, loweredResult);
       return mlir::success();
     }
@@ -394,7 +407,8 @@ mlir::LogicalResult CIRCastOpABILowering::matchAndRewrite(
   cir::CastOp loweredOp = cir::CastOp::create(
       rewriter, op.getLoc(), getTypeConverter()->convertType(op.getType()),
       adaptor.getKind(), adaptor.getSrc());
-  cir::copyDiscardableAttrs(op.getOperation(), loweredOp.getOperation());
+  copyAndRewriteAttrs(op.getOperation(), loweredOp.getOperation(),
+                      *getTypeConverter(), {"kind"});
   rewriter.replaceOp(op, loweredOp);
   return mlir::success();
 }
@@ -519,7 +533,8 @@ mlir::LogicalResult CIRConstantOpABILowering::matchAndRewrite(
       lowerModule, layout, *getTypeConverter(), op.getType(), op.getValue());
   cir::ConstantOp loweredOp =
       cir::ConstantOp::create(rewriter, op.getLoc(), newValue);
-  cir::copyDiscardableAttrs(op.getOperation(), loweredOp.getOperation());
+  copyAndRewriteAttrs(op.getOperation(), loweredOp.getOperation(),
+                      *getTypeConverter(), {"value"});
   rewriter.replaceOp(op, loweredOp);
   return mlir::success();
 }

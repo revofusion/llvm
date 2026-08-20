@@ -407,6 +407,7 @@ void CIRGenItaniumCXXABI::addImplicitStructorParams(CIRGenFunction &cgf,
 void CIRGenItaniumCXXABI::emitCXXConstructors(const CXXConstructorDecl *d) {
   // Just make sure we're in sync with TargetCXXABI.
   assert(cgm.getTarget().getCXXABI().hasConstructorVariants());
+  cgm.noteSelectedConstructorFamily(d);
 
   // The constructor used for constructing this as a base class;
   // ignores virtual bases.
@@ -1958,7 +1959,7 @@ CIRGenCallee CIRGenItaniumCXXABI::getVirtualFunctionPointer(
       auto vtableSlotPtr = cir::VTableGetVirtualFnAddrOp::create(
           builder, loc, builder.getPointerTo(tyPtr), vtable, vtableIndex);
       auto identityAttrs = buildCIRGenVirtualMethodIdentityAttrs(
-          cgm.getMLIRContext(), cgm.getMangledName(gd), methodDecl);
+          cgm, cgm.getMLIRContext(), cgm.getMangledName(gd), methodDecl);
       vtableSlotPtr->setAttr("method", identityAttrs.method);
       if (identityAttrs.methodUSR)
         vtableSlotPtr->setAttr("method_usr", identityAttrs.methodUSR);
@@ -1968,6 +1969,9 @@ CIRGenCallee CIRGenItaniumCXXABI::getVirtualFunctionPointer(
       if (identityAttrs.declaringClassUSR)
         vtableSlotPtr->setAttr("declaring_class_usr",
                                identityAttrs.declaringClassUSR);
+      if (identityAttrs.rootAlternatives)
+        vtableSlotPtr->setAttr("root_alternatives",
+                               identityAttrs.rootAlternatives);
       vfuncLoad = builder.createAlignedLoad(loc, tyPtr, vtableSlotPtr,
                                             cgf.getPointerAlign());
     }

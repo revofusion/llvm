@@ -54,6 +54,11 @@ int selectEnclosing(T value) {
 
 int forceSelectedMember = selectEnclosing(4);
 
+// The producer publishes a single exact definition binding for each late
+// declaration and lambda selector. This is stronger than merely observing a
+// same-spelling cir.func in the output.
+// CHECK: cir.selected_decl_root_definitions = {{.*}}_Z16selectedTemplateIiEiT_ = "_Z16selectedTemplateIiEiT_"{{.*}}_ZN10LateMemberIiE7convertIiEEiT_ = "_ZN10LateMemberIiE7convertIiEEiT_"{{.*}}_ZZ22selectedLambdaTemplateIiEiT_ENKUlvE_clEv = "_ZZ22selectedLambdaTemplateIiEiT_ENKUlvE_clEv"{{.*}}
+
 // CHECK-DAG: cir.func{{.*}} @_Z16selectedTemplateIiEiT_
 
 // CHECK-DAG: cir.func{{.*}} @_ZN6HolderIiED1Ev

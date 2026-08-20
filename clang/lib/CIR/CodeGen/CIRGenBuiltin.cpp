@@ -36,6 +36,7 @@
 #include <algorithm>
 #include <functional>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 using namespace clang;
@@ -310,6 +311,58 @@ static RValue emitBinaryAtomic(CIRGenFunction &cgf,
   return RValue::get(makeBinaryAtomicValue(cgf, atomicOpkind, e));
 }
 
+static RValue emitSyncLockTestAndSet(CIRGenFunction &cgf,
+                                     const CallExpr *e) {
+  QualType type = e->getType();
+  QualType ptrType = e->getArg(0)->getType();
+  assert(ptrType->isPointerType());
+  assert(cgf.getContext().hasSameUnqualifiedType(
+      type, ptrType->getPointeeType()));
+  assert(cgf.getContext().hasSameUnqualifiedType(type,
+                                                 e->getArg(1)->getType()));
+
+  Address destAddr = checkAtomicAlignment(cgf, e);
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Value val = cgf.emitScalarExpr(e->getArg(1));
+  mlir::Type valueType = val.getType();
+  mlir::Value dest = destAddr.emitRawPointer();
+
+  if (ptrType->getPointeeType()->isPointerType()) {
+    cir::IntType ptrSizeInt =
+        builder.getSIntNTy(cgf.getContext().getTypeSize(ptrType));
+    dest = builder.createBitcast(dest, builder.getPointerTo(ptrSizeInt));
+    val = emitToInt(cgf, val, type, ptrSizeInt);
+  } else {
+    cir::IntType intType =
+        ptrType->getPointeeType()->isUnsignedIntegerType()
+            ? builder.getUIntNTy(cgf.getContext().getTypeSize(type))
+            : builder.getSIntNTy(cgf.getContext().getTypeSize(type));
+    val = emitToInt(cgf, val, type, intType);
+  }
+
+  auto xchg = cir::AtomicXchgOp::create(
+      builder, cgf.getLoc(e->getSourceRange()), dest, val,
+      cir::MemOrder::SequentiallyConsistent, cir::SyncScopeKind::System,
+      ptrType->getPointeeType().isVolatileQualified());
+  return RValue::get(emitFromInt(cgf, xchg.getResult(), type, valueType));
+}
+
+static RValue emitSyncLockRelease(CIRGenFunction &cgf, const CallExpr *e) {
+  QualType ptrType = e->getArg(0)->getType();
+  assert(ptrType->isPointerType());
+
+  Address destAddr = checkAtomicAlignment(cgf, e);
+  CIRGenBuilderTy &builder = cgf.getBuilder();
+  mlir::Location loc = cgf.getLoc(e->getSourceRange());
+  mlir::Value zero = builder.getNullValue(destAddr.getElementType(), loc);
+  cir::StoreOp store = builder.createStore(loc, zero, destAddr);
+  store.setMemOrder(cir::MemOrder::Release);
+  store.setSyncScope(cir::SyncScopeKind::System);
+  if (ptrType->getPointeeType().isVolatileQualified())
+    store.setIsVolatile(true);
+  return RValue::get(nullptr);
+}
+
 template <typename BinOp>
 static RValue emitBinaryAtomicPost(CIRGenFunction &cgf,
                                    cir::AtomicFetchKind atomicOpkind,
@@ -459,6 +512,28 @@ static RValue emitUnaryMaybeConstrainedFPBuiltin(CIRGenFunction &cgf,
 
   auto call =
       Operation::create(cgf.getBuilder(), arg.getLoc(), arg.getType(), arg);
+  if constexpr (std::is_same_v<Operation, cir::SqrtOp>) {
+    const FunctionDecl *callee = e.getDirectCallee();
+    assert(callee && callee->getBuiltinID() &&
+           "sqrt operation must originate from an exact builtin declaration");
+    mlir::Type laneType = arg.getType();
+    int64_t laneCount = 1;
+    StringRef inactiveLaneSemantics = "not_applicable";
+    if (auto vectorType = mlir::dyn_cast<cir::VectorType>(arg.getType())) {
+      laneType = vectorType.getElementType();
+      laneCount = vectorType.getSize();
+      inactiveLaneSemantics = "none";
+    }
+    call->setAttr(
+        "source_builtin",
+        cgf.getBuilder().getStringAttr(cgf.getContext().BuiltinInfo.getName(
+            callee->getBuiltinID())));
+    call->setAttr("lane_count",
+                  cgf.getBuilder().getI64IntegerAttr(laneCount));
+    call->setAttr("lane_type", mlir::TypeAttr::get(laneType));
+    call->setAttr("inactive_lane_semantics",
+                  cgf.getBuilder().getStringAttr(inactiveLaneSemantics));
+  }
   return RValue::get(call->getResult(0));
 }
 
@@ -2691,17 +2766,19 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
   case Builtin::BI__sync_swap_4:
   case Builtin::BI__sync_swap_8:
   case Builtin::BI__sync_swap_16:
+    return errorBuiltinNYI(*this, e, builtinID);
   case Builtin::BI__sync_lock_test_and_set_1:
   case Builtin::BI__sync_lock_test_and_set_2:
   case Builtin::BI__sync_lock_test_and_set_4:
   case Builtin::BI__sync_lock_test_and_set_8:
   case Builtin::BI__sync_lock_test_and_set_16:
+    return emitSyncLockTestAndSet(*this, e);
   case Builtin::BI__sync_lock_release_1:
   case Builtin::BI__sync_lock_release_2:
   case Builtin::BI__sync_lock_release_4:
   case Builtin::BI__sync_lock_release_8:
   case Builtin::BI__sync_lock_release_16:
-    return errorBuiltinNYI(*this, e, builtinID);
+    return emitSyncLockRelease(*this, e);
   case Builtin::BI__sync_synchronize: {
     // We assume this is supposed to correspond to a C++0x-style
     // sequentially-consistent fence (i.e. this is only usable for

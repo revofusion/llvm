@@ -26,12 +26,12 @@ void baz() {
 // CHECK-NEXT:     %[[THIS_ADDR:.*]] = cir.alloca "this" align(8) init : !cir.ptr<!cir.ptr<!rec_Struk>>
 // CHECK-NEXT:     cir.store %arg0, %[[THIS_ADDR]] : !cir.ptr<!rec_Struk>, !cir.ptr<!cir.ptr<!rec_Struk>>
 // CHECK-NEXT:     %[[THIS:.*]] = cir.load %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_Struk>>, !cir.ptr<!rec_Struk>
-// CHECK-NEXT:     cir.call @_ZN5StrukC2Ev(%[[THIS]]) : (!cir.ptr<!rec_Struk> {{.*}}) -> ()
+// CHECK-NEXT:     cir.call @_ZN5StrukC2Ev(%[[THIS]]) {{.*}} : (!cir.ptr<!rec_Struk> {{.*}}) -> ()
 // CHECK-NEXT:     cir.return
 
 // CHECK:   cir.func{{.*}} @_Z3bazv()
 // CHECK-NEXT:     %[[S_ADDR:.*]] = cir.alloca "s" align(4) init : !cir.ptr<!rec_Struk>
-// CHECK-NEXT:     cir.call @_ZN5StrukC1Ev(%[[S_ADDR]]) : (!cir.ptr<!rec_Struk> {{.*}}) -> ()
+// CHECK-NEXT:     cir.call @_ZN5StrukC1Ev(%[[S_ADDR]]) {{.*}} : (!cir.ptr<!rec_Struk> {{.*}}) -> ()
 // CHECK-NEXT:     cir.return
 
 struct VariadicStruk {

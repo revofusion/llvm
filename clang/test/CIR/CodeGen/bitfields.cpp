@@ -96,7 +96,7 @@ void store_bitfield_to_bitfield(S* s) {
 // CIR:   [[TMP4:%.*]] = cir.set_bitfield align(4) (#bfi_b, [[TMP3]] : !cir.ptr<!u64i>, [[TMP1]] : !s32i) {{.*ast_cast_expr.*}} -> !s32i
 // CIR:   [[TMP5:%.*]] = cir.load align(8) [[TMP0]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
 // CIR:   [[TMP6:%.*]] = cir.get_member [[TMP5]][0] {{.*name = "a".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!u64i>
-// CIR:   [[TMP7:%.*]] = cir.set_bitfield align(4) (#bfi_a, [[TMP6]] : !cir.ptr<!u64i>, [[TMP4]] : !s32i) -> !s32i
+// CIR:   [[TMP7:%.*]] = cir.set_bitfield align(4) (#bfi_a, [[TMP6]] : !cir.ptr<!u64i>, [[TMP4]] : !s32i) {{.*}} -> !s32i
 
 // LLVM: define dso_local void @_Z26store_bitfield_to_bitfieldP1S
 // LLVM:   [[TMP0:%.*]] = alloca ptr, i64 1, align 8

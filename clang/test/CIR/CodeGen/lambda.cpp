@@ -360,7 +360,7 @@ struct A {
 // CIR:   cir.store %[[THIS_ARG]], %[[THIS_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load deref %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_A>>, !cir.ptr<!rec_A>
 // CIR:   %[[STRUCT_A:.*]] = cir.get_member %[[LAM_ADDR]][0] {{{.*}}name = "this"{{.*}}} : !cir.ptr<![[REC_LAM_A]]> -> !cir.ptr<!rec_A>
-// CIR:   cir.copy %[[THIS]] to %[[STRUCT_A]] : !cir.ptr<!rec_A>
+// CIR:   cir.copy %[[THIS]] to %[[STRUCT_A]] {{.*}} : !cir.ptr<!rec_A>
 // CIR:   %[[LAM_RET:.*]] = cir.call @_ZZN1A3fooEvENKUlvE_clEv(%[[LAM_ADDR]])
 // CIR:   cir.store{{.*}} %[[LAM_RET]], %[[RETVAL]]
 // CIR:   %[[RET:.*]] = cir.load{{.*}} %[[RETVAL]]

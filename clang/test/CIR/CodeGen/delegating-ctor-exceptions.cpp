@@ -30,7 +30,7 @@ void force_default_ctor() { HasDtor x; }
 // CIR:   cir.store %[[ARG0]], %[[THIS_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]] : !cir.ptr<!cir.ptr<!rec_HasDtor>>, !cir.ptr<!rec_HasDtor>
 // CIR:   %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
-// CIR:   cir.call @_ZN7HasDtorC1Ei(%[[THIS]], %[[ZERO]]) : (!cir.ptr<!rec_HasDtor> {{.*}}, !s32i {{.*}}) -> ()
+// CIR:   cir.call @_ZN7HasDtorC1Ei(%[[THIS]], %[[ZERO]]) {{.*}} : (!cir.ptr<!rec_HasDtor> {{.*}}, !s32i {{.*}}) -> ()
 // CIR:   cir.cleanup.scope {
 // CIR:     cir.call @_Z8mayThrowv() : () -> ()
 // CIR:     cir.yield

@@ -16,7 +16,7 @@ __m512h test_sqrtph512(__m512h a) {
   return __builtin_ia32_sqrtph512(a, 4);
 }
 // CIR-LABEL: cir.func {{.*}}@test_sqrtph512
-// CIR: cir.sqrt {{%.*}} : !cir.vector<32 x !cir.f16>
+// CIR: cir.sqrt {{%.*}} : !cir.vector<32 x !cir.f16> {inactive_lane_semantics = "none", lane_count = 32 : i64, lane_type = !cir.f16, source_builtin = "__builtin_ia32_sqrtph512"}
 // LLVM-LABEL: define {{.*}} @test_sqrtph512
 // LLVM: call <32 x half> @llvm.sqrt.v32f16
 // OGCG-LABEL: define {{.*}} @test_sqrtph512
@@ -27,7 +27,7 @@ __m512 test_sqrtps512(__m512 a) {
   return __builtin_ia32_sqrtps512(a, 4);
 }
 // CIR-LABEL: cir.func {{.*}}@test_sqrtps512
-// CIR: cir.sqrt {{%.*}} : !cir.vector<16 x !cir.float>
+// CIR: cir.sqrt {{%.*}} : !cir.vector<16 x !cir.float> {inactive_lane_semantics = "none", lane_count = 16 : i64, lane_type = !cir.float, source_builtin = "__builtin_ia32_sqrtps512"}
 // LLVM-LABEL: define {{.*}} @test_sqrtps512
 // LLVM: call <16 x float> @llvm.sqrt.v16f32
 // OGCG-LABEL: define {{.*}} @test_sqrtps512
@@ -38,7 +38,7 @@ __m512d test_sqrtpd512(__m512d a) {
   return __builtin_ia32_sqrtpd512(a, 4);
 }
 // CIR-LABEL: cir.func {{.*}}@test_sqrtpd512
-// CIR: cir.sqrt {{%.*}} : !cir.vector<8 x !cir.double>
+// CIR: cir.sqrt {{%.*}} : !cir.vector<8 x !cir.double> {inactive_lane_semantics = "none", lane_count = 8 : i64, lane_type = !cir.double, source_builtin = "__builtin_ia32_sqrtpd512"}
 // LLVM-LABEL: define {{.*}} @test_sqrtpd512
 // LLVM: call <8 x double> @llvm.sqrt.v8f64
 // OGCG-LABEL: define {{.*}} @test_sqrtpd512

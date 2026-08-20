@@ -160,7 +160,7 @@ constexpr int arr5[2](2);
 // CIR-LABEL: cir.func {{.*}}@_Z4foo1v()
 // CIR: %[[A_ALLOCA:.*]] = cir.alloca "__retval" align(8) : !cir.ptr<![[STRUCT_A]]>
 // CIR: %[[GET_A1:.*]] = cir.get_global @_ZL2a1 : !cir.ptr<![[STRUCT_A]]>
-// CIR: cir.copy %[[GET_A1]] to %[[A_ALLOCA]] : !cir.ptr<![[STRUCT_A]]>
+// CIR: cir.copy %[[GET_A1]] to %[[A_ALLOCA]]{{.*}} : !cir.ptr<![[STRUCT_A]]>
 A foo1() {
   return a1;
 }
@@ -170,7 +170,7 @@ A foo1() {
 // CIR: cir.func {{.*}}@_Z4foo2v()
 // CIR: %[[B_ALLOCA:.*]] = cir.alloca "__retval" align(8) : !cir.ptr<![[STRUCT_B]]>
 // CIR: %[[GET_GLOB:.*]] = cir.get_global @_ZL2b1 : !cir.ptr<![[STRUCT_B]]>
-// CIR: cir.copy %[[GET_GLOB]] to %[[B_ALLOCA]] : !cir.ptr<![[STRUCT_B]]>
+// CIR: cir.copy %[[GET_GLOB]] to %[[B_ALLOCA]]{{.*}} : !cir.ptr<![[STRUCT_B]]>
 B foo2() {
   return b1;
 }
@@ -181,7 +181,7 @@ B foo2() {
 // CIR: %[[C_ALLOCA:.*]] = cir.alloca "__retval" align(8) : !cir.ptr<![[STRUCT_C]]>
 // CIR: %[[GET_GLOB:.*]] = cir.get_global @_ZL2c1
 // CIR: %[[GLOB_CAST:.*]] = cir.cast bitcast %[[GET_GLOB]] : !cir.ptr<!{{.*}}> -> !cir.ptr<![[STRUCT_C]]>
-// CIR: cir.copy %[[GLOB_CAST]] to %[[C_ALLOCA]] : !cir.ptr<![[STRUCT_C]]>
+// CIR: cir.copy %[[GLOB_CAST]] to %[[C_ALLOCA]]{{.*}} : !cir.ptr<![[STRUCT_C]]>
 C foo3() {
   return c1;
 }
@@ -223,7 +223,7 @@ C foo3() {
 // CIR: %[[GET_B:.*]] = cir.get_member %[[B_TMP]][1] {{.*name = "b".*}} : !cir.ptr<![[STRUCT_B]]> -> !cir.ptr<!s32i>
 // CIR: %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
 // CIR: cir.store{{.*}} %[[ONE]], %[[GET_B]] : !s32i, !cir.ptr<!s32i>
-// CIR: cir.copy %[[B_TMP]] to %[[C_BASE]] : !cir.ptr<![[STRUCT_B]]>
+// CIR: cir.copy %[[B_TMP]] to %[[C_BASE]]{{.*}} : !cir.ptr<![[STRUCT_B]]>
 // CIR: %[[C_BASE_A:.*]] = cir.base_class_addr %[[C2_ALLOCA]] : !cir.ptr<![[STRUCT_C]]> nonnull [24] -> !cir.ptr<![[STRUCT_A]]>
 // CIR: %[[GET_I:.*]] = cir.get_member %[[A_TMP]][0] {{.*name = "i".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!s8i>
 // CIR: %[[NINETYSEVEN:.*]] = cir.const #cir.int<97> : !s8i
@@ -231,7 +231,7 @@ C foo3() {
 // CIR: %[[GET_J:.*]] = cir.get_member %[[A_TMP]][1] {{.*name = "j".*}} : !cir.ptr<![[STRUCT_A]]> -> !cir.ptr<!cir.double>
 // CIR: %[[ZERO_F:.*]] = cir.const #cir.fp<0
 // CIR: cir.store{{.*}} %[[ZERO_F]], %[[GET_J]] : !cir.double, !cir.ptr<!cir.double>
-// CIR: cir.copy %[[A_TMP]] to %[[C_BASE_A]] : !cir.ptr<![[STRUCT_A]]>
+// CIR: cir.copy %[[A_TMP]] to %[[C_BASE_A]]{{.*}} : !cir.ptr<![[STRUCT_A]]>
 // CIR: %[[GET_C:.*]] = cir.get_member %[[C2_ALLOCA]][2] {{.*name = "c".*}} : !cir.ptr<![[STRUCT_C]]> -> !cir.ptr<!s32i>
 // CIR: %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
 // CIR: cir.store{{.*}} %[[TWO]], %[[GET_C]] : !s32i, !cir.ptr<!s32i>
@@ -246,7 +246,7 @@ void foo4() {
 // CIR:  %[[RET:.*]] = cir.alloca "__retval" align(8) : !cir.ptr<![[UNION_U]]>
 // CIR:  %[[GET_GLOB:.*]] = cir.get_global @_ZL2u1 : !cir.ptr<!{{.*}}>
 // CIR:  %[[GLOB_TO_U:.*]] = cir.cast bitcast %[[GET_GLOB]] : !cir.ptr<!{{.*}}> -> !cir.ptr<![[UNION_U]]>
-// CIR:  cir.copy %[[GLOB_TO_U]] to %[[RET]] : !cir.ptr<![[UNION_U]]>
+// CIR:  cir.copy %[[GLOB_TO_U]] to %[[RET]]{{.*}} : !cir.ptr<![[UNION_U]]>
 U foo5() {
   return u1;
 }
@@ -260,7 +260,7 @@ U foo5() {
 // CIR: %[[A_ALLOCA:.*]] = cir.alloca "a" align(8) init : !cir.ptr<![[STRUCT_A]]>
 // CIR: %[[RET_ALLOCA:.*]] = cir.alloca "__retval" align(8) : !cir.ptr<![[UNION_U]]>
 // CIR: %[[GET_A:.*]] = cir.get_member %[[RET_ALLOCA:.*]][1] {{.*name = "a".*}} : !cir.ptr<![[UNION_U]]> -> !cir.ptr<![[STRUCT_A]]>
-// CIR: cir.copy %[[A_ALLOCA]] to %[[GET_A:.*]] : !cir.ptr<![[STRUCT_A]]>
+// CIR: cir.copy %[[A_ALLOCA]] to %[[GET_A:.*]]{{.*}} : !cir.ptr<![[STRUCT_A]]>
 U foo6(A a) {
   return U(a);
 }
@@ -319,7 +319,7 @@ void foo7() {
 // CIR: %[[RET_ALLOCA:.*]] = cir.alloca "__retval" align(8) : !cir.ptr<![[STRUCT_D]]>
 // CIR: %[[GET_GLOB:.*]] = cir.get_global @_ZL2d1 :
 // CIR: %[[GLOB_CAST:.*]] = cir.cast bitcast %[[GET_GLOB]] : !cir.ptr<!{{.*}}> -> !cir.ptr<![[STRUCT_D]]>
-// CIR: cir.copy %[[GLOB_CAST]] to %[[RET_ALLOCA]] : !cir.ptr<![[STRUCT_D]]>
+// CIR: cir.copy %[[GLOB_CAST]] to %[[RET_ALLOCA]]{{.*}} : !cir.ptr<![[STRUCT_D]]>
 D foo8() {
   return d1;
 }

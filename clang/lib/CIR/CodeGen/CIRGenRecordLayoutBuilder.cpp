@@ -14,22 +14,36 @@
 #include "CIRGenCXXABI.h"
 #include "CIRGenModule.h"
 #include "CIRGenTypes.h"
+#include "TargetInfo.h"
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
+#include "clang/AST/DeclTemplate.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
+#include "clang/AST/ExprCXX.h"
+#include "clang/AST/GlobalDecl.h"
+#include "clang/AST/Mangle.h"
+#include "clang/AST/ODRHash.h"
 #include "clang/AST/RecordLayout.h"
+#include "clang/AST/Type.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
 #include "clang/CIR/Dialect/IR/CIRDataLayout.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "clang/UnifiedSymbolResolution/USRGeneration.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/Support/Path.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/Path.h"
+#include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <iomanip>
 #include <memory>
+#include <sstream>
+#include <vector>
 
 using namespace llvm;
 using namespace clang;
@@ -257,8 +271,7 @@ getEnclosingFunctionTemplatePattern(const RecordDecl *record,
     const FunctionDecl *pattern = function->getTemplateInstantiationPattern();
     if (!pattern)
       pattern = function;
-    if (const auto *functionTemplate =
-            pattern->getDescribedFunctionTemplate())
+    if (const auto *functionTemplate = pattern->getDescribedFunctionTemplate())
       return functionTemplate;
   }
   return nullptr;
@@ -284,16 +297,8 @@ stableSourceRecordLocation(const SourceManager &sourceManager,
     return std::nullopt;
 
   llvm::SmallString<256> normalizedFile(presumed.getFilename());
-  if (!llvm::sys::path::is_absolute(normalizedFile)) {
-    llvm::StringRef workingDirectory = sourceManager.getFileManager()
-                                           .getFileSystemOpts()
-                                           .WorkingDir;
-    if (workingDirectory.empty())
-      return std::nullopt;
-    llvm::SmallString<256> resolvedFile(workingDirectory);
-    llvm::sys::path::append(resolvedFile, normalizedFile);
-    normalizedFile = resolvedFile;
-  }
+  if (!llvm::sys::path::is_absolute(normalizedFile))
+    sourceManager.getFileManager().makeAbsolutePath(normalizedFile);
   llvm::sys::path::remove_dots(normalizedFile, /*remove_dot_dot=*/true);
   if (normalizedFile.empty() || !llvm::sys::path::is_absolute(normalizedFile))
     return std::nullopt;
@@ -336,8 +341,7 @@ localRecordSourceIdentity(CIRGenModule &cgm, const RecordDecl *record) {
       recordLocation.isMacroID())
     return std::nullopt;
 
-  const SourceManager &sourceManager =
-      cgm.getASTContext().getSourceManager();
+  const SourceManager &sourceManager = cgm.getASTContext().getSourceManager();
   auto sourceLocation = stableSourceRecordLocation(
       sourceManager, sourceManager.getSpellingLoc(recordLocation));
   auto tagKind = stableSourceRecordTagKind(record);
@@ -365,8 +369,7 @@ localMacroRecordSourceIdentity(CIRGenModule &cgm, const RecordDecl *record) {
       !recordLocation.isMacroID())
     return std::nullopt;
 
-  const SourceManager &sourceManager =
-      cgm.getASTContext().getSourceManager();
+  const SourceManager &sourceManager = cgm.getASTContext().getSourceManager();
   auto expansionLocation = stableSourceRecordLocation(
       sourceManager, sourceManager.getExpansionLoc(recordLocation));
   auto spellingLocation = stableSourceRecordLocation(
@@ -391,21 +394,627 @@ localMacroRecordSourceIdentity(CIRGenModule &cgm, const RecordDecl *record) {
 
 } // namespace
 
+namespace {
+
+std::string sha256Hex(std::initializer_list<llvm::StringRef> parts) {
+  llvm::SHA256 hasher;
+  for (llvm::StringRef part : parts)
+    hasher.update(part);
+  const auto digest = hasher.final();
+  static constexpr char hex[] = "0123456789abcdef";
+  std::string out;
+  out.reserve(digest.size() * 2);
+  for (uint8_t byte : digest) {
+    out.push_back(hex[byte >> 4]);
+    out.push_back(hex[byte & 0x0f]);
+  }
+  return out;
+}
+uint64_t fnv1a64(llvm::StringRef value) {
+  uint64_t hash = 1469598103934665603ULL;
+  for (unsigned char c : value) {
+    hash ^= static_cast<uint64_t>(c);
+    hash *= 1099511628211ULL;
+  }
+  return hash;
+}
+
+std::string hex64(uint64_t value) {
+  std::ostringstream out;
+  out << std::hex << std::nouppercase << std::setfill('0') << std::setw(16)
+      << value;
+  return out.str();
+}
+
 std::optional<std::string>
-clang::CIRGen::recordDeclIdentity(CIRGenModule &cgm, const RecordDecl *decl) {
+declarationLayoutSourcePayload(CIRGenModule &cgm,
+                               const NamedDecl *decl) {
+  if (!decl)
+    return std::nullopt;
+  const SourceManager &sm = cgm.getASTContext().getSourceManager();
+  SourceLocation loc = decl->getLocation();
+  loc = loc.isMacroID() ? sm.getExpansionLoc(loc) : sm.getSpellingLoc(loc);
+  if (loc.isInvalid())
+    return std::nullopt;
+  const FileID file = sm.getFileID(loc);
+  if (file.isInvalid())
+    return std::nullopt;
+  const auto fileEntry = sm.getFileEntryRefForID(file);
+  if (!fileEntry)
+    return std::nullopt;
+  std::ostringstream out;
+  if (auto prefix = cgm.layoutSourceFileAnchorPrefix(file)) {
+    out << prefix->str() << "\noffset:" << sm.getFileOffset(loc);
+    return out.str();
+  }
+  llvm::SmallString<256> canonicalPath;
+  if (sm.getFileManager().getVirtualFileSystem().getRealPath(
+          fileEntry->getName(), canonicalPath) ||
+      canonicalPath.empty() || !llvm::sys::path::is_absolute(canonicalPath))
+    return std::nullopt;
+  llvm::sys::path::remove_dots(canonicalPath, /*remove_dot_dot=*/true);
+  bool invalid = false;
+  llvm::StringRef buffer = sm.getBufferData(file, &invalid);
+  if (invalid)
+    return std::nullopt;
+  std::ostringstream prefix;
+  prefix << "path:" << canonicalPath.str().str()
+         << "\nsha256:"
+         << sha256Hex({llvm::StringRef(buffer.data(), buffer.size())});
+  out << cgm.rememberLayoutSourceFileAnchorPrefix(file, prefix.str()).str()
+      << "\noffset:" << sm.getFileOffset(loc);
+  return out.str();
+}
+
+bool needsLayoutSourceDiscriminator(const RecordDecl *record) {
+  return record &&
+         (record->getIdentifier() == nullptr ||
+          record->getParentFunctionOrMethod() != nullptr ||
+          !record->isExternallyVisible());
+}
+
+// Lexical ordinal of a function-local unnamed tag among every unnamed tag the
+// owning function's definition spells, in traversal order. Rewritten default
+// argument initializers are traversed explicitly: they materialize fresh
+// per-callsite closure types whose only exact owner facts are this function
+// and this ordinal. Mirrors the importer's symbol_identity computation.
+std::optional<unsigned>
+functionLocalUnnamedTagOrdinal(const FunctionDecl *function,
+                               const RecordDecl *record) {
+  const FunctionDecl *definition = function->getDefinition();
+  if (!definition)
+    definition = function;
+
+  struct Collector : DynamicRecursiveASTVisitor {
+    llvm::SmallVector<const TagDecl *, 16> Tags;
+    llvm::SmallPtrSet<const TagDecl *, 16> Seen;
+    void add(const TagDecl *TD) {
+      if (!TD)
+        return;
+      TD = cast<TagDecl>(TD->getCanonicalDecl());
+      if (TD->getIdentifier() || TD->getTypedefNameForAnonDecl())
+        return;
+      if (Seen.insert(TD).second)
+        Tags.push_back(TD);
+    }
+    bool VisitLambdaExpr(LambdaExpr *E) override {
+      add(E->getLambdaClass());
+      return true;
+    }
+    bool VisitTagDecl(TagDecl *TD) override {
+      const auto *Record = dyn_cast<CXXRecordDecl>(TD);
+      if (!Record || !Record->isLambda())
+        add(TD);
+      return true;
+    }
+    bool TraverseCXXDefaultArgExpr(CXXDefaultArgExpr *E) override {
+      if (E && E->hasRewrittenInit())
+        TraverseStmt(E->getExpr());
+      return true;
+    }
+  };
+  Collector collector;
+  for (const ParmVarDecl *param : definition->parameters())
+    if (param->hasDefaultArg() && !param->hasUnparsedDefaultArg() &&
+        !param->hasUninstantiatedDefaultArg())
+      collector.TraverseStmt(
+          const_cast<Expr *>(param->getDefaultArg()));
+  if (const auto *ctor = dyn_cast<CXXConstructorDecl>(definition))
+    for (const CXXCtorInitializer *init : ctor->inits())
+      if (init->getInit())
+        collector.TraverseStmt(const_cast<Expr *>(init->getInit()));
+  if (Stmt *body = definition->getBody())
+    collector.TraverseStmt(body);
+
+  const auto *canonical = cast<TagDecl>(record->getCanonicalDecl());
+  for (unsigned index = 0; index < collector.Tags.size(); ++index)
+    if (collector.Tags[index] == canonical)
+      return index;
+  return std::nullopt;
+}
+
+// True when any type the ABI must spell for this function is an unnamed
+// type. Those spellings come from the mangler's counter, not from the source.
+bool typeEmbedsUnnamedTypeCounter(QualType type, unsigned depth = 0) {
+  if (type.isNull() || depth > 8)
+    return false;
+  const clang::Type *canonical = type.getCanonicalType().getTypePtrOrNull();
+  if (!canonical)
+    return false;
+  if (const auto *tag = canonical->getAsTagDecl()) {
+    if (!tag->getIdentifier() && !tag->getTypedefNameForAnonDecl()) {
+      // A closure with a nonzero lambda mangling number mangles as
+      // Ul...E<n>_ from a source-stable per-context counter. Only unnamed
+      // types without such a number fall back to the mangler-instance
+      // $_N/UtN_ ids.
+      const auto *closure = dyn_cast<CXXRecordDecl>(tag);
+      if (!closure || !closure->isLambda() ||
+          closure->getLambdaManglingNumber() == 0)
+        return true;
+      // A numbered closure still spells its lexical owner chain in the
+      // mangled name (Z<owner>E...Ul...E<n>_). Any enclosing closure without
+      // a mangling number, or an enclosing unnamed non-closure record,
+      // reintroduces the mangler-instance $_N/UtN_ id into that owner
+      // spelling, so the whole name remains request-order state.
+      for (const DeclContext *ctx = closure->getDeclContext(); ctx;
+           ctx = ctx->getParent()) {
+        const auto *owner = dyn_cast<CXXRecordDecl>(ctx);
+        if (!owner)
+          continue;
+        if (owner->isLambda()) {
+          if (owner->getLambdaManglingNumber() == 0)
+            return true;
+          continue;
+        }
+        if (!owner->getIdentifier() && !owner->getTypedefNameForAnonDecl())
+          return true;
+      }
+    }
+    // A named specialization still spells every template argument, so a
+    // closure or unnamed enum anywhere in the argument tree reaches the
+    // mangled name (tuple<..., $_0> and friends).
+    if (const auto *specialization =
+            dyn_cast<ClassTemplateSpecializationDecl>(tag)) {
+      auto argumentEmbeds = [&](const TemplateArgument &argument,
+                                auto &self) -> bool {
+        switch (argument.getKind()) {
+        case TemplateArgument::Type:
+          return typeEmbedsUnnamedTypeCounter(argument.getAsType(), depth + 1);
+        case TemplateArgument::Integral:
+          return typeEmbedsUnnamedTypeCounter(argument.getIntegralType(),
+                                              depth + 1);
+        case TemplateArgument::Pack:
+          for (const TemplateArgument &element : argument.pack_elements())
+            if (self(element, self))
+              return true;
+          return false;
+        default:
+          return false;
+        }
+      };
+      for (const TemplateArgument &argument :
+           specialization->getTemplateArgs().asArray())
+        if (argumentEmbeds(argument, argumentEmbeds))
+          return true;
+    }
+    return false;
+  }
+  if (const auto *pointer = canonical->getAs<clang::PointerType>())
+    return typeEmbedsUnnamedTypeCounter(pointer->getPointeeType(), depth + 1);
+  if (const auto *reference = canonical->getAs<ReferenceType>())
+    return typeEmbedsUnnamedTypeCounter(reference->getPointeeType(),
+                                        depth + 1);
+  if (const auto *array =
+          canonical->getAsArrayTypeUnsafe())
+    return typeEmbedsUnnamedTypeCounter(array->getElementType(), depth + 1);
+  if (const auto *memberPointer =
+          canonical->getAs<clang::MemberPointerType>()) {
+    if (const CXXRecordDecl *owner =
+            memberPointer->getMostRecentCXXRecordDecl()) {
+      const QualType ownerType =
+          owner->getASTContext().getCanonicalTagType(owner);
+      if (typeEmbedsUnnamedTypeCounter(ownerType, depth + 1))
+        return true;
+    }
+    return typeEmbedsUnnamedTypeCounter(memberPointer->getPointeeType(),
+                                        depth + 1);
+  }
+  if (const auto *function = canonical->getAs<clang::FunctionProtoType>()) {
+    if (typeEmbedsUnnamedTypeCounter(function->getReturnType(), depth + 1))
+      return true;
+    for (QualType parameter : function->param_types())
+      if (typeEmbedsUnnamedTypeCounter(parameter, depth + 1))
+        return true;
+    return false;
+  }
+  if (const auto *function =
+          canonical->getAs<clang::FunctionNoProtoType>())
+    return typeEmbedsUnnamedTypeCounter(function->getReturnType(), depth + 1);
+  return false;
+}
+
+bool functionManglingEmbedsUnnamedTypeCounter(const FunctionDecl *function) {
+  if (!function)
+    return false;
+  if (const TemplateArgumentList *arguments =
+          function->getTemplateSpecializationArgs()) {
+    for (const TemplateArgument &argument : arguments->asArray()) {
+      if (argument.getKind() == TemplateArgument::Type &&
+          typeEmbedsUnnamedTypeCounter(argument.getAsType()))
+        return true;
+      if (argument.getKind() == TemplateArgument::Integral &&
+          typeEmbedsUnnamedTypeCounter(argument.getIntegralType()))
+        return true;
+    }
+  }
+  for (const ParmVarDecl *parameter : function->parameters())
+    if (parameter && typeEmbedsUnnamedTypeCounter(parameter->getType()))
+      return true;
+  if (const auto *method = dyn_cast<CXXMethodDecl>(function))
+    if (const CXXRecordDecl *parent = method->getParent())
+      if (typeEmbedsUnnamedTypeCounter(
+              method->getASTContext().getCanonicalTagType(parent)))
+        return true;
+  return false;
+}
+
+// Deterministic anchor for the owning function. Constructors and destructors
+// need an explicit structor variant to have one mangling.
+//
+// A mangled name is only usable as an anchor while it is a pure function of
+// the source. Clang spells an unnamed type by its position in the mangler's
+// own request sequence ($_0, $_1, Ut0_, ...), so a specialization on an
+// unnamed type mangles differently depending on what was mangled before it,
+// and two readers of the same source disagree. Those owners anchor on their
+// USR instead, which names the unnamed type through its first enumerator or
+// declaration and is therefore recomputable by any reader.
+std::string mangledFunctionAnchor(clang::MangleContext &mangleContext,
+                                  const FunctionDecl *function) {
+  if (!function)
+    return {};
+  // A declaration the ABI never mangles (C linkage, main, ...) must not
+  // reach MangleContext::mangleName: it asserts. Its USR is still a unique,
+  // source-derived anchor, so closures inside such functions keep their
+  // lexical-ordinal identity instead of failing closed.
+  if (!mangleContext.shouldMangleDeclName(function) ||
+      functionManglingEmbedsUnnamedTypeCounter(function)) {
+    llvm::SmallString<256> usr;
+    if (clang::index::generateUSRForDecl(function, usr) || usr.empty())
+      return {};
+    return ("usr:" + usr).str();
+  }
+  GlobalDecl target;
+  if (const auto *ctor = dyn_cast<CXXConstructorDecl>(function))
+    target = GlobalDecl(ctor, Ctor_Complete);
+  else if (const auto *dtor = dyn_cast<CXXDestructorDecl>(function))
+    target = GlobalDecl(dtor, Dtor_Complete);
+  else
+    target = GlobalDecl(function);
+  std::string anchor;
+  llvm::raw_string_ostream stream(anchor);
+  mangleContext.mangleName(target, stream);
+  stream.flush();
+  return anchor;
+}
+std::optional<std::string>
+anonymousRecordSourceDiscriminator(CIRGenModule &cgm,
+                                   const RecordDecl *record) {
+  if (!record || record->getIdentifier())
+    return std::string();
+  const SourceLocation location = record->getLocation();
+  if (location.isInvalid())
+    return std::nullopt;
+  const SourceManager &sourceManager = cgm.getASTContext().getSourceManager();
+  const auto expansion = stableSourceRecordLocation(
+      sourceManager, sourceManager.getExpansionLoc(location));
+  const auto spelling = stableSourceRecordLocation(
+      sourceManager, sourceManager.getSpellingLoc(location));
+  const auto tagKind = stableSourceRecordTagKind(record);
+  if (!expansion || !spelling || !tagKind)
+    return std::nullopt;
+  std::ostringstream payload;
+  payload << expansion->file.size() << ':' << expansion->file << ':'
+          << expansion->offset << ':' << expansion->line << ':'
+          << expansion->column << ':' << spelling->file.size() << ':'
+          << spelling->file << ':' << spelling->offset << ':' << spelling->line
+          << ':' << spelling->column << ':' << tagKind->str();
+  return sha256Hex({"anonymous-record-source-v1", payload.str()});
+}
+void collectTemplateArgumentRecordOwners(
+    QualType type, std::vector<const RecordDecl *> &owners) {
+  if (type.isNull())
+    return;
+  type = type.getCanonicalType();
+  if (const auto *recordType = type->getAs<RecordType>()) {
+    owners.push_back(recordType->getDecl());
+    return;
+  }
+  if (const auto *memberPointer = type->getAs<MemberPointerType>()) {
+    if (const clang::Type *classType =
+            memberPointer->getQualifier().getAsType())
+      collectTemplateArgumentRecordOwners(QualType(classType, 0), owners);
+    collectTemplateArgumentRecordOwners(memberPointer->getPointeeType(), owners);
+    return;
+  }
+  if (const auto *function = type->getAs<FunctionProtoType>()) {
+    collectTemplateArgumentRecordOwners(function->getReturnType(), owners);
+    for (QualType parameter : function->param_types())
+      collectTemplateArgumentRecordOwners(parameter, owners);
+    return;
+  }
+  if (const auto *function = type->getAs<FunctionNoProtoType>()) {
+    collectTemplateArgumentRecordOwners(function->getReturnType(), owners);
+    return;
+  }
+  if (const auto *array = type->getAsArrayTypeUnsafe()) {
+    collectTemplateArgumentRecordOwners(array->getElementType(), owners);
+    return;
+  }
+  if (const auto *atomic = type->getAs<AtomicType>()) {
+    collectTemplateArgumentRecordOwners(atomic->getValueType(), owners);
+    return;
+  }
+  if (const auto *pack = type->getAs<PackExpansionType>()) {
+    collectTemplateArgumentRecordOwners(pack->getPattern(), owners);
+    return;
+  }
+  const QualType pointee = type->getPointeeType();
+  if (!pointee.isNull())
+    collectTemplateArgumentRecordOwners(pointee, owners);
+}
+const CXXRecordDecl *stableSpecializationODROwner(
+    const CXXRecordDecl *record,
+    const ClassTemplateSpecializationDecl *specialization) {
+  if (!record || !specialization)
+    return record;
+  // An instantiated specialization's selected partial pattern and
+  // completeness can change during lazy instantiation. Exact TemplateArgs and
+  // recursively owned argument identities already distinguish it. Only
+  // source-owned specialization declarations contribute their parsed ODR
+  // fact: explicit concrete specializations and partial-specialization
+  // patterns. Primary template declarations continue through the record path.
+  if (specialization->getSpecializationKind() !=
+          TSK_ExplicitSpecialization &&
+      !isa<ClassTemplatePartialSpecializationDecl>(specialization))
+    return nullptr;
+  return record->getDefinition();
+}
+
+
+std::optional<std::string>
+recordDeclIdentityImpl(CIRGenModule &cgm, const RecordDecl *decl,
+                       llvm::DenseSet<const RecordDecl *> &inProgress) {
   if (!decl)
     return std::nullopt;
   const RecordDecl *definition = decl->getDefinition();
   const RecordDecl *record = definition ? definition : decl;
-  if (const auto *canonical =
-          dyn_cast_or_null<RecordDecl>(record->getCanonicalDecl()))
-    record = canonical;
-  if (const RecordDecl *canonicalDefinition = record->getDefinition())
-    record = canonicalDefinition;
+  // A concrete specialization's definition owns its exact substituted
+  // TemplateArgument sequence. Canonicalizing through a retained partial-
+  // specialization pattern erases distinct packs before identity hashing.
+  if (!isa<ClassTemplateSpecializationDecl>(record)) {
+    if (const auto *canonical =
+            dyn_cast_or_null<RecordDecl>(record->getCanonicalDecl()))
+      record = canonical;
+    if (const RecordDecl *canonicalDefinition = record->getDefinition())
+      record = canonicalDefinition;
+  }
+  if (!inProgress.insert(record).second)
+    return std::nullopt;
+  auto eraseRecord = llvm::make_scope_exit([&] { inProgress.erase(record); });
 
+  // Clang's source and layout views can disagree on whether an injected
+  // anonymous aggregate has a USR. Its containing record, exact injected-field
+  // ordinal, and source location provide one identity for both views.
+  if (!record->getIdentifier()) {
+    const DeclContext *context = record->getDeclContext();
+    const auto *parent =
+        context ? dyn_cast<RecordDecl>(Decl::castFromDeclContext(context))
+                : nullptr;
+    std::optional<unsigned> injectedFieldIndex;
+    if (parent) {
+      for (const FieldDecl *field : parent->fields()) {
+        const auto *fieldRecord =
+            field->getType()->getAsCanonical<RecordType>();
+        if (fieldRecord && fieldRecord->getDecl()->getCanonicalDecl() ==
+                               record->getCanonicalDecl()) {
+          injectedFieldIndex = field->getFieldIndex();
+          break;
+        }
+      }
+    }
+    auto parentIdentity =
+        parent ? recordDeclIdentityImpl(cgm, parent, inProgress) : std::nullopt;
+    auto sourceDiscriminator = anonymousRecordSourceDiscriminator(cgm, record);
+    if (parentIdentity && injectedFieldIndex && sourceDiscriminator) {
+      return "clang-anonymous-record:v1:" +
+             std::to_string(parentIdentity->size()) + ":" + *parentIdentity +
+             ":" + std::to_string(*injectedFieldIndex) + ":" +
+             *sourceDiscriminator;
+    }
+  }
   llvm::SmallString<256> usr;
-  if (!clang::index::generateUSRForDecl(record, usr))
-    return usr.str().str();
+  if (!clang::index::generateUSRForDecl(record, usr)) {
+    std::string identity = usr.str().str();
+    const auto *cxxRecord = dyn_cast<CXXRecordDecl>(record);
+    const auto *concreteSpecialization =
+        dyn_cast_or_null<ClassTemplateSpecializationDecl>(cxxRecord);
+    // Referenced-only concrete specializations can remain incomplete while
+    // still owning an exact substituted TemplateArgument sequence.
+    const bool specializationBearing =
+        concreteSpecialization ||
+        (cxxRecord && cxxRecord->isCompleteDefinition() &&
+         cxxRecord->getDescribedClassTemplate() != nullptr);
+    if (specializationBearing) {
+      ODRHash argumentHash;
+      if (concreteSpecialization) {
+        const auto *specialization = concreteSpecialization;
+        for (const TemplateArgument &argument :
+             specialization->getTemplateArgs().asArray())
+          argumentHash.AddTemplateArgument(argument);
+        std::ostringstream exactArgumentOwners;
+        bool hasExactArgumentOwner = false;
+        bool exactArgumentOwnersComplete = true;
+        std::size_t argumentIndex = 0;
+        // A pack argument names its element types: a variadic trait such as
+        // std::conjunction<B...> distinguishes sibling closures only through
+        // the pack, so owner identities come from the flattened leaf
+        // sequence. Leaves are indexed in visit order; a sequence without
+        // packs enumerates exactly as before.
+        auto visitArgument = [&](const TemplateArgument &argument,
+                                 auto &self) -> void {
+          if (argument.getKind() == TemplateArgument::Pack) {
+            for (const TemplateArgument &element : argument.pack_elements())
+              self(element, self);
+            return;
+          }
+          if (argument.getKind() == TemplateArgument::Type) {
+            std::vector<const RecordDecl *> argumentRecords;
+            collectTemplateArgumentRecordOwners(argument.getAsType(),
+                                                argumentRecords);
+            for (std::size_t ownerIndex = 0;
+                 ownerIndex < argumentRecords.size(); ++ownerIndex) {
+              const RecordDecl *argumentRecord = argumentRecords[ownerIndex];
+              // Identity observation must not instantiate a referenced-only
+              // argument specialization: doing so conditionally adds its ODR
+              // suffix and makes the enclosing owner depend on CIR lowering
+              // order rather than the compiler TemplateArgument graph.
+              auto argumentOwner =
+                  recordDeclIdentityImpl(cgm, argumentRecord, inProgress);
+              if (!argumentOwner) {
+                exactArgumentOwnersComplete = false;
+                continue;
+              }
+              hasExactArgumentOwner = true;
+              exactArgumentOwners << argumentIndex;
+              if (ownerIndex != 0)
+                exactArgumentOwners << "." << ownerIndex;
+              exactArgumentOwners << ':' << argumentOwner->size() << ':'
+                                  << *argumentOwner << ';';
+            }
+          }
+          ++argumentIndex;
+        };
+        for (const TemplateArgument &argument :
+             specialization->getTemplateArgs().asArray())
+          visitArgument(argument, visitArgument);
+        if (!exactArgumentOwnersComplete) {
+          identity.clear();
+        } else if (hasExactArgumentOwner) {
+          const std::string owners = exactArgumentOwners.str();
+          identity += "#argowners:" +
+                      sha256Hex({"record-template-argument-owners-v1", owners});
+        }
+      } else {
+        argumentHash.AddQualType(
+            cgm.getASTContext().getCanonicalTagType(cxxRecord));
+      }
+      if (!identity.empty()) {
+        std::ostringstream suffix;
+        const CXXRecordDecl *odrOwner =
+            stableSpecializationODROwner(cxxRecord,
+                                         concreteSpecialization);
+        if (odrOwner && odrOwner->isCompleteDefinition()) {
+          suffix << "#odr:" << std::hex << std::nouppercase
+                 << std::setfill('0') << std::setw(8)
+                 << odrOwner->getODRHash();
+        }
+        suffix << "#args:" << std::hex << std::nouppercase
+               << std::setfill('0') << std::setw(8)
+               << argumentHash.CalculateHash();
+        identity += suffix.str();
+      }
+    }
+    if (!identity.empty() && !record->getIdentifier()) {
+      auto sourceDiscriminator =
+          anonymousRecordSourceDiscriminator(cgm, record);
+      if (!sourceDiscriminator) {
+        identity.clear();
+      } else {
+        identity += "#anonymous-source:" + *sourceDiscriminator;
+      }
+    }
+    if (!identity.empty() && !record->getIdentifier()) {
+      // A location discriminator cannot separate sibling closures spelled by
+      // one macro argument that is evaluated twice, and Clang's lambda USR
+      // can erase the distinguishing template argument of the enclosing
+      // specialization. A function-local anonymous record therefore also
+      // binds the mangled name of its enclosing function plus its lexical
+      // ordinal among that function's local unnamed tags. The ordinal walk
+      // descends into rewritten default-argument initializers because those
+      // materialize fresh per-callsite closures the mangler's own counters
+      // number in request order, which is not stable across mangler
+      // instances.
+      const auto *localCxxRecord = dyn_cast<CXXRecordDecl>(record);
+      const clang::FunctionDecl *owningFunction = nullptr;
+      for (const DeclContext *context = record->getDeclContext(); context;
+           context = context->getParent()) {
+        if (const auto *function = dyn_cast<FunctionDecl>(context)) {
+          owningFunction = function;
+          break;
+        }
+      }
+      if (localCxxRecord && owningFunction &&
+          !owningFunction->isTemplated()) {
+        const std::optional<unsigned> ordinal =
+            functionLocalUnnamedTagOrdinal(owningFunction, record);
+        std::string anchor =
+            mangledFunctionAnchor(cgm.getIdentityMangleContext(),
+                                  owningFunction);
+        if (!ordinal.has_value() || anchor.empty()) {
+          if (getenv("AENEAS_FNLOCAL_TRACE")) {
+            llvm::errs() << "AENEAS_FNLOCAL cleared record="
+                         << record->getQualifiedNameAsString() << " owner="
+                         << owningFunction->getQualifiedNameAsString()
+                         << " owner_has_def="
+                         << (owningFunction->getDefinition() != nullptr)
+                         << " ordinal=" << (ordinal ? int(*ordinal) : -1)
+                         << " anchor_empty=" << anchor.empty() << " loc="
+                         << record->getLocation().printToString(
+                                cgm.getASTContext().getSourceManager())
+                         << "\n";
+          }
+          identity.clear();
+        } else {
+          identity += "#fnlocal:" +
+                      sha256Hex({"record-function-local-owner-v2", anchor,
+                                 ":", std::to_string(*ordinal)});
+        }
+      }
+    }
+    if (!identity.empty()) {
+      const DeclContext *context = record->getDeclContext();
+      const auto *parent =
+          context ? dyn_cast<CXXRecordDecl>(Decl::castFromDeclContext(context))
+                  : nullptr;
+      if (parent) {
+        if (const CXXRecordDecl *parentDefinition = parent->getDefinition())
+          parent = parentDefinition;
+        const bool specializationParent =
+            parent->isCompleteDefinition() &&
+            (isa<ClassTemplateSpecializationDecl>(parent) ||
+             parent->getDescribedClassTemplate() != nullptr);
+        if (specializationParent) {
+          auto parentIdentity = recordDeclIdentityImpl(cgm, parent, inProgress);
+          if (!parentIdentity) {
+            identity.clear();
+          } else {
+            identity += "#owner:" + sha256Hex({"record-specialization-owner-v1",
+                                               *parentIdentity});
+          }
+        }
+      }
+    }
+    if (!identity.empty() && record->getIdentifier() &&
+        needsLayoutSourceDiscriminator(record)) {
+      const std::optional<std::string> source =
+          declarationLayoutSourcePayload(cgm, record);
+      if (!source)
+        return std::nullopt;
+      identity += "#decl." + hex64(fnv1a64(*source));
+    }
+    if (!identity.empty())
+      return identity;
+  }
 
   // Local records without a direct Clang USR need an identity that survives
   // ABI lambda discriminator changes. A nonmacro definition uses v1 source
@@ -422,14 +1031,48 @@ clang::CIRGen::recordDeclIdentity(CIRGenModule &cgm, const RecordDecl *decl) {
 
   std::string rttiName;
   llvm::raw_string_ostream rttiNameStream(rttiName);
-  QualType canonicalType =
-      cgm.getASTContext().getCanonicalTagType(cxxRecord);
+  QualType canonicalType = cgm.getASTContext().getCanonicalTagType(cxxRecord);
   cgm.getCXXABI().getMangleContext().mangleCXXRTTIName(canonicalType,
-                                                        rttiNameStream);
+                                                       rttiNameStream);
   rttiNameStream.flush();
   if (rttiName.empty())
     return std::nullopt;
   return "cxx-rtti-name:" + rttiName;
+}
+
+} // namespace
+
+std::optional<unsigned>
+clang::CIRGen::functionLocalUnnamedTagLexicalOrdinal(
+    const clang::FunctionDecl *function, const clang::RecordDecl *record) {
+  if (!function || !record)
+    return std::nullopt;
+  return functionLocalUnnamedTagOrdinal(function, record);
+}
+
+std::optional<std::string>
+clang::CIRGen::recordDeclIdentity(CIRGenModule &cgm, const RecordDecl *decl) {
+  llvm::DenseSet<const RecordDecl *> inProgress;
+  return recordDeclIdentityImpl(cgm, decl, inProgress);
+}
+
+std::optional<std::string>
+clang::CIRGen::fieldDeclIdentity(CIRGenModule &cgm, const FieldDecl *decl) {
+  if (!decl)
+    return std::nullopt;
+  mlir::StringAttr ownerAttr = cgm.exactRecordUSRAttr(decl->getParent());
+  std::optional<std::string> ownerID =
+      ownerAttr ? std::optional<std::string>(ownerAttr.getValue().str())
+                : std::nullopt;
+  llvm::SmallString<256> memberUSR;
+  if (!ownerID.has_value() || ownerID->empty())
+    return std::nullopt;
+  if (clang::index::generateUSRForDecl(decl, memberUSR) || memberUSR.empty()) {
+    return "clang-field-ordinal:" + std::to_string(ownerID->size()) + ":" +
+           *ownerID + ":" + std::to_string(decl->getFieldIndex());
+  }
+  return "clang-field:" + std::to_string(ownerID->size()) + ":" + *ownerID +
+         ":" + memberUSR.str().str();
 }
 
 CIRRecordLowering::CIRRecordLowering(CIRGenTypes &cirGenTypes,
@@ -937,12 +1580,32 @@ CIRGenTypes::computeRecordLayout(const RecordDecl *rd, cir::RecordType *ty) {
     // record type is created (CIRGenTypes::convertRecordDeclType), so records
     // that only ever appear as incomplete pointees still carry it; only the
     // layout-derived facts are queued here.
-    bool hasEmptyProjectedSchema = rd->field_empty();
-    if (const auto *cxx = dyn_cast<CXXRecordDecl>(rd)) {
-      hasEmptyProjectedSchema =
-          hasEmptyProjectedSchema && cxx->getNumBases() == 0 &&
-          !cxx->isDynamicClass();
-    }
+    // The projected object schema omits base subobjects only when the base
+    // itself projects nothing: no fields anywhere in its base chain and no
+    // vptr. A base that is merely empty FOR LAYOUT (its storage collapses to
+    // padding because every field has an empty record type) still projects
+    // those addressable member fields, and consumers that enumerate the
+    // exact AST schema will see them; marking such a record decidably empty
+    // would contradict its own exact field-bearing schema.
+    auto recordProjectsEmptySchema = [](const RecordDecl *record,
+                                        auto &&self) -> bool {
+      const RecordDecl *definition = record ? record->getDefinition() : nullptr;
+      if (!definition || !definition->field_empty())
+        return false;
+      const auto *cxx = dyn_cast<CXXRecordDecl>(definition);
+      if (!cxx)
+        return true;
+      if (cxx->isDynamicClass())
+        return false;
+      for (const CXXBaseSpecifier &base : cxx->bases()) {
+        const CXXRecordDecl *baseRecord = base.getType()->getAsCXXRecordDecl();
+        if (!baseRecord || !self(baseRecord, self))
+          return false;
+      }
+      return true;
+    };
+    const bool hasEmptyProjectedSchema =
+        recordProjectsEmptySchema(rd, recordProjectsEmptySchema);
     if (hasEmptyProjectedSchema)
       cgm.addEmptyRecordSchema(ty->getName());
 

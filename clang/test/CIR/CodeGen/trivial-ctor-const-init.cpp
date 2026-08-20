@@ -31,7 +31,7 @@ StructWithCtorArg withArg = 0.0;
 // CIR:   %[[WITH_ARG:.*]] = cir.get_global @withArg : !cir.ptr<!rec_StructWithCtorArg>
 // CIR:   %[[ZERO:.*]] = cir.const #cir.fp<0.000000e+00> : !cir.double
 // CIR:   cir.store{{.*}} %[[ZERO]], %[[TMP0]] : !cir.double, !cir.ptr<!cir.double>
-// CIR:   cir.call @_ZN17StructWithCtorArgC1ERKd(%[[WITH_ARG]], %[[TMP0]]) : (!cir.ptr<!rec_StructWithCtorArg> {{.*}}, !cir.ptr<!cir.double> {{.*}}) -> ()
+// CIR:   cir.call @_ZN17StructWithCtorArgC1ERKd(%[[WITH_ARG]], %[[TMP0]]){{.*}} : (!cir.ptr<!rec_StructWithCtorArg> {{.*}}, !cir.ptr<!cir.double> {{.*}}) -> ()
 
 // LLVM: define {{.*}} void @__cxx_global_var_init()
 // LLVM:   %[[TMP0:.*]] = alloca double

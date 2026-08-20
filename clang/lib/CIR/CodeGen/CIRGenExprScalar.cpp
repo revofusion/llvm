@@ -1301,7 +1301,9 @@ public:
       if (lhs.isBitField()) {
         CIRGenFunction::SourceLocRAIIObject loc{
             cgf, cgf.getLoc(e->getSourceRange())};
-        rhs = cgf.emitStoreThroughBitfieldLValue(RValue::get(rhs), lhs);
+        rhs = cgf.emitStoreThroughBitfieldLValue(
+            RValue::get(rhs), lhs,
+            e->getRHS()->IgnoreParenImpCasts()->getType());
       } else {
         cgf.emitNullabilityCheck(lhs, rhs, e->getExprLoc());
         CIRGenFunction::SourceLocRAIIObject loc{

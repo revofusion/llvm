@@ -119,9 +119,9 @@ Child::Child() {}
 // CIR:   cir.store %[[THIS_ARG]], %[[THIS_ADDR]]
 // CIR:   %[[THIS:.*]] = cir.load %[[THIS_ADDR]]
 // CIR:   %[[MOTHER_BASE:.*]] = cir.base_class_addr %[[THIS]] : !cir.ptr<!rec_Child> nonnull [0] -> !cir.ptr<!rec_Mother>
-// CIR:   cir.call @_ZN6MotherC2Ev(%[[MOTHER_BASE]]) nothrow : (!cir.ptr<!rec_Mother> {{.*}}) -> ()
+// CIR:   cir.call @_ZN6MotherC2Ev(%[[MOTHER_BASE]]) nothrow {ast_constructor_call = {callee_symbol = "_ZN6MotherC2Ev", canonical_symbol = "_ZN6MotherC1Ev", constructor_usr = "c:@S@Mother@F@Mother#", variant = "base"}} : (!cir.ptr<!rec_Mother> {{.*}}) -> ()
 // CIR:   %[[FATHER_BASE:.*]] = cir.base_class_addr %[[THIS]] : !cir.ptr<!rec_Child> nonnull [8] -> !cir.ptr<!rec_Father>
-// CIR:   cir.call @_ZN6FatherC2Ev(%[[FATHER_BASE]]) nothrow : (!cir.ptr<!rec_Father> {{.*}}) -> ()
+// CIR:   cir.call @_ZN6FatherC2Ev(%[[FATHER_BASE]]) nothrow {ast_constructor_call = {callee_symbol = "_ZN6FatherC2Ev", canonical_symbol = "_ZN6FatherC1Ev", constructor_usr = "c:@S@Father@F@Father#", variant = "base"}} : (!cir.ptr<!rec_Father> {{.*}}) -> ()
 // CIR:   %[[CHILD_VPTR:.*]] = cir.vtable.address_point(@_ZTV5Child, address_point = <index = 0, offset = 2>) : !cir.vptr
 // CIR:   %[[CHILD_VPTR_ADDR:.*]] = cir.vtable.get_vptr %[[THIS]] : !cir.ptr<!rec_Child> -> !cir.ptr<!cir.vptr>
 // CIR:   cir.store{{.*}} %[[CHILD_VPTR]], %[[CHILD_VPTR_ADDR]] : !cir.vptr, !cir.ptr<!cir.vptr>

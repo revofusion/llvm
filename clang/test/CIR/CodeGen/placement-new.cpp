@@ -22,7 +22,7 @@ void test_reserved_placement_new(void *p) {
 // CIR:           cir.store %[[ARG0]], %[[P]] : !cir.ptr<!void>, !cir.ptr<!cir.ptr<!void>>
 // CIR:           %[[PTR:.*]] = cir.load{{.*}} %[[P]] : !cir.ptr<!cir.ptr<!void>>, !cir.ptr<!void>
 // CIR:           %[[PTR_A:.*]] = cir.cast bitcast %[[PTR]] : !cir.ptr<!void> -> !cir.ptr<!rec_A>
-// CIR:           cir.call @_ZN1AC1Ev(%[[PTR_A]]) : (!cir.ptr<!rec_A>{{.*}}) -> ()
+// CIR:           cir.call @_ZN1AC1Ev(%[[PTR_A]]) {ast_constructor_call = {callee_symbol = "_ZN1AC1Ev", canonical_symbol = "_ZN1AC1Ev", constructor_usr = "c:@S@A@F@A#", variant = "complete"}} : (!cir.ptr<!rec_A>{{.*}}) -> ()
 
 // LLVM-LABEL: define dso_local void @_Z27test_reserved_placement_newPv(
 // LLVM-SAME:                                   ptr {{.*}} %[[ARG0:.*]]

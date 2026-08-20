@@ -36,7 +36,7 @@ struct Outer {
 // CIR:         %[[THIS:.*]] = cir.load %{{.+}} : !cir.ptr<!cir.ptr<!rec_Outer>>, !cir.ptr<!rec_Outer>
 // CIR:         %[[M_BASE:.*]] = cir.get_member %[[THIS]][0] {{.*name = "m".*}} : !cir.ptr<!rec_Outer> -> !cir.ptr<!rec_Middle2Ebase>
 // CIR-NEXT:    %[[M_COMPLETE:.*]] = cir.cast bitcast %[[M_BASE]] : !cir.ptr<!rec_Middle2Ebase> -> !cir.ptr<!rec_Middle>
-// CIR:         cir.copy %{{.+}} to %[[M_COMPLETE]] skip_tail_padding : !cir.ptr<!rec_Middle>
+// CIR:         cir.copy %{{.+}} to %[[M_COMPLETE]] skip_tail_padding {{.*}} : !cir.ptr<!rec_Middle>
 // CIR:         %[[EXTRA:.*]] = cir.get_member %[[THIS]][1] {{.*name = "extra".*}} : !cir.ptr<!rec_Outer> -> !cir.ptr<!s8i>
 
 // Globals for the union/final NUA cases below (placed before LLVM-LABEL so

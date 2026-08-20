@@ -129,7 +129,7 @@ void test_store_field3(Foo *ptr) {
 
 // CIR: cir.func {{.*}} @_Z17test_store_field3P3Foo
 // CIR:   %[[MEMBER_ADDR:.*]] = cir.get_member
-// CIR:   cir.set_bitfield align(4) (#bfi_z, %[[MEMBER_ADDR:.+]] : !cir.ptr<!u8i>, %1 : !s32i) {is_volatile}
+// CIR:   cir.set_bitfield align(4) (#bfi_z, %[[MEMBER_ADDR:.+]] : !cir.ptr<!u8i>, %1 : !s32i) {{.*is_volatile.*}}
 
 // LLVM: define {{.*}} void @_Z17test_store_field3P3Foo
 // LLVM:   %[[MEMBER_ADDR:.*]] = getelementptr inbounds nuw %struct.Foo, ptr %{{.*}}, i32 0, i32 2

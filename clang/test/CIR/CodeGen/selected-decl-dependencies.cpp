@@ -1,6 +1,7 @@
-// RUN: printf '_Z8selectedv\n_Z12selectedUptrv\n_ZN4MoveC1EOS_\n_Z15cxx_identity_fnIiEN13cxx_enable_ifIXeqstT_Li4EEiE4typeES1_\n_Z11selectedVttv\n' > %t.roots
+// RUN: printf '_Z8selectedv\n_Z12selectedUptrv\n_ZN4MoveC1EOS_\n_Z15cxx_identity_fnIiEN13cxx_enable_ifIXeqstT_Li4EEiE4typeES1_\n_Z11selectedVttv\n_ZN10VTableLeafC1Ev\n' > %t.roots
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++17 -fclangir -emit-cir -fclangir-emit-selected-decls=%t.roots -skip-function-bodies %s -o %t.cir
 // RUN: FileCheck %s --implicit-check-not=@_Z9unrelatedv --input-file=%t.cir
+// RUN: FileCheck %s --check-prefix=VTABLE-CLOSURE --input-file=%t.cir
 // RUN: printf '_ZN11VirtualBaseD1Ev\n_ZN14VirtualDerivedD1Ev\n' > %t.overlap.roots
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++17 -fclangir -emit-cir -fclangir-emit-selected-decls=%t.overlap.roots -skip-function-bodies %s -o %t.overlap.cir
 // RUN: FileCheck %s --check-prefix=OVERLAP --input-file=%t.overlap.cir
@@ -72,6 +73,16 @@ struct DtorDerived final : DtorBase {
   DtorMember member;
 };
 
+struct VTableBase {
+  virtual ~VTableBase() = default;
+};
+
+struct VTableLeaf final : VTableBase {
+  VTableLeaf();
+};
+
+VTableLeaf::VTableLeaf() = default;
+
 void selectedVtt() {
   FurtherDerived value;
 }
@@ -123,6 +134,11 @@ void selected() {
 // CHECK-DAG: cir.func{{.*}}@_ZN14FurtherDerivedD2Ev{{.*}} {
 // CHECK-DAG: cir.func{{.*}}@_ZN14FurtherDerivedD1Ev{{.*}} {
 // CHECK-DAG: cir.func{{.*}}@_ZN14FurtherDerivedD0Ev{{.*}} {
+// A selected constructor can defer its vtable until end-of-TU emission. The
+// exact deleting-destructor declaration referenced only by that vtable must
+// join the dependency fixed point and be emitted once.
+// VTABLE-CLOSURE-COUNT-1: cir.func{{.*}}@_ZN10VTableLeafC1Ev{{.*}} {
+// VTABLE-CLOSURE-COUNT-1: cir.func{{.*}}@_ZN10VTableLeafD0Ev{{.*}} {
 
 // Selecting both ends of one destructor dependency edge must not recursively
 // regenerate the base destructor while the derived body is under construction.

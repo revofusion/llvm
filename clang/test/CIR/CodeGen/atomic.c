@@ -3677,3 +3677,23 @@ void atomic_cmpxchg_n_maybe_weak(int *ptr, int *expected, int desired, int failu
   // OGCG: [[WEAK_SEQ_CST]]:
   // OGCG:   cmpxchg weak ptr %{{.+}}, i32 %{{.+}}, i32 %{{.+}} seq_cst seq_cst
 }
+
+int sync_lock_test_and_set(int *ptr) {
+  // CIR-LABEL: @sync_lock_test_and_set
+  // CIR: %{{.+}} = cir.atomic.xchg seq_cst syncscope(system) %{{.+}}, %{{.+}} : (!cir.ptr<!s32i>, !s32i) -> !s32i
+  // LLVM-LABEL: @sync_lock_test_and_set
+  // LLVM: atomicrmw xchg ptr %{{.+}}, i32 1 seq_cst
+  // OGCG-LABEL: @sync_lock_test_and_set
+  // OGCG: atomicrmw xchg ptr %{{.+}}, i32 1 seq_cst
+  return __sync_lock_test_and_set(ptr, 1);
+}
+
+void sync_lock_release(int *ptr) {
+  // CIR-LABEL: @sync_lock_release
+  // CIR: cir.store align(4) syncscope(system) atomic(release) %{{.+}}, %{{.+}} : !s32i, !cir.ptr<!s32i>
+  // LLVM-LABEL: @sync_lock_release
+  // LLVM: store atomic i32 0, ptr %{{.+}} release
+  // OGCG-LABEL: @sync_lock_release
+  // OGCG: store atomic i32 0, ptr %{{.+}} release
+  __sync_lock_release(ptr);
+}

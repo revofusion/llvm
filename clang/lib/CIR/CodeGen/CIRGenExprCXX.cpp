@@ -1161,7 +1161,7 @@ void CIRGenFunction::emitNewArrayInitializer(
       pushIrregularPartialArrayCleanup(
           beginPtr.getPointer(), endOfInit, elementType,
           beginPtr.getAlignment().alignmentOfArrayElement(elementSize),
-          getDestroyer(dtorKind));
+          getDestroyer(dtorKind), std::nullopt);
     }
 
     CharUnits startAlign = curPtr.getAlignment();
@@ -1402,9 +1402,13 @@ RValue CIRGenFunction::emitCXXDestructorCall(
     }
     mlir::NamedAttrList identity;
     llvm::SmallString<256> destructorUSR;
-    if (!clang::index::generateUSRForDecl(dtorDecl->getCanonicalDecl(),
-                                          destructorUSR))
-      identity.set("destructor_usr", builder.getStringAttr(destructorUSR));
+    if (clang::index::generateUSRForDecl(dtorDecl->getCanonicalDecl(),
+                                         destructorUSR)) {
+      cgm.errorNYI(ce->getSourceRange(),
+                   "explicit destructor has no exact canonical USR");
+      return result;
+    }
+    identity.set("destructor_usr", builder.getStringAttr(destructorUSR));
     identity.set("callee_symbol",
                  builder.getStringAttr(cgm.getMangledName(dtor)));
     StringRef variant = "complete";

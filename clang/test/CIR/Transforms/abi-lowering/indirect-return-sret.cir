@@ -5,6 +5,9 @@
 !s32i = !cir.int<s, 32>
 !s64i = !cir.int<s, 64>
 !rec_Big = !cir.struct<"Big" {!s64i, !s64i, !s64i, !s64i}>
+!rec_Leaf = !cir.struct<"Leaf" {!s32i}>
+!rec_Nested = !cir.struct<"Nested" {!rec_Leaf, !s64i}>
+!rec_Holder = !cir.struct<"Holder" {!rec_Nested}>
 
 #indirect_return = {
   return = { kind = "indirect", indirect_align = 8 },
@@ -112,6 +115,42 @@ module attributes {
   // CHECK:        %[[LD:.*]] = cir.load %[[SLOT]] : !cir.ptr<!rec_Big>, !rec_Big
   // CHECK:        cir.store %[[LD]], %[[A]] : !rec_Big, !cir.ptr<!rec_Big>
   // CHECK:        cir.store %[[LD]], %[[B]] : !rec_Big, !cir.ptr<!rec_Big>
+
+  // A nested record member is itself an exact sret destination. Keep the
+  // get_member pointee type as the call's hidden slot type; allocating or
+  // coercing an unrelated whole-object slot would lose the nested carrier.
+  cir.func @returns_nested() -> !rec_Nested
+      attributes { test_classify = #indirect_return } {
+    %retval = cir.alloca "__retval" align(8) : !cir.ptr<!rec_Nested>
+    %z = cir.const #cir.zero : !rec_Nested
+    cir.store %z, %retval : !rec_Nested, !cir.ptr<!rec_Nested>
+    %result = cir.load %retval : !cir.ptr<!rec_Nested>, !rec_Nested
+    cir.return %result : !rec_Nested
+  }
+
+  cir.func @caller_nested_member() -> !s32i
+      attributes { test_classify = #caller_cls } {
+    %holder = cir.alloca "holder" align(8) : !cir.ptr<!rec_Holder>
+    %member = cir.get_member %holder[0] {name = "member"} :
+        !cir.ptr<!rec_Holder> -> !cir.ptr<!rec_Nested>
+    %result = cir.call @returns_nested() : () -> !rec_Nested
+    cir.store %result, %member : !rec_Nested, !cir.ptr<!rec_Nested>
+    %z = cir.const #cir.int<0> : !s32i
+    cir.return %z : !s32i
+  }
+
+  // CHECK:      cir.func{{.*}} @returns_nested(%[[NESTED_SRET:.*]]: !cir.ptr<!rec_Nested> {
+  // CHECK-SAME:     llvm.sret = !rec_Nested
+  // CHECK:        cir.store %{{.*}}, %[[NESTED_SRET]] : !rec_Nested, !cir.ptr<!rec_Nested>
+  // CHECK:        cir.return
+  // CHECK:      cir.func{{.*}} @caller_nested_member() -> !s32i
+  // CHECK:        %[[HOLDER:.*]] = cir.alloca "holder" {{.*}}: !cir.ptr<!rec_Holder>
+  // CHECK:        %[[MEMBER:.*]] = cir.get_member %[[HOLDER]][0] {name = "member"} : !cir.ptr<!rec_Holder> -> !cir.ptr<!rec_Nested>
+  // CHECK:        cir.call @returns_nested(%[[MEMBER]]) : (!cir.ptr<!rec_Nested>
+  // CHECK-SAME:     llvm.sret = !rec_Nested
+  // CHECK-SAME:     -> ()
+  // CHECK-NOT:    cir.load
+  // CHECK-NOT:    cir.store
 
   // sret composes with an Extend argument: the sret slot is prepended and the
   // s8 argument is still extended to s32 with llvm.signext on both the callee

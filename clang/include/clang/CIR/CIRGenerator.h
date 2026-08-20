@@ -29,6 +29,7 @@ class DeclGroupRef;
 class CXXMethodDecl;
 class DiagnosticsEngine;
 class GlobalDecl;
+class TranslationUnitDecl;
 namespace CIRGen {
 class CIRGenModule;
 } // namespace CIRGen
@@ -75,7 +76,9 @@ private:
   llvm::SmallVector<clang::FunctionDecl *, 8> deferredInlineMemberFuncDefs;
 
   void defineSelectedDefaultedMethod(clang::CXXMethodDecl *method);
-  void prepareSelectedMethods(llvm::ArrayRef<clang::GlobalDecl> methods);
+  void prepareSelectedLocalClassMembers(clang::TranslationUnitDecl *tu);
+  void
+  prepareSelectedMethods(llvm::MutableArrayRef<clang::GlobalDecl> methods);
 
 public:
   CIRGenerator(clang::DiagnosticsEngine &diags,

@@ -54,27 +54,27 @@ const C c;
 // Test case 'a' - before LoweringPrepare
 // CIR-BEFORE-LPP: cir.global external @a = ctor : !rec_A {
 // CIR-BEFORE-LPP:   %[[OBJ:.*]] = cir.get_global @a : !cir.ptr<!rec_A>
-// CIR-BEFORE-LPP:   cir.call @_ZN1AC1Ev(%[[OBJ]]) : (!cir.ptr<!rec_A> {{.*}}) -> ()
+// CIR-BEFORE-LPP:   cir.call @_ZN1AC1Ev(%[[OBJ]]) {{.*}} : (!cir.ptr<!rec_A> {{.*}}) -> ()
 // CIR-BEFORE-LPP:   %[[OBJ2:.*]] = cir.get_global @a : !cir.ptr<!rec_A>
 // CIR-BEFORE-LPP: }
 
 // Test case 'a2' - before LoweringPrepare
 // CIR-BEFORE-LPP: cir.global external @a2 = ctor : !rec_A2 {
 // CIR-BEFORE-LPP:   %[[OBJ:.*]] = cir.get_global @a2 : !cir.ptr<!rec_A2>
-// CIR-BEFORE-LPP:   cir.call @_ZN2A2C1Ev(%[[OBJ]]) : (!cir.ptr<!rec_A2> {{.*}}) -> ()
+// CIR-BEFORE-LPP:   cir.call @_ZN2A2C1Ev(%[[OBJ]]) {{.*}} : (!cir.ptr<!rec_A2> {{.*}}) -> ()
 // CIR-BEFORE-LPP:   %[[OBJ2:.*]] = cir.get_global @a2 : !cir.ptr<!rec_A2>
 // CIR-BEFORE-LPP: }
 
 // Test case 'b' - before LoweringPrepare
 // CIR-BEFORE-LPP: cir.global external @b = ctor : !rec_B {
 // CIR-BEFORE-LPP:   %[[OBJ:.*]] = cir.get_global @b : !cir.ptr<!rec_B>
-// CIR-BEFORE-LPP:   cir.call @_ZN1BC1Ev(%[[OBJ]]) : (!cir.ptr<!rec_B> {{.*}}) -> ()
+// CIR-BEFORE-LPP:   cir.call @_ZN1BC1Ev(%[[OBJ]]) {{.*}} : (!cir.ptr<!rec_B> {{.*}}) -> ()
 // CIR-BEFORE-LPP: }
 
 // Test case 'c' - before LoweringPrepare (internal linkage)
 // CIR-BEFORE-LPP: cir.global {{.*}} internal {{.*}} @_ZL1c = ctor : !rec_C {
 // CIR-BEFORE-LPP:   %[[OBJ:.*]] = cir.get_global @_ZL1c : !cir.ptr<!rec_C>
-// CIR-BEFORE-LPP:   cir.call @_ZN1CC1Ev(%[[OBJ]]) : (!cir.ptr<!rec_C> {{.*}}) -> ()
+// CIR-BEFORE-LPP:   cir.call @_ZN1CC1Ev(%[[OBJ]]) {{.*}} : (!cir.ptr<!rec_C> {{.*}}) -> ()
 // CIR-BEFORE-LPP:   %[[OBJ2:.*]] = cir.get_global @_ZL1c : !cir.ptr<!rec_C>
 // CIR-BEFORE-LPP: }
 
@@ -94,7 +94,7 @@ const C c;
 // CIR: cir.global external @a = #cir.zero : !rec_A
 // CIR: cir.func internal private @__cxx_global_var_init() {{(.*)}} {
 // CIR:   %[[OBJ:.*]] = cir.get_global @a : !cir.ptr<!rec_A>
-// CIR:   cir.call @_ZN1AC1Ev(%[[OBJ]]) : (!cir.ptr<!rec_A> {{.*}}) -> ()
+// CIR:   cir.call @_ZN1AC1Ev(%[[OBJ]]) {{.*}} : (!cir.ptr<!rec_A> {{.*}}) -> ()
 // CIR:   cir.return
 // CIR: }
 
@@ -115,7 +115,7 @@ const C c;
 // CIR: cir.global external @a2 = #cir.zero : !rec_A2
 // CIR: cir.func internal private @__cxx_global_var_init.1() {{(.*)}} {
 // CIR:   %[[OBJ:.*]] = cir.get_global @a2 : !cir.ptr<!rec_A2>
-// CIR:   cir.call @_ZN2A2C1Ev(%[[OBJ]]) : (!cir.ptr<!rec_A2> {{.*}}) -> ()
+// CIR:   cir.call @_ZN2A2C1Ev(%[[OBJ]]) {{.*}} : (!cir.ptr<!rec_A2> {{.*}}) -> ()
 // CIR:   cir.return
 // CIR: }
 
@@ -136,7 +136,7 @@ const C c;
 // CIR: cir.global external @b = #cir.zero : !rec_B
 // CIR: cir.func internal private @__cxx_global_var_init.2() {{(.*)}} {
 // CIR:   %[[OBJ:.*]] = cir.get_global @b : !cir.ptr<!rec_B>
-// CIR:   cir.call @_ZN1BC1Ev(%[[OBJ]]) : (!cir.ptr<!rec_B> {{.*}}) -> ()
+// CIR:   cir.call @_ZN1BC1Ev(%[[OBJ]]) {{.*}} : (!cir.ptr<!rec_B> {{.*}}) -> ()
 // CIR:   cir.return
 // CIR: }
 
@@ -157,7 +157,7 @@ const C c;
 // CIR: cir.global {{.*}} internal {{.*}} @_ZL1c = #cir.zero : !rec_C
 // CIR: cir.func internal private @__cxx_global_var_init.3() {{(.*)}} {
 // CIR:   %[[OBJ:.*]] = cir.get_global @_ZL1c : !cir.ptr<!rec_C>
-// CIR:   cir.call @_ZN1CC1Ev(%[[OBJ]]) : (!cir.ptr<!rec_C> {{.*}}) -> ()
+// CIR:   cir.call @_ZN1CC1Ev(%[[OBJ]]) {{.*}} : (!cir.ptr<!rec_C> {{.*}}) -> ()
 // CIR:   cir.return
 // CIR: }
 
@@ -243,24 +243,24 @@ const C c;
 
 // Test case 'a' - CIR at -O1
 // CIR-O1: cir.func internal private @__cxx_global_var_init() {{(.*)}} {
-// CIR-O1:   cir.call @_ZN1AC1Ev(%{{.*}}) : (!cir.ptr<!rec_A> {{.*}}) -> ()
+// CIR-O1:   cir.call @_ZN1AC1Ev(%{{.*}}) {{.*}} : (!cir.ptr<!rec_A> {{.*}}) -> ()
 // CIR-O1:   cir.call_llvm_intrinsic "invariant.start" {{.*}} : (!s64i, !cir.ptr<!rec_A>) -> !cir.ptr<!rec_A>
 // CIR-O1: }
 
 // Test case 'a2' - CIR at -O1
 // CIR-O1: cir.func internal private @__cxx_global_var_init.1() {{(.*)}} {
-// CIR-O1:   cir.call @_ZN2A2C1Ev(%{{.*}}) : (!cir.ptr<!rec_A2> {{.*}}) -> ()
+// CIR-O1:   cir.call @_ZN2A2C1Ev(%{{.*}}) {{.*}} : (!cir.ptr<!rec_A2> {{.*}}) -> ()
 // CIR-O1:   cir.call_llvm_intrinsic "invariant.start" {{.*}} : (!s64i, !cir.ptr<!rec_A2>) -> !cir.ptr<!rec_A2>
 // CIR-O1: }
 
 // Test case 'b' - CIR at -O1 (should NOT emit invariant.start)
 // CIR-O1: cir.func internal private @__cxx_global_var_init.2() {{(.*)}} {
-// CIR-O1:   cir.call @_ZN1BC1Ev(%{{.*}}) : (!cir.ptr<!rec_B> {{.*}}) -> ()
+// CIR-O1:   cir.call @_ZN1BC1Ev(%{{.*}}) {{.*}} : (!cir.ptr<!rec_B> {{.*}}) -> ()
 // CIR-O1-NOT: cir.call_llvm_intrinsic "invariant.start"
 // CIR-O1: }
 
 // Test case 'c' - CIR at -O1
 // CIR-O1: cir.func internal private @__cxx_global_var_init.3() {{(.*)}} {
-// CIR-O1:   cir.call @_ZN1CC1Ev(%{{.*}}) : (!cir.ptr<!rec_C> {{.*}}) -> ()
+// CIR-O1:   cir.call @_ZN1CC1Ev(%{{.*}}) {{.*}} : (!cir.ptr<!rec_C> {{.*}}) -> ()
 // CIR-O1:   cir.call_llvm_intrinsic "invariant.start" {{.*}} : (!s64i, !cir.ptr<!rec_C>) -> !cir.ptr<!rec_C>
 // CIR-O1: }

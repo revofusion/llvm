@@ -19,6 +19,8 @@
 #include "mlir/Target/LLVMIR/Import.h"
 
 #include "clang/AST/DeclGroup.h"
+#include "clang/AST/ExprCXX.h"
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/CIR/CIRGenerator.h"
 #include "clang/CIR/InitAllDialects.h"
 #include "clang/Sema/Sema.h"
@@ -70,10 +72,172 @@ void CIRGenerator::InitializeSema(Sema &sema) { this->sema = &sema; }
 
 void CIRGenerator::ForgetSema() { sema = nullptr; }
 
+namespace {
+
+class CastEndpointRecordCollector
+    : public RecursiveASTVisitor<CastEndpointRecordCollector> {
+  llvm::DenseSet<const Type *> seen;
+
+  void collect(QualType type, SourceLocation loc) {
+    while (!type.isNull()) {
+      type = type.getCanonicalType();
+      if (type->isPointerType() || type->isReferenceType()) {
+        type = type->getPointeeType();
+        continue;
+      }
+      if (const auto *array = type->getAsArrayTypeUnsafe()) {
+        type = array->getElementType();
+        continue;
+      }
+      break;
+    }
+    if (!type.isNull() && seen.insert(type.getTypePtr()).second)
+      endpoints.emplace_back(type, loc);
+  }
+
+public:
+  llvm::SmallVector<std::pair<QualType, SourceLocation>, 8> endpoints;
+
+  bool shouldVisitImplicitCode() const { return true; }
+  bool shouldVisitTemplateInstantiations() const { return true; }
+
+  bool VisitCastExpr(CastExpr *cast) {
+    if (!cast)
+      return true;
+    collect(cast->getSubExpr()->getType(), cast->getExprLoc());
+    collect(cast->getType(), cast->getExprLoc());
+    return true;
+  }
+};
+
+void prepareCastEndpointRecordSchemas(Sema *sema, Decl *decl) {
+  if (!sema || !decl)
+    return;
+  CastEndpointRecordCollector collector;
+  collector.TraverseDecl(decl);
+  for (const auto &[type, loc] : collector.endpoints) {
+    auto *specialization =
+        dyn_cast_or_null<ClassTemplateSpecializationDecl>(
+            type->getAsCXXRecordDecl());
+    if (!specialization)
+      continue;
+    // The RecordType can retain an earlier declaration after Sema has assigned
+    // the specialization to a later definition. Make the owning definition,
+    // rather than the declaration embedded in the type, authoritative.
+    specialization = specialization->getDefinitionOrSelf();
+    if (specialization->isCompleteDefinition())
+      continue;
+    const TemplateSpecializationKind kind =
+        specialization->getSpecializationKind();
+    if (kind != TSK_Undeclared && kind != TSK_ImplicitInstantiation)
+      continue;
+    ClassTemplateDecl *primary = specialization->getSpecializedTemplate();
+    if (!primary || !primary->getTemplatedDecl()->getDefinition())
+      continue;
+    // CIR cast endpoint schemas are direct producer facts. Complete only an
+    // implicit specialization whose definition is structurally available;
+    // genuinely opaque records remain valid incomplete endpoints.
+    const QualType endpointType = type;
+    const SourceLocation endpointLoc = loc;
+    sema->runWithSufficientStackSpace(endpointLoc, [sema, endpointType,
+                                                    endpointLoc] {
+      sema->RequireCompleteType(endpointLoc, endpointType,
+                                diag::err_incomplete_type);
+    });
+  }
+}
+
+class SelectedBodyVariableUseRestorer
+    : public RecursiveASTVisitor<SelectedBodyVariableUseRestorer> {
+  ASTContext &context;
+
+public:
+  explicit SelectedBodyVariableUseRestorer(ASTContext &context)
+      : context(context) {}
+
+  bool VisitDeclRefExpr(DeclRefExpr *expr) {
+    if (auto *variable = dyn_cast<VarDecl>(expr->getDecl()))
+      variable->markUsed(context);
+    return true;
+  }
+};
+
+void restoreSelectedBodyVariableUses(ASTContext &context,
+                                     FunctionDecl *function) {
+  if (Stmt *body = function->getBody()) {
+    SelectedBodyVariableUseRestorer restorer(context);
+    restorer.TraverseStmt(body);
+  }
+}
+
+} // namespace
+
+void CIRGenerator::prepareSelectedLocalClassMembers(TranslationUnitDecl *tu) {
+  if (!sema || codeGenOpts.ClangIRSelectedDeclsFile.empty())
+    return;
+
+  class LocalClassCollector
+      : public RecursiveASTVisitor<LocalClassCollector> {
+    CIRGen::CIRGenModule &cgm;
+    llvm::DenseSet<CXXRecordDecl *> visited;
+
+    void collect(CXXRecordDecl *record) {
+      if (!record || (!record->isLocalClass() && !record->isLambda()))
+        return;
+      CXXRecordDecl *definition = record->getDefinition();
+      if (!definition || definition->isDependentContext() ||
+          !visited.insert(definition).second)
+        return;
+      records.push_back(definition);
+    }
+
+  public:
+    using Base = RecursiveASTVisitor<LocalClassCollector>;
+    llvm::SmallVector<CXXRecordDecl *, 16> records;
+
+    explicit LocalClassCollector(CIRGen::CIRGenModule &cgm) : cgm(cgm) {}
+    bool shouldVisitImplicitCode() const { return true; }
+    bool shouldVisitTemplateInstantiations() const { return true; }
+
+
+    bool TraverseFunctionDecl(FunctionDecl *function) {
+      if (!function || !cgm.shouldParseSelectedDeclBody(function))
+        return true;
+      return Base::TraverseFunctionDecl(function);
+    }
+
+    bool VisitCXXRecordDecl(CXXRecordDecl *record) {
+      collect(record);
+      return true;
+    }
+
+    bool VisitLambdaExpr(LambdaExpr *lambda) {
+      collect(lambda ? lambda->getLambdaClass() : nullptr);
+      return true;
+    }
+  };
+
+  LocalClassCollector collector(*cgm);
+  collector.TraverseDecl(tu);
+  for (CXXRecordDecl *record : collector.records) {
+    SourceLocation loc = record->getLocation();
+    sema->runWithSufficientStackSpace(
+        loc, [&] { sema->ForceDeclarationOfImplicitMembers(record); });
+    // ForceDeclaration makes the implicit member declaration available, but
+    // a skipped enclosing body does not ODR-use it and therefore does not ask
+    // Sema for a definition. An exact selected structor symbol is that request:
+    // define only the compiler-owned defaulted destructor it authenticates.
+    if (auto *dtor = record->getDestructor();
+        dtor && cgm->shouldParseSelectedDeclBody(dtor))
+      defineSelectedDefaultedMethod(dtor);
+  }
+}
+
+
 void CIRGenerator::defineSelectedDefaultedMethod(CXXMethodDecl *method) {
   assert(sema && "selected defaulted method definition requires Sema");
-  if (!method->isDefaulted() || method->isDeleted() ||
-      method->doesThisDeclarationHaveABody() ||
+  if (method->getParent()->isDependentContext() || !method->isDefaulted() ||
+      method->isDeleted() || method->doesThisDeclarationHaveABody() ||
       !cgm->shouldParseSelectedDeclBody(method))
     return;
 
@@ -100,29 +264,51 @@ void CIRGenerator::defineSelectedDefaultedMethod(CXXMethodDecl *method) {
   });
 }
 
-void CIRGenerator::prepareSelectedMethods(llvm::ArrayRef<GlobalDecl> globals) {
-  llvm::SmallVector<FunctionDecl *, 16> functions;
-  llvm::DenseSet<FunctionDecl *> visited;
-  for (GlobalDecl gd : globals)
-    if (auto *function =
-            const_cast<FunctionDecl *>(dyn_cast<FunctionDecl>(gd.getDecl())))
-      if (visited.insert(function).second)
-        functions.push_back(function);
+void CIRGenerator::prepareSelectedMethods(
+    llvm::MutableArrayRef<GlobalDecl> globals) {
+  llvm::DenseSet<const FunctionDecl *> materialized;
+  for (GlobalDecl &gd : globals) {
+    auto *function =
+        const_cast<FunctionDecl *>(dyn_cast<FunctionDecl>(gd.getDecl()));
+    if (!function)
+      continue;
 
-  for (FunctionDecl *function : functions) {
-    const FunctionDecl *pattern = function->getTemplateInstantiationPattern();
-    if (!function->doesThisDeclarationHaveABody() && !function->isDefaulted() &&
-        cgm->shouldParseSelectedDeclBody(function) && pattern &&
-        pattern->getDefinition()) {
-      SourceLocation loc = function->getLocation();
-      sema->runWithSufficientStackSpace(loc, [&] {
-        sema->InstantiateFunctionDefinition(loc, function, /*Recursive=*/true,
-                                            /*DefinitionRequired=*/true,
-                                            /*AtEndOfTU=*/true);
-      });
+    const bool firstMaterialization =
+        materialized.insert(function->getCanonicalDecl()).second;
+    if (firstMaterialization) {
+      const FunctionDecl *pattern =
+          function->getTemplateInstantiationPattern();
+      if (!function->doesThisDeclarationHaveABody() &&
+          !function->isDefaulted() &&
+          cgm->shouldParseSelectedDeclBody(function) && pattern &&
+          pattern->getDefinition()) {
+        SourceLocation loc = function->getLocation();
+        sema->runWithSufficientStackSpace(loc, [&] {
+          sema->InstantiateFunctionDefinition(
+              loc, function, /*Recursive=*/true,
+              /*DefinitionRequired=*/true, /*AtEndOfTU=*/true);
+        });
+      }
+      if (auto *method = dyn_cast<CXXMethodDecl>(function))
+        defineSelectedDefaultedMethod(method);
     }
-    if (auto *method = dyn_cast<CXXMethodDecl>(function))
-      defineSelectedDefaultedMethod(method);
+
+    // Sema can attach an instantiated body to a later redeclaration. Carry the
+    // exact concrete definition into both selected endpoint preparation and
+    // CIR emission instead of traversing the declaration that originally
+    // authenticated the work item.
+    if (const FunctionDecl *definition = function->getDefinition()) {
+      gd = gd.getWithDecl(definition);
+      function = const_cast<FunctionDecl *>(definition);
+    }
+    // A selected specialization can acquire a body from a skipped enclosing
+    // function without replaying Sema's ordinary DeclRefExpr callbacks. The
+    // body remains the authoritative source of variable uses, so restore those
+    // exact facts before CIRGen enforces them.
+    restoreSelectedBodyVariableUses(*astContext, function);
+
+    if (firstMaterialization)
+      prepareCastEndpointRecordSchemas(sema, function);
   }
 }
 
@@ -144,6 +330,13 @@ bool CIRGenerator::HandleTopLevelDecl(DeclGroupRef group) {
 
 void CIRGenerator::HandleTranslationUnit(ASTContext &astContext) {
   if (!diags.hasErrorOccurred() && cgm) {
+    // Requiring a cast endpoint to be complete is a Sema instantiation action.
+    // Delay ordinary-mode completion until explicit specializations have been
+    // assigned their final owners at the end of the translation unit.
+    if (sema && codeGenOpts.ClangIRSelectedDeclsFile.empty())
+      prepareCastEndpointRecordSchemas(sema,
+                                       astContext.getTranslationUnitDecl());
+    prepareSelectedLocalClassMembers(astContext.getTranslationUnitDecl());
     // Materialize declarations discovered by ordinary AST callbacks before
     // selected-root closure scans specialization and destructor families.
     cgm->emitDeferred();
@@ -151,11 +344,16 @@ void CIRGenerator::HandleTranslationUnit(ASTContext &astContext) {
     // another specialization, so each stable root or exact dependency frontier
     // is prepared before emission without another translation-unit walk.
     cgm->emitSelectedMethods(astContext.getTranslationUnitDecl(),
-                             [&](llvm::ArrayRef<GlobalDecl> methods) {
+                             [&](llvm::MutableArrayRef<GlobalDecl> methods) {
                                if (sema)
                                  prepareSelectedMethods(methods);
                              });
     cgm->emitSelectedVariables(astContext.getTranslationUnitDecl());
+    cgm->emitSelectedDeclDependencyClosure(
+        [&](llvm::MutableArrayRef<GlobalDecl> dependencies) {
+          if (sema)
+            prepareSelectedMethods(dependencies);
+        });
     cgm->release();
   }
 

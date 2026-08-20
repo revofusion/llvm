@@ -94,10 +94,10 @@ int main(void) {
   // HIP-NEW-DAG: cir.alloca "agg.tmp1" {{.*}} : !cir.ptr<!rec_dim3>
   //
   // Check dim3 constructors are called for grid and block dimensions
-  // CUDA-NEW: cir.call @_ZN4dim3C1Ejjj({{.*}}) : (!cir.ptr<!rec_dim3> {llvm.align = 4 : i64, llvm.dereferenceable = 12 : i64, llvm.nonnull, llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}) -> ()
-  // CUDA-NEW: cir.call @_ZN4dim3C1Ejjj({{.*}}) : (!cir.ptr<!rec_dim3> {llvm.align = 4 : i64, llvm.dereferenceable = 12 : i64, llvm.nonnull, llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}) -> ()
-  // HIP-NEW: cir.call @_ZN4dim3C1Ejjj({{.*}}) : (!cir.ptr<!rec_dim3> {llvm.align = 4 : i64, llvm.dereferenceable = 12 : i64, llvm.nonnull, llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}) -> ()
-  // HIP-NEW: cir.call @_ZN4dim3C1Ejjj({{.*}}) : (!cir.ptr<!rec_dim3> {llvm.align = 4 : i64, llvm.dereferenceable = 12 : i64, llvm.nonnull, llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}) -> ()
+  // CUDA-NEW: cir.call @_ZN4dim3C1Ejjj({{.*}}) {{.*}} : (!cir.ptr<!rec_dim3> {llvm.align = 4 : i64, llvm.dereferenceable = 12 : i64, llvm.nonnull, llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}) -> ()
+  // CUDA-NEW: cir.call @_ZN4dim3C1Ejjj({{.*}}) {{.*}} : (!cir.ptr<!rec_dim3> {llvm.align = 4 : i64, llvm.dereferenceable = 12 : i64, llvm.nonnull, llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}) -> ()
+  // HIP-NEW: cir.call @_ZN4dim3C1Ejjj({{.*}}) {{.*}} : (!cir.ptr<!rec_dim3> {llvm.align = 4 : i64, llvm.dereferenceable = 12 : i64, llvm.nonnull, llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}) -> ()
+  // HIP-NEW: cir.call @_ZN4dim3C1Ejjj({{.*}}) {{.*}} : (!cir.ptr<!rec_dim3> {llvm.align = 4 : i64, llvm.dereferenceable = 12 : i64, llvm.nonnull, llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}, !u32i {llvm.noundef}) -> ()
   //
   // Check default shared memory (0) and null stream are set
   // CUDA-NEW: cir.const #cir.int<0> : !u64i

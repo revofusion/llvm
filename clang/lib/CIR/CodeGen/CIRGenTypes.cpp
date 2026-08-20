@@ -246,9 +246,23 @@ mlir::Type CIRGenTypes::convertRecordDeclType(const clang::RecordDecl *rd) {
     // (forward declarations behind pointers), leaving the consumer with no
     // owner fact for those CIR record names.
     if (mlir::StringAttr entryName = entry.getName()) {
-      if (auto identity = recordDeclIdentity(cgm, rd); identity.has_value())
+      // Bind the name to its exact decl before recording the identity: an
+      // incomplete specialization mints an undecorated identity here, and
+      // release() re-derives it only through this binding.
+      cgm.rememberExactRecordDeclForCIRType(entry, rd);
+      auto identity = recordDeclIdentity(cgm, rd);
+      if (identity.has_value() && !identity->empty()) {
         cgm.addRecordDeclIdentity(
             entryName, mlir::StringAttr::get(&cgm.getMLIRContext(), *identity));
+      } else if (getenv("AENEAS_FNLOCAL_TRACE")) {
+        llvm::errs() << "AENEAS_IDENTITY missing name=" << entryName.getValue()
+                     << " record=" << rd->getQualifiedNameAsString()
+                     << " state=" << (identity.has_value() ? "empty" : "nullopt")
+                     << " loc="
+                     << rd->getLocation().printToString(
+                            cgm.getASTContext().getSourceManager())
+                     << "\n";
+      }
     }
   }
 

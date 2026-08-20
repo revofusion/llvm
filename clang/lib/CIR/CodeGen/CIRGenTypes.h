@@ -32,6 +32,7 @@ namespace clang {
 class ASTContext;
 class FunctionType;
 class GlobalDecl;
+class FieldDecl;
 class QualType;
 class TargetInfo;
 class Type;
@@ -54,6 +55,15 @@ class CIRGenModule;
 /// exists). Defined in CIRGenRecordLayoutBuilder.cpp.
 std::optional<std::string> recordDeclIdentity(CIRGenModule &cgm,
                                               const clang::RecordDecl *decl);
+
+// Lexical ordinal of a function-local unnamed tag (closure, anonymous
+// struct) among every unnamed tag its owning function's definition spells,
+// in traversal order. Source-derived: independent of any mangler instance.
+std::optional<unsigned>
+functionLocalUnnamedTagLexicalOrdinal(const clang::FunctionDecl *function,
+                                      const clang::RecordDecl *record);
+std::optional<std::string> fieldDeclIdentity(CIRGenModule &cgm,
+                                             const clang::FieldDecl *decl);
 
 /// This class organizes the cross-module state that is used while lowering
 /// AST types to CIR types.

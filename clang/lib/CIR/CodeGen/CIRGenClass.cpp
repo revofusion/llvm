@@ -12,6 +12,7 @@
 
 #include "CIRGenCXXABI.h"
 #include "CIRGenFunction.h"
+#include "CIRGenTypes.h"
 #include "CIRGenValue.h"
 
 #include "clang/AST/EvaluatedExprVisitor.h"
@@ -235,22 +236,26 @@ static void setBaseIdentityAttrs(CIRGenFunction &cgf, mlir::Value address,
                                  const CXXRecordDecl *derived,
                                  const CXXRecordDecl *base, CharUnits offset,
                                  bool baseIsVirtual) {
-  llvm::SmallString<256> derivedUSR;
-  llvm::SmallString<256> baseUSR;
-  if (!derived || !base || clang::index::generateUSRForDecl(derived, derivedUSR) ||
-      clang::index::generateUSRForDecl(base, baseUSR) || derivedUSR.empty() ||
-      baseUSR.empty())
+  const std::optional<std::string> derivedID =
+      derived ? recordDeclIdentity(cgf.getCIRGenModule(), derived)
+              : std::nullopt;
+  const std::optional<std::string> baseID =
+      base ? recordDeclIdentity(cgf.getCIRGenModule(), base) : std::nullopt;
+  if (!derivedID.has_value() || !baseID.has_value() || derivedID->empty() ||
+      baseID->empty())
     return;
   mlir::Operation *op = address.getDefiningOp();
   if (!op)
     return;
   op->setAttr("ast_derived_record_usr",
-              cgf.getBuilder().getStringAttr(derivedUSR));
-  op->setAttr("ast_base_record_usr", cgf.getBuilder().getStringAttr(baseUSR));
+              cgf.getBuilder().getStringAttr(*derivedID));
+  op->setAttr("ast_base_record_usr",
+              cgf.getBuilder().getStringAttr(*baseID));
   op->setAttr("ast_base_offset_bytes",
               cgf.getBuilder().getI64IntegerAttr(offset.getQuantity()));
   op->setAttr("ast_base_is_virtual",
               cgf.getBuilder().getBoolAttr(baseIsVirtual));
+  cgf.getCIRGenModule().rememberClassAddrIdentityDecls(op, derived, base);
 }
 
 /// Gets the address of a direct base class within a complete object.
@@ -633,7 +638,8 @@ void CIRGenFunction::emitInitializerForField(FieldDecl *field, LValue lhs,
       emitExprAsInit(init, field, lhs, false);
     } else {
       RValue rhs = RValue::get(emitScalarExpr(init));
-      emitStoreThroughLValue(rhs, lhs);
+      emitStoreThroughLValue(rhs, lhs, /*isInit=*/true,
+                             init->IgnoreParenImpCasts()->getType());
     }
     break;
   case cir::TEK_Complex:
@@ -877,8 +883,14 @@ void CIRGenFunction::emitCXXAggrConstructorCall(
           cir::ArrayType::get(elementType, constElementCount);
       mlir::Value arrayOp =
           builder.createPtrBitcast(arrayBase.getPointer(), arrayTy);
-      cir::ArrayCtor::create(builder, loc, arrayOp, emitCtorBody,
-                             emitPartialDtorBody);
+      cir::ArrayCtor arrayCtor = cir::ArrayCtor::create(
+          builder, loc, arrayOp, emitCtorBody, emitPartialDtorBody);
+      mlir::NamedAttrList cleanupIdentity;
+      cleanupIdentity.set("array_extent",
+                          builder.getI64IntegerAttr(constElementCount));
+      arrayCtor->setAttr(
+          "ast_object_array_cleanup",
+          cleanupIdentity.getDictionary(&getMLIRContext()));
     }
   }
 }
@@ -1398,7 +1410,9 @@ void CIRGenFunction::emitCXXConstructorCall(const clang::CXXConstructorDecl *d,
     LValue src = emitLValue(arg);
     CanQualType destTy = getContext().getCanonicalTagType(d->getParent());
     LValue dest = makeAddrLValue(thisAddr, destTy);
-    emitAggregateCopy(dest, src, src.getType(), thisAVS.mayOverlap());
+    emitAggregateCopy(dest, src, src.getType(), thisAVS.mayOverlap(),
+                      /*isVolatile=*/false,
+                      /*preserveReplacementSchema=*/true);
     return;
   }
 
@@ -1575,6 +1589,50 @@ void CIRGenFunction::emitCXXConstructorCall(
   CIRGenCallee callee = CIRGenCallee::forDirect(calleePtr, GlobalDecl(d, type));
   cir::CIRCallOpInterface c;
   emitCall(info, callee, ReturnValueSlot(), args, &c, getLoc(loc));
+  // The ABI callee names the emitted constructor variant (for example C2 on
+  // Itanium), while cleanup identities deliberately name the canonical
+  // complete-object variant. Preserve their exact producer-owned join on the
+  // call itself so consumers never have to infer ABI variants from spelling.
+  llvm::SmallString<256> constructorUSR;
+  if (clang::index::generateUSRForDecl(d->getCanonicalDecl(), constructorUSR)) {
+    cgm.errorNYI(d->getSourceRange(),
+                 "constructor call has no exact canonical declaration USR");
+    return;
+  }
+  llvm::StringRef variant;
+  switch (type) {
+  case Ctor_Complete:
+    variant = "complete";
+    break;
+  case Ctor_Base:
+    variant = "base";
+    break;
+  case Ctor_Comdat:
+    variant = "comdat";
+    break;
+  case Ctor_CopyingClosure:
+    variant = "copying_closure";
+    break;
+  case Ctor_DefaultClosure:
+    variant = "default_closure";
+    break;
+  case Ctor_Unified:
+    variant = "unified";
+    break;
+  }
+  mlir::NamedAttrList constructorIdentity;
+  constructorIdentity.set("constructor_usr",
+                          builder.getStringAttr(constructorUSR));
+  constructorIdentity.set(
+      "callee_symbol",
+      builder.getStringAttr(cgm.getMangledName(GlobalDecl(d, type))));
+  constructorIdentity.set(
+      "canonical_symbol",
+      builder.getStringAttr(
+          cgm.getMangledName(GlobalDecl(d, Ctor_Complete))));
+  constructorIdentity.set("variant", builder.getStringAttr(variant));
+  c->setAttr("ast_constructor_call",
+             constructorIdentity.getDictionary(&getMLIRContext()));
 
   if (cgm.getCodeGenOpts().OptimizationLevel != 0 && !crd->isDynamicClass() &&
       type != Ctor_Base && cgm.getCodeGenOpts().StrictVTablePointers)

@@ -38,7 +38,7 @@ void bar() {
 
 // CHECK: cir.func{{.*}} @_Z3barv()
 // CHECK:   %[[B:.*]] = cir.alloca "b" {{.*}} init : !cir.ptr<!rec_B>
-// CHECK:   cir.call @_ZN1BC1Ev(%[[B]]) : (!cir.ptr<!rec_B> {{.*}}) -> ()
+// CHECK:   cir.call @_ZN1BC1Ev(%[[B]]) {{.*}} : (!cir.ptr<!rec_B> {{.*}}) -> ()
 // CHECK:   cir.return
 
 // LLVM: define{{.*}} void @_Z3barv()
@@ -70,7 +70,7 @@ void baz() {
 
 // CHECK:   cir.func{{.*}} @_Z3bazv()
 // CHECK:     %[[S_ADDR:.*]] = cir.alloca "s" {{.*}} init : !cir.ptr<!rec_Struk>
-// CHECK:     cir.call @_ZN5StrukC2Ev(%[[S_ADDR]]) : (!cir.ptr<!rec_Struk> {{.*}}) -> ()
+// CHECK:     cir.call @_ZN5StrukC2Ev(%[[S_ADDR]]) {{.*}} : (!cir.ptr<!rec_Struk> {{.*}}) -> ()
 
 // LLVM: define linkonce_odr void @_ZN5StrukC2Ev(ptr{{.*}} %[[THIS_ARG]])
 // LLVM:   %[[THIS_ADDR:.*]] = alloca ptr

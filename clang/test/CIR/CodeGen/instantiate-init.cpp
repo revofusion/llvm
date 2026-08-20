@@ -45,7 +45,7 @@ void init_vec_using_initalizer_list() {
 // CIR: %[[SIZE_PTR:.*]] = cir.get_member %[[AGG_ADDR]][1] {{.*name = "size".*}} : !cir.ptr<!rec_std3A3Ainitializer_list3Cint3E> -> !cir.ptr<!u64i>
 // CIR: cir.store {{.*}} %[[CONST_U64_3]], %[[SIZE_PTR]] : !u64i, !cir.ptr<!u64i>
 // CIR: %[[TMP_AGG:.*]] = cir.load {{.*}} %[[AGG_ADDR]] : !cir.ptr<!rec_std3A3Ainitializer_list3Cint3E>, !rec_std3A3Ainitializer_list3Cint3E
-// CIR: cir.call @_ZN6VectorC1ESt16initializer_listIiE(%[[VEC_ADDR]], %[[TMP_AGG]]) : (!cir.ptr<!rec_Vector> {llvm.align = 1 : i64, llvm.dereferenceable = 1 : i64, llvm.nonnull, llvm.noundef}, !rec_std3A3Ainitializer_list3Cint3E) -> ()
+// CIR: cir.call @_ZN6VectorC1ESt16initializer_listIiE(%[[VEC_ADDR]], %[[TMP_AGG]]) {{.*}} : (!cir.ptr<!rec_Vector> {llvm.align = 1 : i64, llvm.dereferenceable = 1 : i64, llvm.nonnull, llvm.noundef}, !rec_std3A3Ainitializer_list3Cint3E) -> ()
 // CIR: cir.cleanup.scope {
 // CIR:   cir.yield
 // CIR: } cleanup normal {

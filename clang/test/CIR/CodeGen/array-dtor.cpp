@@ -82,7 +82,11 @@ void test_cleanup_zero_length_array() {
 }
 
 // CIR-BEFORE-LPP:     cir.func{{.*}} @_Z30test_cleanup_zero_length_arrayv()
-// CIR-BEFORE-LPP:       %[[S:.*]] = cir.alloca "s" {{.*}} : !cir.ptr<!cir.array<!rec_S x 0>>
+// CIR-BEFORE-LPP:       %[[S:.*]] = cir.alloca "s"{{.*}}!cir.ptr<!cir.array<!rec_S x 0>>{{.*}}ast_object_array_allocation = {
+// CIR-BEFORE-LPP-SAME:    array_extents = [0]
+// CIR-BEFORE-LPP-SAME:    element_record_schema = !rec_S
+// CIR-BEFORE-LPP-SAME:    element_record_usr = "c:@S@S"
+// CIR-BEFORE-LPP-SAME:    source_type = [
 // CIR-BEFORE-LPP-NOT:   cir.array.dtor
 // CIR-BEFORE-LPP:       cir.return
 

@@ -31,7 +31,7 @@ void call_virtual_fn_in_cleanup_scope() {
 
 // CIR-FLAT: cir.func {{.*}} @_Z32call_virtual_fn_in_cleanup_scopev()
 // CIR-FLAT:   %[[B:.*]] = cir.alloca "b" {{.*}} init : !cir.ptr<!rec_B>
-// CIR-FLAT:   cir.call @_ZN1BC2Ev(%[[B]]) nothrow : (!cir.ptr<!rec_B> {{.*}}) -> ()
+// CIR-FLAT:   cir.call @_ZN1BC2Ev(%[[B]]) nothrow {{.*}} : (!cir.ptr<!rec_B> {{.*}}) -> ()
 // CIR-FLAT:   cir.br ^[[CLEANUP_SCOPE:bb[0-9]+]]
 // CIR-FLAT: ^[[CLEANUP_SCOPE]]:
 // CIR-FLAT:   %[[C_LITERAL:.*]] = cir.const #cir.int<99> : !s8i

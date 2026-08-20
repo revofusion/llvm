@@ -1213,9 +1213,23 @@ cir::FuncOp LoweringPreparePass::getOrCreateDtorFunc(
       buildRuntimeFunction(builder, fnName, op.getLoc(), fnType,
                            cir::GlobalLinkageKind::InternalLinkage);
 
+  auto arrayAllocation = op->getAttrOfType<mlir::DictionaryAttr>(
+      "ast_object_array_allocation");
+  auto arraySourceType =
+      arrayAllocation
+          ? arrayAllocation.getAs<mlir::ArrayAttr>("source_type")
+          : mlir::ArrayAttr{};
+  if (!arraySourceType)
+    op.emitError("synthetic global array destructor lacks exact producer-owned "
+                 "array source-type metadata");
+
   SmallVector<mlir::NamedAttribute> paramAttrs;
   paramAttrs.push_back(
       builder.getNamedAttr("llvm.noundef", builder.getUnitAttr()));
+  if (arraySourceType) {
+    paramAttrs.push_back(
+        builder.getNamedAttr("cir.ast_source_type", arraySourceType));
+  }
   SmallVector<mlir::Attribute> argAttrDicts;
   argAttrDicts.push_back(
       mlir::DictionaryAttr::get(builder.getContext(), paramAttrs));
@@ -1595,15 +1609,31 @@ LoweringPreparePass::getOrCreateThreadLocalWrapper(CIRBaseBuilderTy &builder,
   builder.setInsertionPointToStart(&mlirModule.getBodyRegion().front());
 
   mlir::StringAttr wrapperName = op.getDynTlsRefs()->getWrapperName();
+  mlir::DictionaryAttr wrapperIdentity =
+      op->getAttrOfType<mlir::DictionaryAttr>("ast_tls_wrapper_identity");
+  if (!wrapperIdentity)
+    op.emitError("dynamic TLS global lacks producer-owned wrapper identity");
 
   auto existingWrapperIter = threadLocalWrappers.find(wrapperName.getValue());
-  if (existingWrapperIter != threadLocalWrappers.end())
-    return existingWrapperIter->second;
+  if (existingWrapperIter != threadLocalWrappers.end()) {
+    cir::FuncOp existingWrapper = existingWrapperIter->second;
+    mlir::DictionaryAttr existingIdentity =
+        existingWrapper->getAttrOfType<mlir::DictionaryAttr>(
+            "ast_synthetic_callable_identity");
+    if (!wrapperIdentity || !existingIdentity ||
+        existingIdentity != wrapperIdentity) {
+      existingWrapper.emitError(
+          "shared TLS wrapper has conflicting producer-owned identity");
+    }
+    return existingWrapper;
+  }
 
   // type is ptr-to-global-type(void);
   auto funcType = cir::FuncType::get({}, builder.getPointerTo(op.getSymType()));
   cir::FuncOp func =
       cir::FuncOp::create(builder, op.getLoc(), wrapperName, funcType);
+  if (wrapperIdentity)
+    func->setAttr("ast_synthetic_callable_identity", wrapperIdentity);
 
   cir::GlobalLinkageKind linkageKind =
       getThreadLocalWrapperLinkage(op, *astCtx);
@@ -2015,6 +2045,16 @@ static void lowerArrayDtorCtorIntoLoop(cir::CIRBaseBuilderTy &builder,
                                        uint64_t arrayLen, bool isCtor) {
   mlir::Location loc = op->getLoc();
   bool isDynamic = numElements != nullptr;
+  mlir::DictionaryAttr arrayCleanupIdentity =
+      op->getAttrOfType<mlir::DictionaryAttr>("ast_object_array_cleanup");
+  auto cleanupIdentityForPhase =
+      [&](llvm::StringRef phase) -> mlir::DictionaryAttr {
+    if (!arrayCleanupIdentity)
+      return {};
+    mlir::NamedAttrList identity(arrayCleanupIdentity);
+    identity.set("phase", builder.getStringAttr(phase));
+    return identity.getDictionary(builder.getContext());
+  };
 
   // TODO: instead of getting the size from the AST context, create alias for
   // PtrDiffTy and unify with CIRGen stuff.
@@ -2063,6 +2103,10 @@ static void lowerArrayDtorCtorIntoLoop(cir::CIRBaseBuilderTy &builder,
   mlir::Value tmpAddr =
       builder.createAlloca(loc, /*addr type*/ builder.getPointerTo(eltTy),
                            "__array_idx", builder.getAlignmentAttr(1));
+  if (auto cursor = tmpAddr.getDefiningOp<cir::AllocaOp>()) {
+    if (mlir::DictionaryAttr identity = cleanupIdentityForPhase("cursor"))
+      cursor.setAstObjectArrayCleanupAttr(identity);
+  }
   builder.createStore(loc, start, tmpAddr);
 
   mlir::Block *bodyBlock = &op->getRegion(0).front();
@@ -2099,7 +2143,7 @@ static void lowerArrayDtorCtorIntoLoop(cir::CIRBaseBuilderTy &builder,
   }
 
   auto emitCtorDtorLoop = [&]() {
-    builder.createDoWhile(
+    cir::DoWhileOp loop = builder.createDoWhile(
         loc,
         /*condBuilder=*/
         [&](mlir::OpBuilder &b, mlir::Location loc) {
@@ -2127,6 +2171,9 @@ static void lowerArrayDtorCtorIntoLoop(cir::CIRBaseBuilderTy &builder,
 
           cir::YieldOp::create(b, loc);
         });
+    if (mlir::DictionaryAttr identity = cleanupIdentityForPhase(
+            isCtor ? "constructor" : "complete_destructor"))
+      loop.setAstObjectArrayCleanupAttr(identity);
   };
 
   if (partialDtorBlock) {
@@ -2145,7 +2192,7 @@ static void lowerArrayDtorCtorIntoLoop(cir::CIRBaseBuilderTy &builder,
           cir::IfOp::create(
               builder, loc, cmp, /*withElseRegion=*/false,
               [&](mlir::OpBuilder &b, mlir::Location loc) {
-                builder.createDoWhile(
+                cir::DoWhileOp loop = builder.createDoWhile(
                     loc,
                     /*condBuilder=*/
                     [&](mlir::OpBuilder &b, mlir::Location loc) {
@@ -2165,6 +2212,9 @@ static void lowerArrayDtorCtorIntoLoop(cir::CIRBaseBuilderTy &builder,
                       cloneRegionBodyInto(partialDtorBlock, prev);
                       builder.createYield(loc);
                     });
+                if (mlir::DictionaryAttr identity =
+                        cleanupIdentityForPhase("partial_destructor"))
+                  loop.setAstObjectArrayCleanupAttr(identity);
                 cir::YieldOp::create(builder, loc);
               });
           cir::YieldOp::create(b, loc);
@@ -2349,6 +2399,45 @@ void LoweringPreparePass::lowerStoreOfConstAggregate(cir::StoreOp op) {
   cir::GlobalOp gv = getOrCreateConstAggregateGlobal(builder, op.getLoc(),
                                                      baseName, ty, constant);
   cir::copyDiscardableAttrs(constOp.getOperation(), gv.getOperation());
+  // A value-initialized member pointer has no initializer expression, so the
+  // constant carries no target identity to copy. The alloca this store
+  // initializes was annotated from the variable's declared type, and the CIR
+  // record is an anonymous {pointer, offset} pair that names no class on its
+  // own. Carry the declared identity onto the global that now owns the
+  // storage instead of dropping it here.
+  if (!gv->hasAttr("ast_member_pointer_target")) {
+    if (mlir::Attribute target = alloca->getAttr("ast_member_pointer_target"))
+      gv->setAttr("ast_member_pointer_target", target);
+  }
+  // The same storage also needs its value alternative. An all-zero constant
+  // in member-pointer storage is the null member pointer under the Itanium
+  // ABI, which is a fact about this exact constant rather than a guess: the
+  // declared type says the storage is a member pointer and the initializer is
+  // literally zero. Record it so consumers see a closed method-or-null set.
+  if (!gv->hasAttr("ast_member_function_pointer_constant")) {
+    auto target = gv->getAttrOfType<mlir::DictionaryAttr>(
+        "ast_member_pointer_target");
+    auto pointeeKind =
+        target ? target.getAs<mlir::StringAttr>("pointee_kind") : nullptr;
+    const bool zeroInitialized =
+        mlir::isa<cir::ZeroAttr>(constant) ||
+        (mlir::isa<cir::ConstRecordAttr>(constant) &&
+         llvm::all_of(mlir::cast<cir::ConstRecordAttr>(constant).getMembers(),
+                      [](mlir::Attribute member) {
+                        auto intAttr = mlir::dyn_cast<cir::IntAttr>(member);
+                        return intAttr && intAttr.getValue() == 0;
+                      }));
+    if (pointeeKind && pointeeKind.getValue() == "function" &&
+        zeroInitialized) {
+      mlir::OpBuilder attrBuilder(&getContext());
+      mlir::NamedAttrList identity;
+      identity.set("kind", attrBuilder.getStringAttr("null"));
+      identity.set("null_function_value", attrBuilder.getStringAttr("0"));
+      identity.set("null_adjustment_value", attrBuilder.getStringAttr("0"));
+      gv->setAttr("ast_member_function_pointer_constant",
+                  identity.getDictionary(&getContext()));
+    }
+  }
 
   // Now replace the store with get_global + copy.
   builder.setInsertionPoint(op);

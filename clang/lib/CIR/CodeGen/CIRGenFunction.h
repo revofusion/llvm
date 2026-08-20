@@ -71,6 +71,10 @@ public:
   clang::GlobalDecl curGD;
 
   unsigned nextCleanupDestIndex = 1;
+  uint64_t nextCXXCleanupGuardSiteOrdinal = 0;
+  uint64_t takeCXXCleanupGuardSiteOrdinal() {
+    return nextCXXCleanupGuardSiteOrdinal++;
+  }
 
   /// The compiler-generated variable that holds the return value.
   std::optional<mlir::Value> fnRetAlloca;
@@ -562,14 +566,25 @@ public:
   unsigned counterAggTmp = 0;
   unsigned counterMaterializedTemporaryIdentity = 0;
   unsigned counterCXXTemporaryObjectIdentity = 0;
-  llvm::DenseMap<const clang::Expr *, uint64_t> temporaryDeclarationOrdinals;
-  bool temporaryDeclarationOrdinalsInitialized = false;
+  // Declaration ordinals join CIR identities with an importer-side AST walk
+  // that numbers one node kind at a time. Bind-temporary and materialized
+  // temporary identities are therefore numbered from separate counters: one
+  // shared counter would let a MaterializeTemporaryExpr consume an ordinal
+  // the importer's CXXBindTemporaryExpr walk never sees.
+  llvm::DenseMap<const clang::CXXBindTemporaryExpr *, uint64_t>
+      bindTemporaryDeclarationOrdinals;
+  uint64_t nextBindTemporaryDeclarationOrdinal = 0;
+  llvm::DenseMap<const clang::MaterializeTemporaryExpr *, uint64_t>
+      materializedTemporaryDeclarationOrdinals;
+  uint64_t nextMaterializedTemporaryDeclarationOrdinal = 0;
   std::string getCounterRefTmpAsString();
   std::string getCounterAggTmpAsString();
   std::string getMaterializedTemporaryInstanceToken();
   std::string getCXXTemporaryObjectInstanceToken();
-  std::optional<uint64_t>
-  getTemporaryDeclarationOrdinal(const clang::Expr *temporary);
+  std::optional<uint64_t> getBindTemporaryDeclarationOrdinal(
+      const clang::CXXBindTemporaryExpr *temporary);
+  std::optional<uint64_t> getMaterializedTemporaryDeclarationOrdinal(
+      const clang::MaterializeTemporaryExpr *temporary);
 
   /// Helpers to convert Clang's SourceLocation to a MLIR Location.
   mlir::Location getLoc(clang::SourceLocation srcLoc);
@@ -1620,11 +1635,10 @@ public:
 
   Destroyer *getDestroyer(clang::QualType::DestructionKind kind);
 
-  void pushIrregularPartialArrayCleanup(mlir::Value arrayBegin,
-                                        Address arrayEndPointer,
-                                        QualType elementType,
-                                        CharUnits elementAlign,
-                                        Destroyer *destroyer);
+  void pushIrregularPartialArrayCleanup(
+      mlir::Value arrayBegin, Address arrayEndPointer, QualType elementType,
+      CharUnits elementAlign, Destroyer *destroyer,
+      std::optional<uint64_t> arrayExtent);
 
   /// Start generating a thunk function.
   void startThunk(cir::FuncOp fn, GlobalDecl gd,
@@ -1701,9 +1715,13 @@ public:
   /// \param MayOverlap Whether the tail padding of the destination might be
   ///        occupied by some other object. More efficient code can often be
   ///        generated if not.
+  /// \param preserveReplacementSchema Preserve exact RecordDecl endpoints
+  ///        when ABI lowering this aggregate copy implements construction of
+  ///        a replacement object.
   void emitAggregateCopy(LValue dest, LValue src, QualType eltTy,
                          AggValueSlot::Overlap_t mayOverlap,
-                         bool isVolatile = false);
+                         bool isVolatile = false,
+                         bool preserveReplacementSchema = false);
 
   /// Emit code to compute the specified expression which can have any type. The
   /// result is returned as an RValue struct. If this is an aggregate
@@ -2021,7 +2039,10 @@ public:
   void setCXXBindTemporaryObjectIdentity(const CXXBindTemporaryExpr *binding,
                                          const CXXTemporary *temporary,
                                          Address address);
-  void setCXXAutomaticObjectIdentity(const VarDecl *variable, Address address);
+  bool setMaterializedConversionTemporaryObjectIdentity(
+      const MaterializeTemporaryExpr *temporary, Address address);
+  std::optional<mlir::DictionaryAttr>
+  setCXXAutomaticObjectIdentity(const VarDecl *variable, Address address);
 
   void emitCXXThrowExpr(const CXXThrowExpr *e);
 
@@ -2319,9 +2340,11 @@ public:
   /// Store the specified rvalue into the specified
   /// lvalue, where both are guaranteed to the have the same type, and that
   /// type is 'Ty'.
-  void emitStoreThroughLValue(RValue src, LValue dst, bool isInit = false);
+  void emitStoreThroughLValue(RValue src, LValue dst, bool isInit = false,
+                              QualType sourceType = QualType());
 
-  mlir::Value emitStoreThroughBitfieldLValue(RValue src, LValue dstresult);
+  mlir::Value emitStoreThroughBitfieldLValue(
+      RValue src, LValue dstresult, QualType sourceType = QualType());
 
   LValue emitStringLiteralLValue(const StringLiteral *e,
                                  llvm::StringRef name = ".str");

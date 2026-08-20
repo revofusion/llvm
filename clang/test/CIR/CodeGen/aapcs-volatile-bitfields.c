@@ -182,7 +182,7 @@ void check_store(st2 *s2) {
 // CIR:    [[CONST:%.*]] = cir.const #cir.int<1> : !s16i
 // CIR:    [[LOAD:%.*]] = cir.load align(8) {{.*}} : !cir.ptr<!cir.ptr<!rec_st2>>, !cir.ptr<!rec_st2>
 // CIR:    [[MEMBER:%.*]] = cir.get_member [[LOAD]][0] {{.*}} : !cir.ptr<!rec_st2> -> !cir.ptr<!u32i>
-// CIR:    cir.set_bitfield {{.*}} {is_volatile} {{.*}} !s16i
+// CIR:    cir.set_bitfield {{.*}} {{.*is_volatile.*}} -> !s16i
 // CIR:    cir.return
 
 // LLVM:define dso_local void @check_store
@@ -212,7 +212,7 @@ void check_store_exception(st3 *s3) {
 // CIR:    [[CONST:%.*]] = cir.const #cir.int<2> : !u32i
 // CIR:    [[LOAD:%.*]] = cir.load align(8) {{.*}} : !cir.ptr<!cir.ptr<!rec_st3>>, !cir.ptr<!rec_st3>
 // CIR:    [[MEMBER:%.*]] = cir.get_member [[LOAD]][2] {{.*}} : !cir.ptr<!rec_st3> -> !cir.ptr<!u8i>
-// CIR:    cir.set_bitfield align{{.*}}{is_volatile}{{.*}}-> !u32i
+// CIR:    cir.set_bitfield align{{.*}} {{.*is_volatile.*}} -> !u32i
 // CIR:    cir.return
 
 // LLVM:define dso_local void @check_store_exception
@@ -241,7 +241,7 @@ void clip_store_exception2(clip *c) {
 // CIR:    [[CONST:%.*]] = cir.const #cir.int<3> : !s32i
 // CIR:    [[LOAD:%.*]] = cir.load align(8) {{.*}} : !cir.ptr<!cir.ptr<!rec_clip>>, !cir.ptr<!rec_clip>
 // CIR:    [[MEMBER:%.*]] = cir.get_member [[LOAD]][0] {{.*}} : !cir.ptr<!rec_clip> -> !cir.ptr<!cir.array<!u8i x 3>>
-// CIR:    cir.set_bitfield align{{.*}}{is_volatile}{{.*}}-> !s32i
+// CIR:    cir.set_bitfield align{{.*}} {{.*is_volatile.*}} -> !s32i
 // CIR:    cir.return
 
 // LLVM:define dso_local void @clip_store_exception2
@@ -263,7 +263,7 @@ void check_store_second_member (st4 *s4) {
 // CIR:    [[ONE:%.*]] = cir.const #cir.int<1> : !u64i
 // CIR:    [[LOAD:%.*]] = cir.load align(8) {{.*}} : !cir.ptr<!cir.ptr<!rec_st4>>, !cir.ptr<!rec_st4>
 // CIR:    [[MEMBER:%.*]] = cir.get_member [[LOAD]][2] {{.*}} : !cir.ptr<!rec_st4> -> !cir.ptr<!u16i>
-// CIR:    cir.set_bitfield align{{.*}}{is_volatile}{{.*}}-> !u64i
+// CIR:    cir.set_bitfield align{{.*}} {{.*is_volatile.*}} -> !u64i
 
 // LLVM: define dso_local void @check_store_second_member
 // LLVM:   [[LOAD:%.*]] = load ptr, ptr {{.*}}, align 8

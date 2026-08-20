@@ -20,10 +20,15 @@ void *test_inline_builtin_memcpy(void *a, const void *b, size_t c) {
   return memcpy(a, b, c);
 }
 
-// CIR: cir.func always_inline internal private{{.*}}@memcpy.inline({{.*}}) -> !cir.ptr<!void>
+// The inline body and external fallback declaration have distinct symbols.
+// Declaration-only FuncOps must be private to satisfy the module verifier.
+// CIR-DAG: cir.func always_inline internal private{{.*}}@memcpy.inline({{.*}}) -> !cir.ptr<!void>
+// CIR-DAG: cir.func always_inline internal private{{.*}}@memcmp.inline({{.*}}) -> !s32i
+// CIR-DAG: cir.func always_inline internal private{{.*}}@memset.inline({{.*}}) -> !cir.ptr<!void>
+// CIR: cir.func private{{.*}}@memcpy({{.*}}) -> !cir.ptr<!void>
 
-// CIR-LABEL: @test_inline_builtin_memcpy(
-// CIR:         cir.call @memcpy.inline(
+// CIR-LABEL: cir.func{{.*}} @test_inline_builtin_memcpy(
+// CIR:         cir.call @memcpy.inline({{.*}}){{.*}} : (!cir.ptr<!void>{{.*}}, !cir.ptr<!void>{{.*}}, !u64i{{.*}}) -> !cir.ptr<!void>
 // CIR:       }
 
 // LLVM: define internal ptr @memcpy.inline(ptr{{.*}}, ptr{{.*}}, i64{{.*}}) #{{[0-9]+}}
@@ -35,6 +40,36 @@ void *test_inline_builtin_memcpy(void *a, const void *b, size_t c) {
 // OGCG:         call ptr @memcpy.inline(
 
 // OGCG: define internal ptr @memcpy.inline(ptr{{.*}} %a, ptr{{.*}} %b, i64{{.*}} %c) #{{[0-9]+}}
+
+extern inline __attribute__((always_inline)) __attribute__((gnu_inline))
+int memcmp(const void *a, const void *b, size_t c) {
+  return __builtin_memcmp(a, b, c);
+}
+
+int test_inline_builtin_memcmp(const void *a, const void *b, size_t c) {
+  return memcmp(a, b, c);
+}
+
+// CIR: cir.func private{{.*}}@memcmp({{.*}}) -> !s32i
+//
+// CIR-LABEL: cir.func{{.*}} @test_inline_builtin_memcmp(
+// CIR:         cir.call @memcmp.inline({{.*}}){{.*}} : (!cir.ptr<!void>{{.*}}, !cir.ptr<!void>{{.*}}, !u64i{{.*}}) -> !s32i
+// CIR:       }
+
+extern inline __attribute__((always_inline)) __attribute__((gnu_inline))
+void *memset(void *a, int value, size_t c) {
+  return __builtin_memset(a, value, c);
+}
+
+void *test_inline_builtin_memset(void *a, int value, size_t c) {
+  return memset(a, value, c);
+}
+
+// CIR: cir.func private{{.*}}@memset({{.*}}) -> !cir.ptr<!void>
+//
+// CIR-LABEL: cir.func{{.*}} @test_inline_builtin_memset(
+// CIR:         cir.call @memset.inline({{.*}}){{.*}} : (!cir.ptr<!void>{{.*}}, !s32i{{.*}}, !u64i{{.*}}) -> !cir.ptr<!void>
+// CIR:       }
 
 // Shadowing case
 // When a non-inline function definition shadows an inline builtin declaration,

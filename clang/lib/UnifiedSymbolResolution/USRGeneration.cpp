@@ -665,7 +665,48 @@ static void printQualifier(llvm::raw_ostream &Out, const LangOptions &LangOpts,
   PO.ConstantArraySizeAsWritten = false;
   PO.AnonymousTagNameStyle =
       llvm::to_underlying(PrintingPolicy::AnonymousTagMode::Plain);
-  NNS.print(Out, PO);
+  // The printed qualifier text is an identity component, and the statement
+  // printer's spacing depends on the parsed representation (a dependent
+  // unary '&' prints as "& x" through an overloaded-operator call node but
+  // as "&x" through a plain unary operator, depending on which declarations
+  // were visible when that redeclaration parsed). Canonicalize whitespace:
+  // keep a space only where both neighbours are identifier characters, and
+  // never touch string or character literals.
+  std::string Printed;
+  llvm::raw_string_ostream PrintedOS(Printed);
+  NNS.print(PrintedOS, PO);
+  PrintedOS.flush();
+  std::string Canonical;
+  Canonical.reserve(Printed.size());
+  char Quote = 0;
+  auto IsIdentifierChar = [](char C) {
+    return llvm::isAlnum(C) || C == '_' || C == '$';
+  };
+  for (size_t I = 0; I < Printed.size(); ++I) {
+    const char C = Printed[I];
+    if (Quote) {
+      Canonical.push_back(C);
+      if (C == Quote && (I == 0 || Printed[I - 1] != '\\'))
+        Quote = 0;
+      continue;
+    }
+    if (C == '"' || C == '\'') {
+      Quote = C;
+      Canonical.push_back(C);
+      continue;
+    }
+    if (C == ' ') {
+      const bool KeepSpace = !Canonical.empty() &&
+                             IsIdentifierChar(Canonical.back()) &&
+                             I + 1 < Printed.size() &&
+                             IsIdentifierChar(Printed[I + 1]);
+      if (KeepSpace)
+        Canonical.push_back(C);
+      continue;
+    }
+    Canonical.push_back(C);
+  }
+  Out << Canonical;
 }
 
 void USRGenerator::VisitType(QualType T) {

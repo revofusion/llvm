@@ -14,6 +14,10 @@ struct ArrayCleanup {
   ~ArrayCleanup();
 };
 using ArrayTemporary = ArrayCleanup[2];
+struct AggregateCleanup {
+  int value;
+  ~AggregateCleanup();
+};
 
 struct TemporaryMatrix {
   explicit TemporaryMatrix(int);
@@ -24,6 +28,12 @@ void consume_matrix(const TemporaryMatrix &);
 
 void consume(const Cleanup &);
 void consume_by_value(Cleanup);
+void consume_aggregate(const AggregateCleanup &);
+
+struct GlobalTemporarySink {
+  explicit GlobalTemporarySink(const Cleanup &);
+};
+GlobalTemporarySink global_temporary_sink(Cleanup{});
 
 // Both instantiations materialize the temporary at the same source location:
 // the expression in this template definition. The producer metadata must use
@@ -60,6 +70,12 @@ void array_temporary_identity() {
   const ArrayTemporary &values = ArrayTemporary{};
   (void)values;
 }
+// Aggregate initialization has no constructor FunctionDecl or ABI call. Its
+// cleanup identity is still constructor-bearing through the exact RecordDecl
+// producer and the aggregate-initialization semantic kind.
+void aggregate_temporary_identity() {
+  consume_aggregate(AggregateCleanup{});
+}
 
 
 // A by-value logging-style sink receives an aggregate through a reference
@@ -74,6 +90,40 @@ void logging_style_materialized_temporary() {
 // Metadata must still attach to the actual alloca.
 void cleanup_owned_bind() {
   consume_by_value(Cleanup{});
+}
+
+// GoogleTest assertion macros assign a message temporary through a const
+// reference to a temporary helper object. Both MaterializeTemporaryExpr nodes
+// must attach their exact CXXBindTemporaryExpr producer before member-call
+// lowering snapshots the cleanup state.
+struct MacroMessage {
+  MacroMessage();
+  ~MacroMessage();
+};
+struct MacroAssertHelper {
+  MacroAssertHelper();
+  ~MacroAssertHelper();
+  void operator=(const MacroMessage &) const;
+};
+void gtest_style_temporary_assignment() {
+  MacroAssertHelper() = MacroMessage();
+}
+
+// A direct member call on function-style temporary construction has a
+// CXXFunctionalCastExpr between the MaterializeTemporaryExpr and its exact
+// CXXBindTemporaryExpr. The cast is the value-producing result wrapper, not a
+// constructor argument and not permission to identify cleanup by record type.
+void functional_cast_member_temporary() {
+  Cleanup(7).value();
+}
+
+// Preserve the same exact association when the alloca is hoisted around both a
+// loop body and a conditional full-expression cleanup guard.
+void conditional_functional_cast_member_temporary(bool b) {
+  while (b) {
+    b ? Cleanup(8).value() : 0;
+    b = false;
+  }
 }
 
 // Constructor initializer expressions participate in the same stable
@@ -199,6 +249,22 @@ void conditional_temporary_continue(bool b) {
   }
 }
 
+// Clang hoists temporary storage before a loop even though construction and
+// its cleanup scope execute only in the body. The ordered producer tuple on
+// that storage is the exact identity joining those two operations.
+void loop_body_temporary_cleanup(bool b) {
+  while (b) {
+    consume_matrix(TemporaryMatrix{1});
+    b = false;
+  }
+}
+
+// A synthesized global-initializer CIR function is owned by the initialized
+// VarDecl. Its initializer still supplies an exact declaration-preorder
+// identity for the cleanup temporary.
+// CIR-LABEL: cir.func{{.*}} @__cxx_global_var_init()
+// CIR: cir.alloca "ref.tmp0"{{.*}}ast_temporary_object_identities = {{.*}}declaration_ordinal = 0 : i64{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}destructor_usr = "{{[^"]+}}"{{.*}}owner = @global_temporary_sink{{.*}}owner_kind = "global"
+
 // CIR-LABEL: cir.func{{.*}} @_Z18same_spelling_siteIiEvv()
 // CIR-SAME: ast_decl_specialization_identity = {{.*}}mangled_name = "_Z18same_spelling_siteIiEvv"
 // CIR: %[[INT_TEMP:.*]] = cir.alloca "ref.tmp0"{{.*}}ast_materialize_temporary_identity = {{.*}}begin_raw = [[SOURCE_BEGIN:[0-9]+]] : i64{{.*}}declaration_ordinal = {{[0-9]+}} : i64{{.*}}function = @_Z18same_spelling_siteIiEvv
@@ -211,21 +277,41 @@ void conditional_temporary_continue(bool b) {
 // CIR: cir.call @_Z7consumeRK7Cleanup(%[[LONG_TEMP]])
 // CIR: cir.call {{.*}}(%[[LONG_TEMP]])
 
+
 // CIR: cir.func{{.*}} @[[DEFAULT_FUNCTION:[^ (]*default_argument_twice[^ (]*]]()
-// CIR: %[[DEFAULT_TEMP0:.*]] = cir.alloca "ref.tmp0"{{.*}}ast_materialize_temporary_identity = {{.*}}begin_raw = [[DEFAULT_BEGIN:[0-9]+]] : i64{{.*}}declaration_ordinal = [[DEFAULT_ORDINAL:[0-9]+]] : i64{{.*}}function = @[[DEFAULT_FUNCTION]]{{.*}}instance_token = "mte.instance.0"{{.*}}ast_temporary_object_identities = {{.*}}declaration_ordinal = [[DEFAULT_ORDINAL]] : i64{{.*}}instance_token = "mte.instance.0"
-// CIR: %[[DEFAULT_TEMP1:.*]] = cir.alloca "ref.tmp1"{{.*}}ast_materialize_temporary_identity = {{.*}}begin_raw = [[DEFAULT_BEGIN]] : i64{{.*}}declaration_ordinal = [[DEFAULT_ORDINAL]] : i64{{.*}}function = @[[DEFAULT_FUNCTION]]{{.*}}instance_token = "mte.instance.1"{{.*}}ast_temporary_object_identities = {{.*}}declaration_ordinal = [[DEFAULT_ORDINAL]] : i64{{.*}}instance_token = "mte.instance.1"
+// CIR: %[[DEFAULT_TEMP0:.*]] = cir.alloca "ref.tmp0"{{.*}}ast_materialize_temporary_identity = {{.*}}begin_raw = [[DEFAULT_BEGIN:[0-9]+]] : i64{{.*}}declaration_ordinal = [[DEFAULT_MTE_ORDINAL:[0-9]+]] : i64{{.*}}function = @[[DEFAULT_FUNCTION]]{{.*}}instance_token = "mte.instance.0"{{.*}}ast_temporary_object_identities = {{.*}}declaration_ordinal = [[DEFAULT_BIND_ORDINAL:[0-9]+]] : i64{{.*}}instance_token = "mte.instance.0"
+// CIR: %[[DEFAULT_TEMP1:.*]] = cir.alloca "ref.tmp1"{{.*}}ast_materialize_temporary_identity = {{.*}}begin_raw = [[DEFAULT_BEGIN]] : i64{{.*}}declaration_ordinal = [[DEFAULT_MTE_ORDINAL]] : i64{{.*}}function = @[[DEFAULT_FUNCTION]]{{.*}}instance_token = "mte.instance.1"{{.*}}ast_temporary_object_identities = {{.*}}declaration_ordinal = [[DEFAULT_BIND_ORDINAL]] : i64{{.*}}instance_token = "mte.instance.1"
 // CIR-LABEL: cir.func{{.*}} @_Z26standalone_temporary_twicev()
-// CIR: %[[STANDALONE_TEMP0:.*]] = cir.alloca{{.*}}ast_temporary_object_identities = {{.*}}begin_raw = [[STANDALONE_BEGIN0:[0-9]+]] : i64{{.*}}cleanup_kind = "cxx_destructor"{{.*}}declaration_ordinal = [[STANDALONE_ORDINAL0:[0-9]+]] : i64{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}end_raw = [[STANDALONE_END0:[0-9]+]] : i64{{.*}}function = @_Z26standalone_temporary_twicev{{.*}}instance_token = "{{cxx\.temporary\.instance\.[0-9]+}}"
+// CIR: %[[STANDALONE_TEMP0:.*]] = cir.alloca{{.*}}ast_temporary_object_identities = {{.*}}begin_raw = [[STANDALONE_BEGIN0:[0-9]+]] : i64{{.*}}cleanup_kind = "cxx_destructor"{{.*}}declaration_ordinal = [[STANDALONE_ORDINAL0:[0-9]+]] : i64{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}destructor_usr = "{{[^"]+}}"{{.*}}end_raw = [[STANDALONE_END0:[0-9]+]] : i64{{.*}}function = @_Z26standalone_temporary_twicev{{.*}}instance_token = "{{cxx\.temporary\.instance\.[0-9]+}}"
 // CIR: %[[STANDALONE_TEMP1:.*]] = cir.alloca{{.*}}ast_temporary_object_identities = {{.*}}begin_raw = [[STANDALONE_BEGIN1:[0-9]+]] : i64{{.*}}cleanup_kind = "cxx_destructor"{{.*}}declaration_ordinal = [[STANDALONE_ORDINAL1:[0-9]+]] : i64{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}end_raw = [[STANDALONE_END1:[0-9]+]] : i64{{.*}}function = @_Z26standalone_temporary_twicev{{.*}}instance_token = "{{cxx\.temporary\.instance\.[0-9]+}}"
 // CIR-LABEL: cir.func{{.*}} @_Z24array_temporary_identityv()
-// CIR: cir.alloca "ref.tmp0"{{.*}}ast_temporary_object_identities = {{.*}}constructor_symbol = "_ZN12ArrayCleanupC1Ev"{{.*}}constructor_usr = "{{[^"]+}}"{{.*}}destructor_symbol = "_ZN12ArrayCleanupD1Ev"{{.*}}requires_observed_constructor_call = true
+// CIR: cir.alloca "ref.tmp0"{{.*}}ast_temporary_object_identities = {{.*}}constructor_symbol = "_ZN12ArrayCleanupC1Ev"{{.*}}constructor_usr = "{{[^"]+}}"{{.*}}destructor_symbol = "_ZN12ArrayCleanupD1Ev"{{.*}}destructor_usr = "{{[^"]+}}"{{.*}}requires_observed_constructor_call = true
+// CIR-LABEL: cir.func{{.*}} @_Z28aggregate_temporary_identityv()
+// CIR: cir.alloca{{.*}}ast_temporary_object_identities = [{{.*}}constructor_kind = "implicit_aggregate_initialization"{{.*}}constructor_record_usr = "c:@S@AggregateCleanup"{{.*}}destructor_symbol = "_ZN16AggregateCleanupD1Ev"{{.*}}destructor_usr = "{{[^"]+}}"{{.*}}requires_observed_constructor_call = false{{.*}}]
 // CIR-LABEL: cir.func{{.*}} @_Z36logging_style_materialized_temporaryv()
-// CIR: %[[AGGREGATE_MTE_TEMP:.*]] = cir.alloca{{.*}}ast_materialize_temporary_identity = {{.*}}begin_raw = [[AGGREGATE_BEGIN:[0-9]+]] : i64{{.*}}declaration_ordinal = [[AGGREGATE_ORDINAL:[0-9]+]] : i64{{.*}}function = @_Z36logging_style_materialized_temporaryv{{.*}}instance_token = "[[AGGREGATE_TOKEN:mte\.instance\.[0-9]+]]"{{.*}}ast_temporary_object_identities = {{.*}}declaration_ordinal = [[AGGREGATE_ORDINAL]] : i64{{.*}}instance_token = "[[AGGREGATE_TOKEN]]"
+// CIR: %[[AGGREGATE_MTE_TEMP:.*]] = cir.alloca{{.*}}ast_materialize_temporary_identity = {{.*}}begin_raw = [[AGGREGATE_BEGIN:[0-9]+]] : i64{{.*}}declaration_ordinal = [[AGGREGATE_MTE_ORDINAL:[0-9]+]] : i64{{.*}}function = @_Z36logging_style_materialized_temporaryv{{.*}}instance_token = "[[AGGREGATE_TOKEN:mte\.instance\.[0-9]+]]"{{.*}}ast_temporary_object_identities = {{.*}}declaration_ordinal = [[AGGREGATE_BIND_ORDINAL:[0-9]+]] : i64{{.*}}instance_token = "[[AGGREGATE_TOKEN]]"
 // CIR: cir.call
 // CIR-LABEL: cir.func{{.*}} @_Z18cleanup_owned_bindv()
 // CIR: %[[CLEANUP_OWNED_TEMP:.*]] = cir.alloca{{.*}}ast_temporary_object_identities = {{.*}}cleanup_kind = "cxx_destructor"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}function = @_Z18cleanup_owned_bindv{{.*}}instance_token = "{{cxx\.temporary\.instance\.[0-9]+}}"
-// The written initializer order is second/first, but the declaration ordinals
-// follow semantic initialization order first/second, then the function body.
+// CIR-LABEL: cir.func{{.*}} @{{[^ (]*gtest_style_temporary_assignment[^ (]*}}()
+// CIR-DAG: %[[ASSERT_HELPER:.*]] = cir.alloca{{.*}}ast_materialize_temporary_identity = {{.*}}function = @{{[^, }]*gtest_style_temporary_assignment[^, }]*}}{{.*}}ast_temporary_object_identities = [{{.*}}constructor_symbol = "_ZN17MacroAssertHelperC1Ev"{{.*}}constructor_usr = "{{[^"]+}}"{{.*}}destructor_symbol = "_ZN17MacroAssertHelperD1Ev"{{.*}}destructor_usr = "{{[^"]+}}"{{.*}}instance_token = "[[ASSERT_HELPER_TOKEN:mte\.instance\.[0-9]+]]"{{.*}}requires_observed_constructor_call = true{{.*}}]
+// CIR-DAG: %[[ASSERT_MESSAGE:.*]] = cir.alloca{{.*}}ast_materialize_temporary_identity = {{.*}}function = @{{[^, }]*gtest_style_temporary_assignment[^, }]*}}{{.*}}ast_temporary_object_identities = [{{.*}}constructor_symbol = "_ZN12MacroMessageC1Ev"{{.*}}constructor_usr = "{{[^"]+}}"{{.*}}destructor_symbol = "_ZN12MacroMessageD1Ev"{{.*}}destructor_usr = "{{[^"]+}}"{{.*}}instance_token = "[[ASSERT_MESSAGE_TOKEN:mte\.instance\.[0-9]+]]"{{.*}}requires_observed_constructor_call = true{{.*}}]
+// CIR: cir.call @_ZNK17MacroAssertHelperaSERK12MacroMessage
+// CIR-LABEL: cir.func{{.*}} @{{[^ (]*functional_cast_member_temporary[^ (]*}}()
+// CIR: %[[FUNCTIONAL_MEMBER_TEMP:.*]] = cir.alloca{{.*}}ast_materialize_temporary_identity = {{.*}}function = @{{[^, }]*functional_cast_member_temporary[^, }]*}}{{.*}}instance_token = "[[FUNCTIONAL_MEMBER_TOKEN:mte\.instance\.[0-9]+]]"{{.*}}ast_temporary_object_identities = [{{.*}}constructor_symbol = "_ZN7CleanupC1Ei"{{.*}}constructor_usr = "{{[^"]+}}"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}destructor_usr = "{{[^"]+}}"{{.*}}instance_token = "[[FUNCTIONAL_MEMBER_TOKEN]]"{{.*}}]
+// CIR: cir.call @_ZN7CleanupC1Ei(%[[FUNCTIONAL_MEMBER_TEMP]]
+// CIR: cir.call @_ZN7CleanupD1Ev(%[[FUNCTIONAL_MEMBER_TEMP]])
+// CIR-LABEL: cir.func{{.*}} @{{[^ (]*conditional_functional_cast_member_temporary[^ (]*}}(
+// CIR: %[[CONDITIONAL_FUNCTIONAL_TEMP:.*]] = cir.alloca{{.*}}ast_temporary_object_identities = [{{.*}}constructor_symbol = "_ZN7CleanupC1Ei"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}instance_token = "[[CONDITIONAL_FUNCTIONAL_TOKEN:mte\.instance\.[0-9]+]]"{{.*}}]
+// CIR: cir.while
+// CIR: cir.cleanup.scope
+// CIR: cir.call @_ZN7CleanupC1Ei(%[[CONDITIONAL_FUNCTIONAL_TEMP]]
+// CIR: cir.if %[[CONDITIONAL_FUNCTIONAL_FLAG:.*]] {
+// CIR: cir.call @_ZN7CleanupD1Ev(%[[CONDITIONAL_FUNCTIONAL_TEMP]])
+// CIR: } {ast_conditional_cleanup_identities = [{{.*}}instance_token = "[[CONDITIONAL_FUNCTIONAL_TOKEN]]"{{.*}}]}
+// The written initializer order is second/first, but declaration-preorder
+// ordinals count each MaterializeTemporaryExpr and CXXBindTemporaryExpr in
+// semantic initialization order before the function-body temporary.
 // CIR-LABEL: cir.func{{.*}} @_ZN13CtorInitOwnerC2Ev(
 // CIR: cir.alloca{{.*}}ast_temporary_object_identities = {{.*}}cleanup_kind = "cxx_destructor"{{.*}}declaration_ordinal = 0 : i64{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}function = @_ZN13CtorInitOwnerC2Ev{{.*}}instance_token = "{{mte\.instance\.[0-9]+}}"
 // CIR: cir.alloca{{.*}}ast_temporary_object_identities = {{.*}}cleanup_kind = "cxx_destructor"{{.*}}declaration_ordinal = 1 : i64{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}function = @_ZN13CtorInitOwnerC2Ev{{.*}}instance_token = "{{mte\.instance\.[0-9]+}}"
@@ -247,7 +333,7 @@ void conditional_temporary_continue(bool b) {
 // CIR: cir.alloca{{.*}}ast_materialize_temporary_identity = {{.*}}function = @_Z27detached_region_temporariesb{{.*}}ast_temporary_object_identities = {{.*}}function = @_Z27detached_region_temporariesb
 // CIR: cir.alloca{{.*}}ast_temporary_object_identities = {{.*}}function = @_Z27detached_region_temporariesb
 // CIR-LABEL: cir.func{{.*}} @_Z24automatic_cleanup_resultv()
-// CIR: cir.alloca{{.*}}ast_automatic_object_identity = {{.*}}begin_raw = [[AUTO_BEGIN:[0-9]+]] : i64{{.*}}cleanup_kind = "cxx_destructor"{{.*}}constructor_symbol = "_ZN7CleanupC1Ev"{{.*}}declaration_usr = "{{[^"]+}}"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}end_raw = [[AUTO_END:[0-9]+]] : i64{{.*}}function = @_Z24automatic_cleanup_resultv{{.*}}requires_observed_constructor_call = true
+// CIR: cir.alloca{{.*}}ast_automatic_object_identity = {{.*}}begin_raw = [[AUTO_BEGIN:[0-9]+]] : i64{{.*}}cleanup_kind = "cxx_destructor"{{.*}}constructor_symbol = "_ZN7CleanupC1Ev"{{.*}}constructor_usr = "{{[^"]+}}"{{.*}}declaration_usr = "{{[^"]+}}"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}destructor_usr = "{{[^"]+}}"{{.*}}end_raw = [[AUTO_END:[0-9]+]] : i64{{.*}}function = @_Z24automatic_cleanup_resultv{{.*}}requires_observed_constructor_call = true
 // CIR-LABEL: cir.func{{.*}} @_Z23direct_temporary_resultb(
 // CIR: cir.alloca "__retval"
 // CIR-NOT: ast_temporary_object_identities
@@ -293,7 +379,7 @@ void conditional_temporary_continue(bool b) {
 // A conditional operator with two destructor-bearing branches shares one
 // materialized alloca but retains both exact producer tuples in AST order.
 // CIR-LABEL: cir.func{{.*}} @{{[^ (]*conditional_matrix[^ (]*}}(
-// CIR: %[[MATRIX_TEMP:.*]] = cir.alloca{{.*}}ast_temporary_object_identities = {{.*}}instance_token = "[[MATRIX_TOKEN0:cxx\.temporary\.instance\.0]]"{{.*}}instance_token = "[[MATRIX_TOKEN1:cxx\.temporary\.instance\.1]]"
+// CIR: %[[MATRIX_TEMP:.*]] = cir.alloca{{.*}}ast_temporary_object_identities = {{.*}}instance_token = "[[MATRIX_TOKEN0:mte\.instance\.0]]"{{.*}}instance_token = "[[MATRIX_TOKEN1:cxx\.temporary\.instance\.0]]"
 // CIR: cir.cleanup.scope
 // CIR: } cleanup normal {
 // CIR: cir.call @_ZN15TemporaryMatrixD1Ev(%[[MATRIX_TEMP]])
@@ -314,6 +400,15 @@ void conditional_temporary_continue(bool b) {
 // CIR: cir.call @_ZN7CleanupD1Ev(%[[CONDITIONAL_CONTINUE_TEMP]])
 // CIR: } {ast_conditional_cleanup_identities = {{.*}}instance_token = "[[CONDITIONAL_CONTINUE_TOKEN]]"
 // CIR: cir.continue
+// Loop-local storage retains one exact constructor/destructor tuple and keeps
+// both calls structurally inside the loop body.
+// CIR-LABEL: cir.func{{.*}} @{{[^ (]*loop_body_temporary_cleanup[^ (]*}}(
+// CIR: cir.while
+// CIR: %[[LOOP_BODY_TEMP:.*]] = cir.alloca{{.*}}ast_temporary_object_identities = [{begin_raw = {{[0-9]+}} : i64{{.*}}cleanup_kind = "cxx_destructor"{{.*}}constructor_symbol = "_ZN15TemporaryMatrixC1Ei"{{.*}}destructor_symbol = "_ZN15TemporaryMatrixD1Ev"{{.*}}function = @{{[^ (]*loop_body_temporary_cleanup[^ (]*}}{{.*}}requires_observed_constructor_call = true}]
+// CIR: cir.call @_ZN15TemporaryMatrixC1Ei(%[[LOOP_BODY_TEMP]]
+// CIR: cir.cleanup.scope
+// CIR: } cleanup normal {
+// CIR: cir.call @_ZN15TemporaryMatrixD1Ev(%[[LOOP_BODY_TEMP]])
 // A concrete specialization whose argument is an anonymous closure still has
 // producer-owned identity even when Clang cannot form a declaration USR for
 // the specialization itself.

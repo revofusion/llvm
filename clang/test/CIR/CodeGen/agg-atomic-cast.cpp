@@ -21,6 +21,6 @@ void non_atomic_to_atomic_cast() {
 // CIR: %[[AS_ADDR:.*]] = cir.alloca "as" {{.*}} init : !cir.ptr<!rec_S>
 // CIR: %[[PADDED_ADDR:.*]] = cir.alloca "padded" {{.*}} : !cir.ptr<!rec_Padded>
 // CIR: %[[PADDED_ATOMIC_ADDR:.*]] = cir.alloca "padded_atomic" {{.*}} : !cir.ptr<!rec_anon_struct>
-// CIR: cir.copy %[[S_ADDR]] to %[[AS_ADDR]] : !cir.ptr<!rec_S>
+// CIR: cir.copy %[[S_ADDR]] to %[[AS_ADDR]] {{.*}} : !cir.ptr<!rec_S>
 // CIR: %[[PADDED_VALUE_ADDR:.*]] = cir.get_member %[[PADDED_ATOMIC_ADDR]][0] {name = ""} : !cir.ptr<!rec_anon_struct> -> !cir.ptr<!rec_Padded>
-// CIR: cir.copy %[[PADDED_ADDR]] to %[[PADDED_VALUE_ADDR]] : !cir.ptr<!rec_Padded>
+// CIR: cir.copy %[[PADDED_ADDR]] to %[[PADDED_VALUE_ADDR]] {{.*}} : !cir.ptr<!rec_Padded>

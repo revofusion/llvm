@@ -25,8 +25,8 @@ void test1() {
 // CIR:   %[[TMP:.+]]      = cir.alloca "tmp" {{.*}} : !cir.ptr<!rec_A>
 // CIR:   cir.scope {
 // CIR:     %[[A:.+]] = cir.alloca "a" {{.*}} init : !cir.ptr<!rec_A>
-// CIR:     cir.call @_ZN1AC2Ev(%[[A]]) : (!cir.ptr<!rec_A> {{.*}}) -> ()
-// CIR:     cir.call @_ZN1AC2ERS_(%[[REF_TMP0]], %[[A]]) : (!cir.ptr<!rec_A> {{.*}}, !cir.ptr<!rec_A> {{.*}}) -> ()
+// CIR:     cir.call @_ZN1AC2Ev(%[[A]]) {{.*}} : (!cir.ptr<!rec_A> {{.*}}) -> ()
+// CIR:     cir.call @_ZN1AC2ERS_(%[[REF_TMP0]], %[[A]]) {{.*}} : (!cir.ptr<!rec_A> {{.*}}, !cir.ptr<!rec_A> {{.*}}) -> ()
 // CIR:   }
 // CIR:   cir.call @_ZN1A3FooEv(%[[REF_TMP0]]) : (!cir.ptr<!rec_A> {{.*}}) -> ()
 // CIR:   cir.return

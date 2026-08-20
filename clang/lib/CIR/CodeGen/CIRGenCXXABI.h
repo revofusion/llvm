@@ -397,10 +397,12 @@ struct CIRGenVirtualMethodIdentityAttrs {
   mlir::StringAttr methodUSR;
   mlir::StringAttr rootMethodUSR;
   mlir::StringAttr declaringClassUSR;
+  mlir::ArrayAttr rootAlternatives;
 };
 
 CIRGenVirtualMethodIdentityAttrs
-buildCIRGenVirtualMethodIdentityAttrs(mlir::MLIRContext &mlirContext,
+buildCIRGenVirtualMethodIdentityAttrs(CIRGenModule &cgm,
+                                      mlir::MLIRContext &mlirContext,
                                       llvm::StringRef mangledName,
                                       const CXXMethodDecl *methodDecl);
 

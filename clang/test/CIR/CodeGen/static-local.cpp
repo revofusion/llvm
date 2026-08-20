@@ -104,7 +104,7 @@ void f() {
 // CIR:   cir.if %[[IS_UNINIT]] {
 //
 // CIR-BOTH:     %[[GET_GLOB_INIT:.*]] = cir.get_global static_local @_ZZ1fvE1a : !cir.ptr<!rec_A>
-// CIR-BOTH:     cir.call @_ZN1AC1Ev(%[[GET_GLOB_INIT]]) : (!cir.ptr<!rec_A>{{.*}}) -> ()
+// CIR-BOTH:     cir.call @_ZN1AC1Ev(%[[GET_GLOB_INIT]]) {{.*}} : (!cir.ptr<!rec_A>{{.*}}) -> ()
 //
 // CIR-BEFORE-LPP:     cir.yield
 // CIR-BEFORE-LPP:   }
@@ -161,7 +161,7 @@ void call_inline() {
 // CIR:   cir.if %[[IS_UNINIT]] {
 //
 // CIR-BOTH:    %[[GET_MS_INIT:.*]] = cir.get_global static_local @_ZZ10getInlineAvE1a : !cir.ptr<!rec_A>
-// CIR-BOTH:    cir.call @_ZN1AC1Ev(%[[GET_MS_INIT]]) : (!cir.ptr<!rec_A> {{.*}}) -> ()
+// CIR-BOTH:    cir.call @_ZN1AC1Ev(%[[GET_MS_INIT]]) {{.*}} : (!cir.ptr<!rec_A> {{.*}}) -> ()
 // CIR-BEFORE-LPP:    cir.yield
 // CIR-BEFORE-LPP:  }
 //
@@ -304,7 +304,7 @@ void multi_refs(int one, int two, int, int three, int, int four, int) {
 // CIR-BOTH:     %[[ADD2:.*]] = cir.add nsw %[[ADD1]], %[[FOUR_LOAD]] : !s32i
 // CIR-BOTH:     %[[CALL_BAR:.*]] = cir.call @_Z3barv() : () -> (!s32i {llvm.noundef})
 // CIR-BOTH:     %[[ADD3:.*]] = cir.add nsw %[[ADD2]], %[[CALL_BAR]] : !s32i
-// CIR-BOTH:     cir.call @_ZN1AC1Ei(%[[GET_MS_INIT]], %[[ADD3]]) : (!cir.ptr<!rec_A>{{.*}}) -> ()
+// CIR-BOTH:     cir.call @_ZN1AC1Ei(%[[GET_MS_INIT]], %[[ADD3]]) {{.*}} : (!cir.ptr<!rec_A>{{.*}}) -> ()
 //
 // CIR-BEFORE-LPP:     cir.yield
 // CIR-BEFORE-LPP:   }
@@ -328,7 +328,7 @@ void multi_refs(int one, int two, int, int three, int, int four, int) {
 // CIR:   cir.if %[[IS_UNINIT]] {
 //
 // CIR-BOTH:     %[[GET_REF_MS_INIT:.*]] = cir.get_global static_local @_ZZ10multi_refsiiiiiiiE17refs_magic_static : !cir.ptr<!rec_A>
-// CIR-BOTH:     cir.copy %[[GET_MS]] to %[[GET_REF_MS_INIT]] : !cir.ptr<!rec_A>
+// CIR-BOTH:     cir.copy %[[GET_MS]] to %[[GET_REF_MS_INIT]] {{.*}} : !cir.ptr<!rec_A>
 // CIR-BEFORE-LPP:     cir.yield
 // CIR-BEFORE-LPP:   }
 //
@@ -587,7 +587,7 @@ void test_ctor_dtor() {
 // CIR:   cir.if %[[IS_UNINIT]] {
 //
 // CIR-BOTH:     %[[GET_MS_INIT:.*]] = cir.get_global static_local @_ZZ14test_ctor_dtorvE9ctor_dtor : !cir.ptr<!rec_HasCtorDtor>
-// CIR-BOTH:     cir.call @_ZN11HasCtorDtorC1Ev(%[[GET_MS_INIT]]) : (!cir.ptr<!rec_HasCtorDtor> {{.*}}) -> ()
+// CIR-BOTH:     cir.call @_ZN11HasCtorDtorC1Ev(%[[GET_MS_INIT]]) {{.*}} : (!cir.ptr<!rec_HasCtorDtor> {{.*}}) -> ()
 //
 //
 // CIR-BEFORE-LPP:     cir.yield

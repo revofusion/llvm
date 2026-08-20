@@ -443,6 +443,13 @@ void CIRGenFunction::emitFunctionProlog(const FunctionArgList &args,
         emitAlloca(cast<NamedDecl>(paramVar)->getName(),
                    convertTypeForMem(paramVar->getType()), paramLoc, alignment,
                    /*insertIntoFnEntryBlock=*/true);
+    // Parameter homes are compiler-created storage, not AutoVarDecl
+    // allocations, so they bypass emitAutoVarAlloca's typed metadata path.
+    // Preserve a member-pointer parameter's exact target class on this alloca
+    // as well, including unnamed parameters synthesized for inherited
+    // constructors.
+    cgm.setMemberPointerTargetMetadata(addrVal.getDefiningOp(),
+                                       paramVar->getType());
 
     declare(addrVal, paramVar, paramVar->getType(), paramLoc, alignment,
             /*isParam=*/true);

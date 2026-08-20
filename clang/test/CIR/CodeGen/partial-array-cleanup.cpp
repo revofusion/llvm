@@ -19,7 +19,7 @@ void test_partial_array_cleanup() {
 // CIR-BEFORE-LPP:       %[[ARRAY:.*]] = cir.alloca "s" {{.*}} init : !cir.ptr<!cir.array<!rec_S x 4>>
 // CIR-BEFORE-LPP:       cir.array.ctor %[[ARRAY]] : !cir.ptr<!cir.array<!rec_S x 4>> {
 // CIR-BEFORE-LPP:       ^bb0(%[[CTOR_ARG:.*]]: !cir.ptr<!rec_S>):
-// CIR-BEFORE-LPP:         cir.call @_ZN1SC1Ev(%[[CTOR_ARG]]) : (!cir.ptr<!rec_S>{{.*}}) -> ()
+// CIR-BEFORE-LPP:         cir.call @_ZN1SC1Ev(%[[CTOR_ARG]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
 // CIR-BEFORE-LPP:       } partial_dtor {
 // CIR-BEFORE-LPP:       ^bb0(%[[DTOR_ARG:.*]]: !cir.ptr<!rec_S>):
 // CIR-BEFORE-LPP:         cir.call @_ZN1SD1Ev(%[[DTOR_ARG]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
@@ -35,7 +35,7 @@ void test_partial_array_cleanup() {
 // CIR:       cir.cleanup.scope {
 // CIR:         cir.do {
 // CIR:           %[[CUR:.*]] = cir.load %[[ITER]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
-// CIR:           cir.call @_ZN1SC1Ev(%[[CUR]]) : (!cir.ptr<!rec_S>{{.*}}) -> ()
+// CIR:           cir.call @_ZN1SC1Ev(%[[CUR]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
 // CIR:           %[[CONST1:.*]] = cir.const #cir.int<1> : !u64i
 // CIR:           %[[NEXT:.*]] = cir.ptr_stride %[[CUR]], %[[CONST1]] : (!cir.ptr<!rec_S>, !u64i) -> !cir.ptr<!rec_S>
 // CIR:           cir.store %[[NEXT]], %[[ITER]] : !cir.ptr<!rec_S>, !cir.ptr<!cir.ptr<!rec_S>>
@@ -173,7 +173,7 @@ void test_variable_size_partial_array_cleanup(int n) {
 // CIR-BEFORE-LPP:         %[[VLA:.*]] = cir.alloca "s" {{.*}} init size(%[[N]]) : !cir.ptr<!rec_S>
 // CIR-BEFORE-LPP:         cir.array.ctor %[[VLA]], %[[N]] : !cir.ptr<!rec_S>, !u64i {
 // CIR-BEFORE-LPP:         ^bb0(%[[CTOR_ARG:.*]]: !cir.ptr<!rec_S>):
-// CIR-BEFORE-LPP:           cir.call @_ZN1SC1Ev(%[[CTOR_ARG]]) : (!cir.ptr<!rec_S>{{.*}}) -> ()
+// CIR-BEFORE-LPP:           cir.call @_ZN1SC1Ev(%[[CTOR_ARG]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
 // CIR-BEFORE-LPP:         } partial_dtor {
 // CIR-BEFORE-LPP:         ^bb0(%[[DTOR_ARG:.*]]: !cir.ptr<!rec_S>):
 // CIR-BEFORE-LPP:           cir.call @_ZN1SD1Ev(%[[DTOR_ARG]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
@@ -207,7 +207,7 @@ void test_variable_size_partial_array_cleanup(int n) {
 // CIR:           cir.cleanup.scope {
 // CIR:             cir.do {
 // CIR:               %[[CUR:.*]] = cir.load %[[ITER]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
-// CIR:               cir.call @_ZN1SC1Ev(%[[CUR]]) : (!cir.ptr<!rec_S>{{.*}}) -> ()
+// CIR:               cir.call @_ZN1SC1Ev(%[[CUR]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
 // CIR:               %[[CONST1:.*]] = cir.const #cir.int<1> : !u64i
 // CIR:               %[[NEXT:.*]] = cir.ptr_stride %[[CUR]], %[[CONST1]] : (!cir.ptr<!rec_S>, !u64i) -> !cir.ptr<!rec_S>
 // CIR:               cir.store %[[NEXT]], %[[ITER]] : !cir.ptr<!rec_S>, !cir.ptr<!cir.ptr<!rec_S>>
@@ -450,7 +450,7 @@ void test_multi_dim_vla(int n, int m) {
 // CIR-BEFORE-LPP:         %[[VLA:.*]] = cir.alloca "s" {{.*}} init size(%[[NM]]) : !cir.ptr<!rec_S>
 // CIR-BEFORE-LPP:         cir.array.ctor %[[VLA]], {{.*}} : !cir.ptr<!rec_S>, !u64i {
 // CIR-BEFORE-LPP:         ^bb0(%[[CTOR_ARG:.*]]: !cir.ptr<!rec_S>):
-// CIR-BEFORE-LPP:           cir.call @_ZN1SC1Ev(%[[CTOR_ARG]]) : (!cir.ptr<!rec_S>{{.*}}) -> ()
+// CIR-BEFORE-LPP:           cir.call @_ZN1SC1Ev(%[[CTOR_ARG]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
 // CIR-BEFORE-LPP:         } partial_dtor {
 // CIR-BEFORE-LPP:         ^bb0(%[[DTOR_ARG:.*]]: !cir.ptr<!rec_S>):
 // CIR-BEFORE-LPP:           cir.call @_ZN1SD1Ev(%[[DTOR_ARG]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
@@ -563,7 +563,7 @@ void test_vla_of_constant_array(int n) {
 // CIR-BEFORE-LPP:         %[[ELEM_PTR:.*]] = cir.cast bitcast %[[VLA]] : !cir.ptr<!cir.array<!rec_S x 4>> -> !cir.ptr<!rec_S>
 // CIR-BEFORE-LPP:         cir.array.ctor %[[ELEM_PTR]], %[[TOTAL]] : !cir.ptr<!rec_S>, !u64i {
 // CIR-BEFORE-LPP:         ^bb0(%[[CTOR_ARG:.*]]: !cir.ptr<!rec_S>):
-// CIR-BEFORE-LPP:           cir.call @_ZN1SC1Ev(%[[CTOR_ARG]]) : (!cir.ptr<!rec_S>{{.*}}) -> ()
+// CIR-BEFORE-LPP:           cir.call @_ZN1SC1Ev(%[[CTOR_ARG]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()
 // CIR-BEFORE-LPP:         } partial_dtor {
 // CIR-BEFORE-LPP:         ^bb0(%[[DTOR_ARG:.*]]: !cir.ptr<!rec_S>):
 // CIR-BEFORE-LPP:           cir.call @_ZN1SD1Ev(%[[DTOR_ARG]]){{.*}} : (!cir.ptr<!rec_S>{{.*}}) -> ()

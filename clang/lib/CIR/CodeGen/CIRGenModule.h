@@ -32,6 +32,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "clang/AST/Decl.h"
+#include "clang/AST/Mangle.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CIR/Dialect/IR/CIROpsEnums.h"
@@ -142,9 +143,22 @@ private:
   bool emittingSelectedDeclDependency = false;
   llvm::StringSet<> selectedDeclRoots;
   llvm::StringSet<> selectedDeclRootUSRs;
-  llvm::StringSet<> emittedSelectedDeclRootUSRs;
+  llvm::StringMap<std::string> selectedDeclRootUSRBySymbol;
+  struct SelectedLambdaRoot {
+    std::string declarationUSR;
+    std::string contextUSR;
+    unsigned index = 0;
+  };
+  llvm::StringMap<SelectedLambdaRoot> selectedDeclLambdaRoots;
+  llvm::StringSet<> selectedDeclParseSymbols;
+  llvm::StringSet<> selectedDeclParseUSRs;
+  llvm::StringMap<llvm::StringSet<>>
+      emittedSelectedDeclRootDefinitionsBySelector;
   llvm::DenseSet<clang::GlobalDecl> selectedDeclDependencies;
+  llvm::DenseSet<clang::GlobalDecl> emittedSelectedDeclDependencies;
+  llvm::DenseSet<clang::GlobalDecl> attemptedSelectedDeclDependencies;
   llvm::SmallVector<clang::GlobalDecl, 16> selectedDeclDependencyWorklist;
+  llvm::DenseSet<const clang::CXXConstructorDecl *> selectedConstructorFamilies;
   llvm::DenseSet<const clang::CXXDestructorDecl *> selectedDestructorFamilies;
   llvm::StringSet<> emittedFunctionBodySymbols;
   size_t selectedDeclDependencyCursor = 0;
@@ -153,11 +167,10 @@ private:
     return selectedDeclDependencies.contains(gd.getCanonicalDecl());
   }
 
-  void addSelectedDeclDependency(clang::GlobalDecl gd) {
-    gd = gd.getCanonicalDecl();
-    if (selectedDeclDependencies.insert(gd).second)
-      selectedDeclDependencyWorklist.push_back(gd);
-  }
+  bool hasEmitCapableSelectedDeclDefinition(clang::GlobalDecl gd) const;
+  void addSelectedDeclDependency(clang::GlobalDecl gd);
+  clang::GlobalDecl getEmitCapableSelectedDecl(clang::GlobalDecl gd) const;
+  bool isSelectedStaticDataMemberDeclaration(const clang::VarDecl *variable);
 
   llvm::SmallVector<clang::GlobalDecl, 16>
   takeSelectedDeclDependencyFrontier() {
@@ -173,8 +186,11 @@ private:
 
   void loadSelectedDeclRoots();
   bool isSelectedDeclRoot(clang::GlobalDecl gd);
-  void noteSelectedDeclRootDefinition(clang::GlobalDecl gd);
+  llvm::StringRef selectedLambdaRootSelector(clang::GlobalDecl gd) const;
+  void noteSelectedDeclRootDefinition(clang::GlobalDecl gd,
+                                      mlir::Operation *definition = nullptr);
   void diagnoseUnemittedSelectedDeclRoots();
+  void diagnoseUnemittedSelectedDeclDependencies();
   void emitObjCProtocolDecl(const clang::ObjCProtocolDecl *protocol);
   void emitObjCInterfaceDecl(const clang::ObjCInterfaceDecl *interface);
   void emitObjCCategoryDecl(const clang::ObjCCategoryDecl *category);
@@ -188,6 +204,11 @@ private:
     objcProtocolEntries.push_back(attr);
   }
 
+  /// Immutable path-and-content-digest prefixes for declaration source
+  /// anchors. One source file can own thousands of local/template records;
+  /// hashing its complete buffer for every record is quadratic in file size.
+  llvm::DenseMap<clang::FileID, std::string>
+      layoutSourceFileAnchorPrefixes;
   /// Accumulated record layout entries, materialized in release().
   llvm::SmallVector<mlir::NamedAttribute> recordLayoutEntries;
   /// Exact Clang RecordDecl identities keyed by module-unique CIR record name.
@@ -200,6 +221,28 @@ private:
   llvm::SmallVector<mlir::Attribute> objcInterfaceEntries;
   /// Typed Objective-C category declaration facts, materialized in release().
   llvm::SmallVector<mlir::Attribute> objcCategoryEntries;
+  /// Exact producer declarations keyed by the CIR schema TypeAttr carried on
+  /// early operation metadata. Their identities are refreshed after deferred
+  /// template instantiation completes.
+  llvm::DenseMap<mlir::Type, const clang::RecordDecl *>
+      exactRecordDeclByCIRType;
+  /// Exact FieldDecl owners for member operations. Template instantiation can
+  /// finalize a record identity after the operation is emitted, so refresh the
+  /// field and declaring-record identities together during release().
+  llvm::DenseMap<mlir::Operation *, const clang::FieldDecl *>
+      exactFieldDeclByOperation;
+  /// Exact derived/base RecordDecls behind ast_derived_record_usr and
+  /// ast_base_record_usr. These are minted when the class-address operation
+  /// is created, before deferred instantiation can finalize either identity.
+  llvm::DenseMap<mlir::Operation *,
+                 std::pair<const clang::RecordDecl *, const clang::RecordDecl *>>
+      classAddrIdentityDeclsByOperation;
+  /// Exact instantiation decls behind ast_decl_specialization_identity.
+  /// A pattern USR spelled at emission can come from an earlier
+  /// redeclaration; release() re-derives it from the final AST.
+  llvm::DenseMap<mlir::Operation *, const clang::FunctionDecl *>
+      specializationIdentityDeclByOperation;
+  void refreshExactRecordOperationIdentities();
 
   llvm::DenseSet<clang::GlobalDecl> diagnosedConflictingDefinitions;
 
@@ -245,12 +288,21 @@ private:
   /// `noundef` on a return is possible.
   bool hasStrictReturn(QualType retTy, const Decl *targetDecl);
 
+  struct ExactRecordEndpoint {
+    cir::RecordType schema;
+    mlir::StringAttr identity;
+  };
+  std::optional<ExactRecordEndpoint> getExactRecordEndpoint(QualType type);
   mlir::ArrayAttr buildCastEndpointSourceType(QualType type);
   mlir::StringAttr getSourceTypeSpelling(QualType type);
   mlir::StringAttr getRecordUSRAttr(const RecordDecl *record);
   llvm::DenseMap<QualType, mlir::ArrayAttr> castEndpointSourceTypeCache;
   llvm::DenseMap<QualType, mlir::StringAttr> sourceTypeSpellingCache;
   llvm::DenseMap<const RecordDecl *, mlir::StringAttr> recordUSRCache;
+  /// Dedicated mangler for exact record identities. Identity computation must
+  /// never mint anonymous ids on the ABI mangler: that would renumber $_N
+  /// symbols behind the emitter's back in request order.
+  std::unique_ptr<clang::MangleContext> identityMangleContext;
 
   llvm::DenseMap<const Expr *, mlir::Operation *>
       materializedGlobalTemporaryMap;
@@ -258,15 +310,49 @@ private:
 public:
   mlir::ModuleOp getModule() const { return theModule; }
   CIRGenBuilderTy &getBuilder() { return builder; }
+  mlir::StringAttr exactRecordUSRAttr(const RecordDecl *record) {
+    return getRecordUSRAttr(record);
+  }
+  /// Bind a CIR record type to its exact RecordDecl. An identity minted while
+  /// the specialization was still incomplete is undecorated; release() can
+  /// only re-derive it when this name-to-decl binding exists.
+  /// Record the exact derived/base decls behind a class-address operation's
+  /// identity attributes so release() can reconcile them.
+  void rememberClassAddrIdentityDecls(mlir::Operation *op,
+                                      const clang::RecordDecl *derived,
+                                      const clang::RecordDecl *base) {
+    if (op && derived && base)
+      classAddrIdentityDeclsByOperation[op] = {derived, base};
+  }
+  void rememberExactRecordDeclForCIRType(mlir::Type type,
+                                         const clang::RecordDecl *record) {
+    if (type && record)
+      exactRecordDeclByCIRType[type] = record;
+  }
+  clang::MangleContext &getIdentityMangleContext() {
+    if (!identityMangleContext)
+      identityMangleContext.reset(astContext.createMangleContext());
+    return *identityMangleContext;
+  }
   bool shouldEmitSelectedDeclRoot(clang::GlobalDecl gd) {
     return !selectedDeclRootMode || isSelectedDeclRoot(gd);
   }
   bool shouldParseSelectedDeclBody(const clang::FunctionDecl *fd);
+  bool shouldEmitSelectedMethod(const clang::FunctionDecl *fd);
   void emitSelectedMethods(
       const clang::DeclContext *context,
-      llvm::function_ref<void(llvm::ArrayRef<clang::GlobalDecl>)>
+      llvm::function_ref<void(llvm::MutableArrayRef<clang::GlobalDecl>)>
+          prepareForEmission);
+  void emitSelectedDeclDependencyClosure(
+      llvm::function_ref<void(llvm::MutableArrayRef<clang::GlobalDecl>)>
           prepareForEmission);
   void emitSelectedVariables(const clang::DeclContext *context);
+  /// Record that the ABI producer is emitting a complete selected constructor
+  /// family, before it schedules either ABI variant.
+  void noteSelectedConstructorFamily(const clang::CXXConstructorDecl *ctor) {
+    if (selectedDeclRootMode && ctor)
+      selectedConstructorFamilies.insert(ctor->getCanonicalDecl());
+  }
   /// Record that the ABI producer is emitting a complete selected destructor
   /// family, before it schedules any individual ABI variants.
   void noteSelectedDestructorFamily(const clang::CXXDestructorDecl *dtor) {
@@ -278,11 +364,34 @@ public:
     recordLayoutEntries.push_back(mlir::NamedAttribute(name, attr));
   }
   void addRecordDeclIdentity(mlir::StringAttr name, mlir::StringAttr identity) {
+    // A record can first be materialized while an implicit specialization is
+    // incomplete and acquire its final exact identity later in CIRGen. Keep
+    // the module binding synchronized instead of retaining the first,
+    // potentially pre-instantiation identity for the CIR record name.
+    for (mlir::NamedAttribute &entry : recordDeclIdentityEntries) {
+      if (entry.getName() != name)
+        continue;
+      entry = mlir::NamedAttribute(name, identity);
+      return;
+    }
     recordDeclIdentityEntries.push_back(mlir::NamedAttribute(name, identity));
   }
   void addEmptyRecordSchema(mlir::StringAttr name) {
     emptyRecordSchemaEntries.push_back(
         mlir::NamedAttribute(name, mlir::UnitAttr::get(&getMLIRContext())));
+  }
+  std::optional<llvm::StringRef>
+  layoutSourceFileAnchorPrefix(clang::FileID file) const {
+    auto found = layoutSourceFileAnchorPrefixes.find(file);
+    if (found == layoutSourceFileAnchorPrefixes.end())
+      return std::nullopt;
+    return llvm::StringRef(found->second);
+  }
+  llvm::StringRef rememberLayoutSourceFileAnchorPrefix(
+      clang::FileID file, std::string prefix) {
+    auto [found, inserted] =
+        layoutSourceFileAnchorPrefixes.try_emplace(file, std::move(prefix));
+    return llvm::StringRef(found->second);
   }
   clang::ASTContext &getASTContext() const { return astContext; }
   const clang::TargetInfo &getTarget() const { return target; }
@@ -746,8 +855,33 @@ public:
                                   const AbstractConditionalOperator *e);
 
   /// Preserve the owning class identity of a data- or function-member pointer
-  /// on storage and constant producers.
-  void setMemberPointerTargetMetadata(mlir::Operation *op, QualType type);
+  /// on storage and constant producers. A non-null data-member constant passes
+  /// its exact AST FieldDecl so no CIR field ordinal is used as identity.
+  void setMemberPointerTargetMetadata(
+      mlir::Operation *op, QualType type,
+      const FieldDecl *constantDataMember = nullptr);
+
+  /// Preserve the exact AST source/declared types and physical CIR storage
+  /// type of a bit-field assignment.
+  void setBitfieldStoreMetadata(mlir::Operation *op, QualType sourceType,
+                                QualType fieldType, mlir::Type storageType);
+
+  /// Preserve the exact fixed-array QualType and terminal RecordDecl identity
+  /// on automatic-variable and compiler-created object-array storage.
+  void setObjectArrayAllocationMetadata(mlir::Operation *op, QualType type);
+  /// Preserve the exact QualType and terminal RecordDecl identity on
+  /// compiler-created materialized-temporary storage.
+  void setObjectStorageMetadata(mlir::Operation *op, QualType type);
+
+  /// Preserve the exact FieldDecl, declaring RecordDecl, and terminal member
+  /// RecordDecl schema on a source-derived cir.get_member operation.
+  void setFieldEndpointMetadata(mlir::Operation *op,
+                                const clang::FieldDecl *field);
+
+  /// Preserve the exact source, destination, and replacement RecordDecl
+  /// schemas on an aggregate copy.
+  void setAggregateCopyMetadata(mlir::Operation *op, QualType destinationType,
+                                QualType sourceType, QualType replacementType);
 
   void addDeferredVTable(const CXXRecordDecl *rd) {
     deferredVTables.push_back(rd);
@@ -800,7 +934,8 @@ public:
 
   void emitGlobalDefinition(clang::GlobalDecl gd,
                             mlir::Operation *op = nullptr);
-  void emitGlobalFunctionDefinition(clang::GlobalDecl gd, mlir::Operation *op);
+  cir::FuncOp emitGlobalFunctionDefinition(clang::GlobalDecl gd,
+                                           mlir::Operation *op);
   void emitGlobalVarDefinition(const clang::VarDecl *vd,
                                bool isTentative = false);
 
@@ -1009,8 +1144,9 @@ public:
   void setFunctionLinkage(GlobalDecl gd, cir::FuncOp f) {
     cir::GlobalLinkageKind l = getFunctionLinkage(gd);
     f.setLinkageAttr(cir::GlobalLinkageKindAttr::get(&getMLIRContext(), l));
-    mlir::SymbolTable::setSymbolVisibility(f,
-                                           getMLIRVisibilityFromCIRLinkage(l));
+    mlir::SymbolTable::setSymbolVisibility(
+        f, f.isDeclaration() ? mlir::SymbolTable::Visibility::Private
+                             : getMLIRVisibilityFromCIRLinkage(l));
   }
 
   cir::GlobalLinkageKind getCIRLinkageVarDefinition(const VarDecl *vd);

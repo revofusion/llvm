@@ -198,11 +198,13 @@ CIRGenFunction::emitAutoVarAlloca(const VarDecl &d,
     assert(!cir::MissingFeatures::generateDebugInfo());
   }
 
-  if (cir::AllocaOp alloca = address.getUnderlyingAllocaOp())
+  if (cir::AllocaOp alloca = address.getUnderlyingAllocaOp()) {
     cgm.setMemberPointerTargetMetadata(alloca.getOperation(), ty);
-  else
+    cgm.setObjectArrayAllocationMetadata(alloca.getOperation(), ty);
+  } else {
     cgm.setMemberPointerTargetMetadata(address.getPointer().getDefiningOp(),
                                        ty);
+  }
 
   emission.addr = address;
   setAddrOfLocalVar(&d, address);
@@ -1041,12 +1043,15 @@ struct DestroyObject final : EHScopeStack::Cleanup {
 };
 
 template <class Derived> struct DestroyNRVOVariable : EHScopeStack::Cleanup {
-  DestroyNRVOVariable(Address addr, QualType type, mlir::Value nrvoFlag)
-      : nrvoFlag(nrvoFlag), addr(addr), ty(type) {}
+  DestroyNRVOVariable(Address addr, QualType type, mlir::Value nrvoFlag,
+                      mlir::DictionaryAttr cleanupIdentity)
+      : nrvoFlag(nrvoFlag), addr(addr), ty(type),
+        cleanupIdentity(cleanupIdentity) {}
 
   mlir::Value nrvoFlag;
   Address addr;
   QualType ty;
+  mlir::DictionaryAttr cleanupIdentity;
 
   void emit(CIRGenFunction &cgf, Flags flags) override {
     // Along the exceptions path we always execute the dtor.
@@ -1059,11 +1064,21 @@ template <class Derived> struct DestroyNRVOVariable : EHScopeStack::Cleanup {
       mlir::Location loc = addr.getPointer().getLoc();
       mlir::Value didNRVO = builder.createFlagLoad(loc, nrvoFlag);
       mlir::Value notNRVO = builder.createNot(didNRVO);
-      cir::IfOp::create(builder, loc, notNRVO, /*withElseRegion=*/false,
-                        [&](mlir::OpBuilder &b, mlir::Location) {
-                          static_cast<Derived *>(this)->emitDestructorCall(cgf);
-                          builder.createYield(loc);
-                        });
+      cir::IfOp cleanupGuard = cir::IfOp::create(
+          builder, loc, notNRVO, /*withElseRegion=*/false,
+          [&](mlir::OpBuilder &b, mlir::Location) {
+            static_cast<Derived *>(this)->emitDestructorCall(cgf);
+            builder.createYield(loc);
+          });
+      if (cleanupIdentity) {
+        mlir::NamedAttrList guardIdentity(cleanupIdentity);
+        guardIdentity.set(
+            "cleanup_guard_site_ordinal",
+            builder.getI64IntegerAttr(cgf.takeCXXCleanupGuardSiteOrdinal()));
+        cleanupGuard.setAstConditionalCleanupIdentitiesAttr(
+            builder.getArrayAttr(
+                {guardIdentity.getDictionary(&cgf.getMLIRContext())}));
+      }
     } else {
       static_cast<Derived *>(this)->emitDestructorCall(cgf);
     }
@@ -1075,8 +1090,10 @@ template <class Derived> struct DestroyNRVOVariable : EHScopeStack::Cleanup {
 struct DestroyNRVOVariableCXX final
     : DestroyNRVOVariable<DestroyNRVOVariableCXX> {
   DestroyNRVOVariableCXX(Address addr, QualType type,
-                         const CXXDestructorDecl *dtor, mlir::Value nrvoFlag)
-      : DestroyNRVOVariable<DestroyNRVOVariableCXX>(addr, type, nrvoFlag),
+                         const CXXDestructorDecl *dtor, mlir::Value nrvoFlag,
+                         mlir::DictionaryAttr cleanupIdentity)
+      : DestroyNRVOVariable<DestroyNRVOVariableCXX>(
+            addr, type, nrvoFlag, cleanupIdentity),
         dtor(dtor) {}
 
   const CXXDestructorDecl *dtor;
@@ -1106,17 +1123,33 @@ struct IrregularPartialArrayDestroy final : EHScopeStack::Cleanup {
   QualType elementType;
   CharUnits elementAlign;
   CIRGenFunction::Destroyer *destroyer;
+  std::optional<uint64_t> arrayExtent;
 
   IrregularPartialArrayDestroy(mlir::Value arrayBegin, Address arrayEndPointer,
                                QualType elementType, CharUnits elementAlign,
-                               CIRGenFunction::Destroyer *destroyer)
+                               CIRGenFunction::Destroyer *destroyer,
+                               std::optional<uint64_t> arrayExtent)
       : arrayBegin(arrayBegin), arrayEndPointer(arrayEndPointer),
         elementType(elementType), elementAlign(elementAlign),
-        destroyer(destroyer) {}
+        destroyer(destroyer), arrayExtent(arrayExtent) {}
 
   void emit(CIRGenFunction &cgf, Flags flags) override {
     CIRGenBuilderTy &builder = cgf.getBuilder();
     mlir::Location loc = arrayBegin.getLoc();
+    auto cleanupIdentity = [&](llvm::StringRef phase) -> mlir::DictionaryAttr {
+      if (!arrayExtent.has_value())
+        return {};
+      mlir::NamedAttrList identity;
+      identity.set("array_extent",
+                   builder.getI64IntegerAttr(*arrayExtent));
+      identity.set("phase", builder.getStringAttr(phase));
+      return identity.getDictionary(&cgf.getMLIRContext());
+    };
+    if (auto endCursor =
+            arrayEndPointer.getPointer().getDefiningOp<cir::AllocaOp>()) {
+      if (mlir::DictionaryAttr identity = cleanupIdentity("cursor"))
+        endCursor.setAstObjectArrayCleanupAttr(identity);
+    }
 
     mlir::Value arrayEnd = builder.createLoad(loc, arrayEndPointer);
 
@@ -1133,8 +1166,13 @@ struct IrregularPartialArrayDestroy final : EHScopeStack::Cleanup {
         [&](mlir::OpBuilder &b, mlir::Location loc) {
           Address iterAddr = cgf.createTempAlloca(
               ptrToElmType, cgf.getPointerAlign(), loc, "__array_idx");
+          if (auto cursor =
+                  iterAddr.getPointer().getDefiningOp<cir::AllocaOp>()) {
+            if (mlir::DictionaryAttr identity = cleanupIdentity("cursor"))
+              cursor.setAstObjectArrayCleanupAttr(identity);
+          }
           builder.createStore(loc, arrayEnd, iterAddr);
-          builder.createDoWhile(
+          cir::DoWhileOp loop = builder.createDoWhile(
               loc,
               /*condBuilder=*/
               [&](mlir::OpBuilder &b, mlir::Location loc) {
@@ -1155,6 +1193,9 @@ struct IrregularPartialArrayDestroy final : EHScopeStack::Cleanup {
                 destroyer(cgf, elemAddr, elementType);
                 builder.createYield(loc);
               });
+          if (mlir::DictionaryAttr identity =
+                  cleanupIdentity("partial_destructor"))
+            loop.setAstObjectArrayCleanupAttr(identity);
           builder.createYield(loc);
         });
   }
@@ -1167,14 +1208,13 @@ struct IrregularPartialArrayDestroy final : EHScopeStack::Cleanup {
 ///
 /// \param elementType - the immediate element type of the array;
 ///   possibly still an array type
-void CIRGenFunction::pushIrregularPartialArrayCleanup(mlir::Value arrayBegin,
-                                                      Address arrayEndPointer,
-                                                      QualType elementType,
-                                                      CharUnits elementAlign,
-                                                      Destroyer *destroyer) {
+void CIRGenFunction::pushIrregularPartialArrayCleanup(
+    mlir::Value arrayBegin, Address arrayEndPointer, QualType elementType,
+    CharUnits elementAlign, Destroyer *destroyer,
+    std::optional<uint64_t> arrayExtent) {
   ehStack.pushCleanup<IrregularPartialArrayDestroy>(
       EHCleanup, arrayBegin, arrayEndPointer, elementType, elementAlign,
-      destroyer);
+      destroyer, arrayExtent);
 }
 
 /// pushEHDestroyIfNeeded - Push the standard destructor for the given type as
@@ -1289,7 +1329,13 @@ void CIRGenFunction::emitArrayDestroy(mlir::Value begin,
       size = constIntAttr.getUInt();
     auto arrayTy = cir::ArrayType::get(cirElementType, size);
     mlir::Value arrayOp = builder.createPtrBitcast(begin, arrayTy);
-    cir::ArrayDtor::create(builder, *currSrcLoc, arrayOp, regionBuilder);
+    cir::ArrayDtor arrayDtor =
+        cir::ArrayDtor::create(builder, *currSrcLoc, arrayOp, regionBuilder);
+    mlir::NamedAttrList cleanupIdentity;
+    cleanupIdentity.set("array_extent", builder.getI64IntegerAttr(size));
+    arrayDtor->setAttr(
+        "ast_object_array_cleanup",
+        cleanupIdentity.getDictionary(&getMLIRContext()));
     return;
   }
 
@@ -1366,8 +1412,9 @@ void CIRGenFunction::emitAutoVarTypeCleanup(
 
   const VarDecl *var = emission.variable;
   QualType type = var->getType();
+  std::optional<mlir::DictionaryAttr> automaticObjectIdentity;
   if (dtorKind == QualType::DK_cxx_destructor)
-    setCXXAutomaticObjectIdentity(var, addr);
+    automaticObjectIdentity = setCXXAutomaticObjectIdentity(var, addr);
 
   CleanupKind cleanupKind = NormalAndEHCleanup;
   CIRGenFunction::Destroyer *destroyer = nullptr;
@@ -1382,8 +1429,9 @@ void CIRGenFunction::emitAutoVarTypeCleanup(
     if (emission.nrvoFlag) {
       assert(!type->isArrayType());
       CXXDestructorDecl *dtor = type->getAsCXXRecordDecl()->getDestructor();
-      ehStack.pushCleanup<DestroyNRVOVariableCXX>(cleanupKind, addr, type, dtor,
-                                                  emission.nrvoFlag);
+      ehStack.pushCleanup<DestroyNRVOVariableCXX>(
+          cleanupKind, addr, type, dtor, emission.nrvoFlag,
+          automaticObjectIdentity.value_or(mlir::DictionaryAttr{}));
       return;
     }
     // Otherwise, this is handled below.

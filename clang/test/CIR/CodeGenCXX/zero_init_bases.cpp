@@ -43,13 +43,13 @@ Inherits I2 {{1,2,3},{1.1, 2.2, 3.3}, 4, 5, 6};
 VirtualInherits VI;
 // CIR-BEFORE: cir.global external @VI = ctor : !rec_VirtualInherits {
 // CIR-BEFORE:   %[[GET_GLOB:.*]] = cir.get_global @VI : !cir.ptr<!rec_VirtualInherits>
-// CIR-BEFORE:   cir.call @_ZN15VirtualInheritsC1Ev(%[[GET_GLOB]]) nothrow : (!cir.ptr<!rec_VirtualInherits> {llvm.align = 8 : i64, llvm.dereferenceable = 20 : i64, llvm.nonnull, llvm.noundef}) -> ()
+// CIR-BEFORE:   cir.call @_ZN15VirtualInheritsC1Ev(%[[GET_GLOB]]) nothrow {{.*}} : (!cir.ptr<!rec_VirtualInherits> {llvm.align = 8 : i64, llvm.dereferenceable = 20 : i64, llvm.nonnull, llvm.noundef}) -> ()
 // CIR-BEFORE: } {alignment = 8 : i64, ast = #cir.var.decl.ast, ast_global_lifecycle_identity = {declaration_usr = "c:@VI", priority = 65535 : i64}}
 //
 // CIR-AFTER: cir.global external @VI = #cir.zero : !rec_VirtualInherits {alignment = 8 : i64, ast = #cir.var.decl.ast{{.*}}}
 // CIR-AFTER: cir.func {{.*}}@__cxx_global_var_init() {{(.*)}} {
 // CIR-AFTER:   %[[GET_GLOB:.*]] = cir.get_global @VI : !cir.ptr<!rec_VirtualInherits> loc(#loc13)
-// CIR-AFTER:   cir.call @_ZN15VirtualInheritsC1Ev(%[[GET_GLOB]]) nothrow : (!cir.ptr<!rec_VirtualInherits> {llvm.align = 8 : i64, llvm.dereferenceable = 20 : i64, llvm.nonnull, llvm.noundef}) -> ()
+// CIR-AFTER:   cir.call @_ZN15VirtualInheritsC1Ev(%[[GET_GLOB]]) nothrow {{.*}} : (!cir.ptr<!rec_VirtualInherits> {llvm.align = 8 : i64, llvm.dereferenceable = 20 : i64, llvm.nonnull, llvm.noundef}) -> ()
 
 // LLVM: @VI = global %struct.VirtualInherits zeroinitializer, align 8
 // LLVM: define internal void @__cxx_global_var_init()

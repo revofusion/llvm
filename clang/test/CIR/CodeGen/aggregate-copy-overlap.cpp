@@ -35,7 +35,7 @@ struct Outer : virtual VBase {
 
 // With virtual bases, only the C1 (complete) constructor is emitted.
 // CIR-LABEL: cir.func {{.*}} @_ZN5OuterC1ERK10HasPaddingc(
-// CIR:         cir.copy %{{.+}} to %{{.+}} skip_tail_padding : !cir.ptr<!rec_HasPadding>
+// CIR:         cir.copy %{{.+}} to %{{.+}} skip_tail_padding{{.*}} : !cir.ptr<!rec_HasPadding>
 
 // LLVM-LABEL: define {{.*}} void @_ZN5OuterC1ERK10HasPaddingc(
 // LLVM:         %[[GEP:.*]] = getelementptr inbounds nuw %struct.Outer, ptr %{{.+}}, i32 0, i32 1

@@ -25,6 +25,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprConcepts.h"
 #include "clang/AST/ExprObjC.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/AST/Mangle.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/ABI.h"
@@ -75,6 +76,7 @@ class ItaniumMangleContextImpl : public ItaniumMangleContext {
   llvm::DenseMap<DiscriminatorKeyTy, unsigned> Discriminator;
   llvm::DenseMap<const NamedDecl*, unsigned> Uniquifier;
   const DiscriminatorOverrideTy DiscriminatorOverride = nullptr;
+  llvm::DenseSet<const FunctionDecl *> AnonStructIdSeededFunctions;
   NamespaceDecl *StdNamespace = nullptr;
 
   bool NeedsUniqueInternalLinkageNames = false;
@@ -204,6 +206,8 @@ public:
   NamespaceDecl *getStdNamespace();
 
   const DeclContext *getEffectiveDeclContext(const Decl *D);
+  void seedFunctionAnonymousStructIds(const FunctionDecl *FD);
+  void seedNullOwnerAnonymousStructIds(const TagDecl *RequestedTag);
   const DeclContext *getEffectiveParentContext(const DeclContext *DC) {
     return getEffectiveDeclContext(cast<Decl>(DC));
   }
@@ -713,6 +717,171 @@ ItaniumMangleContextImpl::getEffectiveDeclContext(const Decl *D) {
   }
 
   return DC->getRedeclContext();
+}
+
+// Anonymous discriminators ($_N) are minted per enclosing function on first
+// mangling, so their values depend on the order in which declarations happen
+// to be mangled. Aeneas selected-declaration manifests record these exact
+// symbols in one compilation and demand them in another whose emission order
+// differs; the discriminator must therefore be a function of the AST. Seed
+// every candidate tag of the function in lexical order before the first id
+// for that function is handed out.
+//
+// A name embedding one of this function's local tags can be demanded while
+// the body is still being parsed: constraint satisfaction or constant
+// evaluation instantiates an internal variable-template specialization over a
+// local closure type and hands it to the consumer before the body is
+// attached. The declaration context already owns every local tag created so
+// far, in creation order — which is lexical order — so such a request seeds
+// from that snapshot and leaves the function unmarked; the walk reruns once
+// the body exists, and later tags continue the same lexical sequence because
+// getAnonymousStructId keeps already-assigned ids.
+void ItaniumMangleContextImpl::seedFunctionAnonymousStructIds(
+    const FunctionDecl *FD) {
+  if (AnonStructIdSeededFunctions.contains(FD))
+    return;
+  const FunctionDecl *Definition = FD->getDefinition();
+  if (!Definition)
+    Definition = FD;
+  Stmt *Body = Definition->getBody();
+
+  struct TagCollector : DynamicRecursiveASTVisitor {
+    llvm::SmallVector<const TagDecl *, 8> Tags;
+    llvm::SmallPtrSet<const TagDecl *, 8> Seen;
+    void add(const TagDecl *TD) {
+      if (TD && Seen.insert(TD).second)
+        Tags.push_back(TD);
+    }
+    bool VisitLambdaExpr(LambdaExpr *E) override {
+      add(E->getLambdaClass());
+      return true;
+    }
+    bool VisitTagDecl(TagDecl *TD) override {
+      const auto *Record = dyn_cast<CXXRecordDecl>(TD);
+      if (!Record || !Record->isLambda())
+        add(TD);
+      return true;
+    }
+    // A rewritten default argument materializes fresh per-callsite closure
+    // types inside the calling function. They mint anonymous ids like any
+    // other local unnamed tag, so lexical seeding must see them at their
+    // callsite: that keeps the walk aligned with Sema's creation order, which
+    // the mid-parse declaration-chain snapshot below also observes.
+    bool TraverseCXXDefaultArgExpr(CXXDefaultArgExpr *E) override {
+      if (E && E->hasRewrittenInit())
+        TraverseStmt(E->getExpr());
+      return true;
+    }
+  };
+  TagCollector Collector;
+  for (ParmVarDecl *Param : Definition->parameters())
+    if (Param->hasDefaultArg() && !Param->hasUnparsedDefaultArg() &&
+        !Param->hasUninstantiatedDefaultArg())
+      Collector.TraverseStmt(Param->getDefaultArg());
+  if (const auto *Ctor = dyn_cast<CXXConstructorDecl>(Definition))
+    for (const CXXCtorInitializer *Init : Ctor->inits())
+      if (Init->getInit())
+        Collector.TraverseStmt(const_cast<Expr *>(Init->getInit()));
+  if (Body)
+    Collector.TraverseStmt(Body);
+  else
+    for (const Decl *D : Definition->decls())
+      if (const auto *TD = dyn_cast<TagDecl>(D))
+        Collector.add(TD);
+
+  auto SeedTag = [&](const TagDecl *TD) {
+    if (TD->getIdentifier() || TD->getTypedefNameForAnonDecl() ||
+        TD->isExternallyVisible())
+      return;
+    if (const auto *Record = dyn_cast<CXXRecordDecl>(TD)) {
+      UnsignedOrNone DeviceNumber =
+          getDiscriminatorOverride()(getASTContext(), Record);
+      // Mangling-numbered lambdas take the ABI-stable Ul...E_ form and never
+      // consume an anonymous id.
+      if (Record->isLambda() &&
+          ((DeviceNumber && *DeviceNumber > 0) ||
+           (!DeviceNumber && Record->getLambdaManglingNumber() > 0)))
+        return;
+    }
+    const auto *Owner =
+        dyn_cast_or_null<FunctionDecl>(getEffectiveDeclContext(TD));
+    if (!Owner)
+      return;
+    getAnonymousStructId(TD, Owner);
+  };
+  for (const TagDecl *TD : Collector.Tags)
+    SeedTag(TD);
+  if (Body)
+    AnonStructIdSeededFunctions.insert(FD);
+}
+
+// Anonymous discriminators for tags with no owning function (namespace-scope
+// internal lambdas and unnamed tags, e.g. lambdas in the initializer of an
+// anonymous-namespace variable) are minted from a per-context counter on
+// first mangling, so their values depend on the order in which declarations
+// happen to be mangled. Aeneas selected-declaration manifests record these
+// exact symbols in one compilation and demand them in another whose emission
+// order differs; the discriminator must therefore be a function of the AST.
+// Seed every null-owner candidate tag of the translation unit in lexical
+// order before an unmapped null-owner id is handed out.
+//
+// The walk is a snapshot: a null-owner name can be demanded mid-parse (an
+// eagerly instantiated internal variable-template specialization over a
+// namespace-scope closure), when the translation unit is still growing. The
+// gate is therefore per-tag, not one-shot: tags created after an earlier
+// snapshot are lexically later, so a rerun extends the same lexical sequence
+// and getAnonymousStructId keeps already-assigned ids.
+void ItaniumMangleContextImpl::seedNullOwnerAnonymousStructIds(
+    const TagDecl *RequestedTag) {
+  if (hasAnonymousStructId(RequestedTag))
+    return;
+
+  struct TagCollector : DynamicRecursiveASTVisitor {
+    llvm::SmallVector<const TagDecl *, 32> Tags;
+    llvm::SmallPtrSet<const TagDecl *, 32> Seen;
+    void add(const TagDecl *TD) {
+      if (TD && Seen.insert(TD).second)
+        Tags.push_back(TD);
+    }
+    bool VisitLambdaExpr(LambdaExpr *E) override {
+      add(E->getLambdaClass());
+      return true;
+    }
+    bool VisitTagDecl(TagDecl *TD) override {
+      const auto *Record = dyn_cast<CXXRecordDecl>(TD);
+      if (!Record || !Record->isLambda())
+        add(TD);
+      return true;
+    }
+  };
+  TagCollector Collector;
+  Collector.TraverseDecl(getASTContext().getTranslationUnitDecl());
+
+  for (const TagDecl *TD : Collector.Tags) {
+    if (TD->getIdentifier() || TD->getTypedefNameForAnonDecl() ||
+        TD->isExternallyVisible())
+      continue;
+    if (const auto *Record = dyn_cast<CXXRecordDecl>(TD)) {
+      UnsignedOrNone DeviceNumber =
+          getDiscriminatorOverride()(getASTContext(), Record);
+      // Mangling-numbered lambdas take the ABI-stable Ul...E_ form and never
+      // consume an anonymous id.
+      if (Record->isLambda() &&
+          ((DeviceNumber && *DeviceNumber > 0) ||
+           (!DeviceNumber && Record->getLambdaManglingNumber() > 0)))
+        continue;
+    }
+    // Only file-context tags need a translation-unit-wide stable rank. A
+    // nested anonymous tag whose effective context is another record does not
+    // contribute a standalone mangled name; reserving an id for it changes
+    // the ABI of later file-context tags (for example a C++98 anonymous union
+    // nested inside a function-local anonymous union).
+    const DeclContext *EffectiveDC = getEffectiveDeclContext(TD);
+    if (dyn_cast_or_null<FunctionDecl>(EffectiveDC) ||
+        !EffectiveDC->isFileContext())
+      continue;
+    getAnonymousStructId(TD);
+  }
 }
 
 bool ItaniumMangleContextImpl::isInternalLinkageDecl(const NamedDecl *ND) {
@@ -1665,9 +1834,18 @@ void CXXNameMangler::mangleUnqualifiedName(
 
     // Get a unique id for the anonymous struct. If it is not a real output
     // ID doesn't matter so use fake one.
-    unsigned AnonStructId =
-        NullOut ? 0
-                : Context.getAnonymousStructId(TD, dyn_cast<FunctionDecl>(DC));
+    unsigned AnonStructId = 0;
+    if (!NullOut) {
+      if (Context.usesDeterministicAnonymousStructIds()) {
+        if (const auto *EnclosingFunction =
+                dyn_cast_or_null<FunctionDecl>(DC))
+          Context.seedFunctionAnonymousStructIds(EnclosingFunction);
+        else
+          Context.seedNullOwnerAnonymousStructIds(TD);
+      }
+      AnonStructId =
+          Context.getAnonymousStructId(TD, dyn_cast_or_null<FunctionDecl>(DC));
+    }
 
     // Mangle it as a source name in the form
     // [n] $_<id>

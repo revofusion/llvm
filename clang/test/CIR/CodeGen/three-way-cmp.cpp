@@ -145,19 +145,19 @@ void use_pseudo_ordering(HasMember m1, HasMember m2) {
   // BOTH:     }) : (!cir.bool) -> !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
   // BOTH:     cir.yield %[[TERN_LT_RES]] : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
   // BOTH:   }) : (!cir.bool) -> !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
-  // BOTH:   cir.copy %[[TOP_TERN_RES]] to %[[CMP_RES]] : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
-  // BOTH:   cir.copy %[[CMP_RES]] to %[[CMP_TEMP]] : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
+  // BOTH:   cir.copy %[[TOP_TERN_RES]] to %[[CMP_RES]] {{.*}} : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
+  // BOTH:   cir.copy %[[CMP_RES]] to %[[CMP_TEMP]] {{.*}} : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
   // BOTH:   %[[UNSPEC_TEMP:.*]] = cir.const #cir.const_record<{#cir.int<0>, #cir.int<0>}>
   // BOTH:   %[[CMP_TEMP_LOAD:.*]] = cir.load {{.*}}%[[CMP_TEMP]] : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>, !rec_std3A3A__13A3Astrong_ordering
   // BOTH:   %[[SO_NE_RES:.*]] = cir.call @_ZNSt3__1neENS_15strong_orderingEMNS_19_CmpUnspecifiedTypeEFvvE(%14, %[[UNSPEC_TEMP]])
   // BOTH:   cir.if %[[SO_NE_RES]] {
-  // BOTH:     cir.copy %[[CMP_RES]] to %[[RET_ALLOCA]] : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
+  // BOTH:     cir.copy %[[CMP_RES]] to %[[RET_ALLOCA]] {{.*}} : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
   // BOTH:     %[[RET_LOAD:.*]] = cir.load %[[RET_ALLOCA]] : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>, !rec_std3A3A__13A3Astrong_ordering
   // BOTH:     cir.return %[[RET_LOAD]] : !rec_std3A3A__13A3Astrong_ordering
   // BOTH:   }
   // BOTH: }
   // BOTH: %[[EQ_GLOB:.*]] = cir.get_global @_ZNSt3__115strong_ordering5equalE : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
-  // BOTH: cir.copy %[[EQ_GLOB]] to %[[RET_ALLOCA]] : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
+  // BOTH: cir.copy %[[EQ_GLOB]] to %[[RET_ALLOCA]] {{.*}} : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>
   // BOTH: %[[RET_LOAD:.*]] = cir.load %[[RET_ALLOCA]] : !cir.ptr<!rec_std3A3A__13A3Astrong_ordering>, !rec_std3A3A__13A3Astrong_ordering
   // BOTH: cir.return %[[RET_LOAD]] : !rec_std3A3A__13A3Astrong_ordering
 

@@ -17,3 +17,5 @@ int StaticHolder::unrelated = 13;
 
 // CHECK-DAG: cir.global external @_ZN5roots8selectedE =
 // CHECK-DAG: cir.global external @_ZN12StaticHolder8selectedE =
+// CHECK-DAG: _ZN5roots8selectedE = "_ZN5roots8selectedE"
+// CHECK-DAG: _ZN12StaticHolder8selectedE = "_ZN12StaticHolder8selectedE"

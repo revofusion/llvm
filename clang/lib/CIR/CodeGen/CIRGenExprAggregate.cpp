@@ -835,9 +835,9 @@ void AggExprEmitter::emitArrayInit(Address destPtr, cir::ArrayType arrayTy,
                                      loc, "arrayinit.endOfInit");
     builder.createStore(loc, begin, endOfInit);
 
-    cgf.pushIrregularPartialArrayCleanup(begin, endOfInit, elementType,
-                                         elementAlign,
-                                         cgf.getDestroyer(dtorKind));
+    cgf.pushIrregularPartialArrayCleanup(
+        begin, endOfInit, elementType, elementAlign,
+        cgf.getDestroyer(dtorKind), arrayTy.getSize());
   }
 
   // The 'current element to initialize'.  The invariants on this
@@ -850,6 +850,8 @@ void AggExprEmitter::emitArrayInit(Address destPtr, cir::ArrayType arrayTy,
   // Don't build the 'one' before the cycle to avoid
   // emmiting the redundant `cir.const 1` instrs.
   mlir::Value one;
+  const uint64_t numArrayElements = arrayTy.getSize();
+
 
   // Emit the explicit initializers.
   for (uint64_t i = 0; i != numInitElements; ++i) {
@@ -862,13 +864,24 @@ void AggExprEmitter::emitArrayInit(Address destPtr, cir::ArrayType arrayTy,
       if (endOfInit.isValid())
         builder.createStore(loc, element, endOfInit);
     }
+    // This pointer is the producer-owned identity of the element whose
+    // lifetime is initialized below. Consumers use the exact alloca lineage
+    // together with this fixed index/extent pair; neither source spelling nor
+    // pointer arithmetic is a substitute for the element identity.
+    mlir::NamedAttrList elementIdentity;
+    elementIdentity.set("index", builder.getI64IntegerAttr(i));
+    elementIdentity.set("extent",
+                        builder.getI64IntegerAttr(numArrayElements));
+    element.getDefiningOp()->setAttr(
+        "ast_array_element_init",
+        elementIdentity.getDictionary(&cgf.getMLIRContext()));
+
 
     const Address address = Address(element, cirElementType, elementAlign);
     const LValue elementLV = cgf.makeAddrLValue(address, elementType);
     emitInitializationToLValue(args[i], elementLV);
   }
 
-  const uint64_t numArrayElements = arrayTy.getSize();
 
   // Check whether there's a non-trivial array-fill expression.
   const bool hasTrivialFiller = isTrivialFiller(arrayFiller);
@@ -1356,7 +1369,8 @@ void CIRGenFunction::emitAggExpr(const Expr *e, AggValueSlot slot) {
 
 void CIRGenFunction::emitAggregateCopy(LValue dest, LValue src, QualType ty,
                                        AggValueSlot::Overlap_t mayOverlap,
-                                       bool isVolatile) {
+                                       bool isVolatile,
+                                       bool preserveReplacementSchema) {
   // TODO(cir): this function needs improvements, commented code for now since
   // this will be touched again soon.
   assert(!ty->isAnyComplexType() && "Unexpected copy of complex");
@@ -1416,8 +1430,12 @@ void CIRGenFunction::emitAggregateCopy(LValue dest, LValue src, QualType ty,
   // NOTE(cir): original codegen would normally convert destPtr and srcPtr to
   // i8* since memcpy operates on bytes. We don't need that in CIR because
   // cir.copy will operate on any CIR pointer that points to a sized type.
-  builder.createCopy(destPtr.getPointer(), srcPtr.getPointer(), isVolatile,
-                     skipTailPadding);
+  cir::CopyOp copy =
+      builder.createCopy(destPtr.getPointer(), srcPtr.getPointer(), isVolatile,
+                         skipTailPadding);
+  if (preserveReplacementSchema)
+    cgm.setAggregateCopyMetadata(copy.getOperation(), dest.getType(),
+                                 src.getType(), ty);
 
   assert(!cir::MissingFeatures::opTBAA());
 }

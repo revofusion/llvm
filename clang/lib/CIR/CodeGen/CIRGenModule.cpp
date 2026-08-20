@@ -66,6 +66,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
+#include <functional>
 
 using namespace clang;
 using namespace clang::CIRGen;
@@ -88,8 +89,19 @@ sourceLocationIdentity(const ASTContext &astContext, SourceLocation location) {
   if (!presumed.isValid())
     return std::nullopt;
 
-  llvm::SmallString<256> normalizedFile(
-      sourceManager.getFilename(spellingLocation));
+  // Header search can spell one file several ways (gcc toolchain include
+  // paths traverse ".." chains that remove_dots can even clamp at the
+  // filesystem root). The FileEntry's resolved real path is the one spelling
+  // every compiler instance agrees on; fall back to the working-directory
+  // normalization only when no real path is recorded.
+  llvm::SmallString<256> normalizedFile;
+  if (auto fileRef = sourceManager.getFileEntryRefForID(decomposed.first)) {
+    llvm::StringRef realPath = fileRef->getFileEntry().tryGetRealPathName();
+    if (!realPath.empty() && llvm::sys::path::is_absolute(realPath))
+      normalizedFile = realPath;
+  }
+  if (normalizedFile.empty())
+    normalizedFile = sourceManager.getFilename(spellingLocation);
   if (normalizedFile.empty())
     return std::nullopt;
   if (!llvm::sys::path::is_absolute(normalizedFile)) {
@@ -100,6 +112,12 @@ sourceLocationIdentity(const ASTContext &astContext, SourceLocation location) {
     llvm::SmallString<256> resolvedFile(workingDirectory);
     llvm::sys::path::append(resolvedFile, normalizedFile);
     normalizedFile = resolvedFile;
+  }
+  if (auto fileRef = sourceManager.getFileEntryRefForID(decomposed.first)) {
+    llvm::StringRef canonical =
+        sourceManager.getFileManager().getCanonicalName(*fileRef);
+    if (!canonical.empty() && llvm::sys::path::is_absolute(canonical))
+      normalizedFile = canonical;
   }
   llvm::sys::path::remove_dots(normalizedFile, /*remove_dot_dot=*/true);
   if (normalizedFile.empty() || !llvm::sys::path::is_absolute(normalizedFile))
@@ -169,6 +187,8 @@ CIRGenModule::CIRGenModule(mlir::MLIRContext &mlirContext,
       diags(diags), target(astContext.getTargetInfo()),
       diagnosticCensus(openDiagnosticCensus()), abi(createCXXABI(*this)),
       genTypes(*this), vtables(*this) {
+  if (abi && !codeGenOpts.ClangIRSelectedDeclsFile.empty())
+    abi->getMangleContext().enableDeterministicAnonymousStructIds();
   loadSelectedDeclRoots();
 
   // Initialize cached types
@@ -520,7 +540,6 @@ void CIRGenModule::emitGlobalDecl(const clang::GlobalDecl &d) {
   if (auto cirGlobalValue =
           dyn_cast<cir::CIRGlobalValueInterface>(globalValueOp)) {
     if (!cirGlobalValue.isDeclaration()) {
-      noteSelectedDeclRootDefinition(d);
       return;
     }
   }
@@ -541,10 +560,13 @@ void CIRGenModule::addDeferredDeclToEmit(GlobalDecl gd) {
         return;
     }
     // A selected root can also be rediscovered while another selected body is
-    // being generated. It already belongs to the stable root frontier; adding
-    // it to the recursive deferred queue would re-enter its body.
-    if (isRoot && curCGF)
+    // being generated. It must still enter the exact dependency worklist:
+    // template specializations and nested lambdas can be materialized only by
+    // that reference, after the stable root frontier was discovered.
+    if (isRoot && curCGF) {
+      addSelectedDeclDependency(gd);
       return;
+    }
   }
   deferredDeclsToEmit.emplace_back(gd);
 }
@@ -654,7 +676,12 @@ void CIRGenModule::emitGlobal(clang::GlobalDecl gd) {
     // Classic codegen calls shouldSkipAliasEmission here to skip alias
     // emission for OpenMP target device and CUDA configurations.
     assert(!cir::MissingFeatures::shouldSkipAliasEmission());
+    auto existing = mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(
+        getGlobalValue(getMangledName(gd)));
+    const bool hadDefinition = existing && existing.isDefinition();
     emitAliasDefinition(gd);
+    if (!hadDefinition)
+      noteSelectedDeclRootDefinition(gd);
     return;
   }
 
@@ -725,6 +752,14 @@ void CIRGenModule::emitGlobal(clang::GlobalDecl gd) {
   } else {
     const auto *vd = cast<VarDecl>(global);
     assert(vd->isFileVarDecl() && "Cannot emit local var decl as global.");
+    // A selected pre-C++17-style in-class static const member owns an exact
+    // initializer fact but not a strong storage definition. Materialize that
+    // fact directly as an available_externally CIR definition; the ordinary
+    // declaration-only path below must remain unchanged.
+    if (isSelectedStaticDataMemberDeclaration(vd)) {
+      emitGlobalDefinition(gd);
+      return;
+    }
     if (vd->isThisDeclarationADefinition() != VarDecl::Definition &&
         !astContext.isMSStaticDataMemberInlineDefinition(vd)) {
       assert(!cir::MissingFeatures::openMP());
@@ -768,8 +803,8 @@ void CIRGenModule::emitGlobal(clang::GlobalDecl gd) {
   }
 }
 
-void CIRGenModule::emitGlobalFunctionDefinition(clang::GlobalDecl gd,
-                                                mlir::Operation *op) {
+cir::FuncOp CIRGenModule::emitGlobalFunctionDefinition(clang::GlobalDecl gd,
+                                                       mlir::Operation *op) {
   auto const *funcDecl = cast<FunctionDecl>(gd.getDecl());
   const CIRGenFunctionInfo &fi = getTypes().arrangeGlobalDeclaration(gd);
   cir::FuncType funcType = getTypes().getFunctionType(fi);
@@ -781,7 +816,12 @@ void CIRGenModule::emitGlobalFunctionDefinition(clang::GlobalDecl gd,
 
   // Already emitted.
   if (!funcOp.isDeclaration())
-    return;
+    return funcOp;
+  // Inline builtin emission leaves the public spelling as a declaration and
+  // owns the body under a distinct .inline symbol. Check the requested symbol
+  // before mutating its definition linkage on a repeated emission request.
+  if (!emittedFunctionBodySymbols.insert(funcOp.getSymName()).second)
+    return funcOp;
   llvm::TimeTraceScope timeScope("CIRGen Function", [&]() {
     std::string name;
     llvm::raw_string_ostream os(name);
@@ -801,13 +841,22 @@ void CIRGenModule::emitGlobalFunctionDefinition(clang::GlobalDecl gd,
   curCGF = &cgf;
   {
     mlir::OpBuilder::InsertionGuard guard(builder);
-    if (!emittedFunctionBodySymbols.insert(funcOp.getSymName()).second) {
-      curCGF = previousCGF;
-      return;
+    cir::FuncOp generatedFuncOp = cgf.generateCode(gd, funcOp, funcType);
+    if (generatedFuncOp) {
+      // Inline builtin definitions are emitted under a distinct internal
+      // symbol. Keep their external fallback declaration private, and apply
+      // definition attributes to the function that actually owns the body.
+      if (generatedFuncOp == funcOp)
+        setFunctionLinkage(gd, generatedFuncOp);
+      funcOp = generatedFuncOp;
     }
-    cgf.generateCode(gd, funcOp, funcType);
   }
   curCGF = previousCGF;
+  // A definition can replace a declaration created from an earlier
+  // redeclaration, and inline builtins move the body to a distinct operation.
+  // Attach declaration and specialization identity to the operation that
+  // actually owns the body.
+  setCIRFunctionAttributes(gd, fi, funcOp, /*isThunk=*/false);
 
   setNonAliasAttributes(gd, funcOp);
   setCIRFunctionAttributesForDefinition(funcDecl, funcOp);
@@ -829,6 +878,8 @@ void CIRGenModule::emitGlobalFunctionDefinition(clang::GlobalDecl gd,
 
   if (getLangOpts().OpenMP && funcDecl->hasAttr<OMPDeclareTargetDeclAttr>())
     getOpenMPRuntime().emitDeclareTargetFunction(funcDecl, funcOp);
+
+  return funcOp;
 }
 
 /// Track functions to be called before main() runs.
@@ -1337,8 +1388,10 @@ CIRGenModule::getOrCreateCIRGlobal(StringRef mangledName, mlir::Type ty,
     assert(!cir::MissingFeatures::openMP());
 
     if (entry.getSymType() == ty &&
-        cir::isMatchingAddressSpace(entryCIRAS, langAS))
+        cir::isMatchingAddressSpace(entryCIRAS, langAS)) {
+      setObjectArrayAllocationMetadata(entry.getOperation(), d->getType());
       return entry;
+    }
 
     // If there are two attempts to define the same mangled name, issue an
     // error.
@@ -1383,6 +1436,7 @@ CIRGenModule::getOrCreateCIRGlobal(StringRef mangledName, mlir::Type ty,
   // mark it as such.
   cir::GlobalOp gv = createGlobalOp(loc, mangledName, ty, isConstant, declCIRAS,
                                     /*insertPoint=*/entry.getOperation());
+  setObjectArrayAllocationMetadata(gv.getOperation(), d->getType());
 
   // If we already created a global with the same mangled name (but different
   // type) before, remove it from its parent.
@@ -1466,6 +1520,8 @@ CIRGenModule::getOrCreateCIRGlobal(const VarDecl *d, mlir::Type ty,
   QualType astTy = d->getType();
   if (!ty)
     ty = getTypes().convertTypeForMem(astTy);
+  if (selectedDeclRootMode && !isSelectedDeclRoot(GlobalDecl(d)))
+    addSelectedDeclDependency(GlobalDecl(d));
 
   StringRef mangledName = getMangledName(d);
   return getOrCreateCIRGlobal(mangledName, ty, getGlobalVarAddressSpace(d), d,
@@ -1497,7 +1553,6 @@ mlir::Value CIRGenModule::getAddrOfGlobalVar(const VarDecl *d, mlir::Type ty,
 cir::GlobalViewAttr CIRGenModule::getAddrOfGlobalVarAttr(const VarDecl *d) {
   assert(d->hasGlobalStorage() && "Not a global variable");
   mlir::Type ty = getTypes().convertTypeForMem(d->getType());
-
   cir::GlobalOp globalOp = getOrCreateCIRGlobal(d, ty, NotForDefinition);
   cir::PointerType ptrTy =
       builder.getPointerTo(ty, globalOp.getAddrSpaceAttr());
@@ -1577,17 +1632,43 @@ void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
   // Whether the definition of the variable is available externally.
   // If yes, we shouldn't emit the GloablCtor and GlobalDtor for the variable
   // since this is the job for its original source.
-  bool isDefinitionAvailableExternally =
+  const bool isSelectedDeclarationOnlyMember =
+      isSelectedStaticDataMemberDeclaration(vd);
+  const bool isDefinitionAvailableExternally =
+      isSelectedDeclarationOnlyMember ||
       astContext.GetGVALinkageForVariable(vd) == GVA_AvailableExternally;
 
   // It is useless to emit the definition for an available_externally variable
   // which can't be marked as const.
+  // A class-template static data member covered by an explicit instantiation
+  // declaration records constant initialization only on its initializing
+  // in-class declaration; the instantiated out-of-line definition that CIR
+  // emits never carries an EvaluatedStmt, so hasConstantInitialization() is
+  // false on `vd` even though the exact evaluated constant exists (libc++
+  // basic_string<CharT>::npos). Selected-decl emission owns that typed
+  // initializer fact: materialize the available_externally definition from
+  // the initializing declaration's evaluated constant instead of leaving the
+  // selected symbol declaration-only. The explicit-instantiation-definition
+  // translation unit still owns the strong symbol.
+  auto hasSelectedEmittableConstantInit = [&] {
+    if (!selectedDeclRootMode)
+      return false;
+    if (vd->needsDestruction(astContext) ||
+        !vd->getType().isConstantStorage(astContext, /*ExcludeCtor=*/true,
+                                         /*ExcludeDtor=*/true))
+      return false;
+    const VarDecl *initializingDecl = nullptr;
+    if (!vd->getAnyInitializer(initializingDecl))
+      return false;
+    return initializingDecl->evaluateValue() != nullptr;
+  };
   if (isDefinitionAvailableExternally &&
       (!vd->hasConstantInitialization() ||
        // TODO: Update this when we have interface to check constexpr
        // destructor.
        vd->needsDestruction(astContext) ||
-       !vd->getType().isConstantStorage(astContext, true, true)))
+       !vd->getType().isConstantStorage(astContext, true, true)) &&
+      !hasSelectedEmittableConstantInit())
     return;
 
   mlir::Attribute init;
@@ -1692,7 +1773,10 @@ void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
     addGlobalAnnotations(vd, gv);
 
   // Set CIR's linkage type as appropriate.
-  cir::GlobalLinkageKind linkage = getCIRLinkageVarDefinition(vd);
+  cir::GlobalLinkageKind linkage =
+      isSelectedDeclarationOnlyMember
+          ? cir::GlobalLinkageKind::AvailableExternallyLinkage
+          : getCIRLinkageVarDefinition(vd);
 
   // CUDA B.2.1 "The __device__ qualifier declares a variable that resides on
   // the device. [...]"
@@ -1722,6 +1806,51 @@ void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
 
   // Set initializer and finalize emission
   CIRGenModule::setInitializer(gv, init);
+  if (const auto *memberPointer =
+          vd->getType().getCanonicalType()->getAs<MemberPointerType>();
+      memberPointer && memberPointer->isMemberFunctionPointer()) {
+    setMemberPointerTargetMetadata(gv.getOperation(), vd->getType());
+    mlir::NamedAttrList identity;
+    const Expr *constantExpr =
+        initExpr ? initExpr->IgnoreParenImpCasts() : nullptr;
+    const CXXMethodDecl *methodDecl = nullptr;
+    if (const auto *address = dyn_cast_or_null<UnaryOperator>(constantExpr);
+        address && address->getOpcode() == UO_AddrOf) {
+      const Expr *referenced = address->getSubExpr()->IgnoreParenImpCasts();
+      if (const auto *declRef = dyn_cast<DeclRefExpr>(referenced))
+        methodDecl = dyn_cast<CXXMethodDecl>(declRef->getDecl());
+      else if (const auto *member = dyn_cast<MemberExpr>(referenced))
+        methodDecl = dyn_cast<CXXMethodDecl>(member->getMemberDecl());
+    }
+    if (methodDecl) {
+      auto exact = buildCIRGenVirtualMethodIdentityAttrs(
+          *this, getMLIRContext(), getMangledName(GlobalDecl(methodDecl)),
+          methodDecl);
+      identity.set("kind", builder.getStringAttr("method"));
+      identity.set("method_symbol", exact.method);
+      identity.set("is_virtual", builder.getBoolAttr(methodDecl->isVirtual()));
+      if (exact.methodUSR)
+        identity.set("method_usr", exact.methodUSR);
+      if (auto declaringClass = getRecordUSRAttr(methodDecl->getParent()))
+        identity.set("method_declaring_class_usr", declaringClass);
+      if (exact.rootMethodUSR)
+        identity.set("virtual_root_method_usr", exact.rootMethodUSR);
+      if (exact.declaringClassUSR)
+        identity.set("virtual_root_declaring_class_usr",
+                     exact.declaringClassUSR);
+      if (exact.rootAlternatives)
+        identity.set("virtual_root_alternatives", exact.rootAlternatives);
+    } else if (initExpr && initExpr->isNullPointerConstant(
+                               astContext, Expr::NPC_ValueDependentIsNull)) {
+      identity.set("kind", builder.getStringAttr("null"));
+      identity.set("null_function_value", builder.getStringAttr("0"));
+      identity.set("null_adjustment_value", builder.getStringAttr("0"));
+    }
+    if (!identity.empty()) {
+      gv->setAttr("ast_member_function_pointer_constant",
+                  identity.getDictionary(&getMLIRContext()));
+    }
+  }
   if (emitter)
     emitter->finalize(gv);
 
@@ -1780,25 +1909,26 @@ void CIRGenModule::emitGlobalDefinition(clang::GlobalDecl gd,
     if (const auto *method = dyn_cast<CXXMethodDecl>(decl)) {
       // Make sure to emit the definition(s) before we emit the thunks. This is
       // necessary for the generation of certain thunks.
+      cir::FuncOp definition;
       if (isa<CXXConstructorDecl>(method) || isa<CXXDestructorDecl>(method))
         abi->emitCXXStructor(gd);
       else if (fd->isMultiVersion())
         errorNYI(method->getSourceRange(), "multiversion functions");
       else
-        emitGlobalFunctionDefinition(gd, op);
+        definition = emitGlobalFunctionDefinition(gd, op);
 
       if (method->isVirtual()) {
         getVTables().emitThunks(gd);
       }
 
-      noteSelectedDeclRootDefinition(gd);
+      noteSelectedDeclRootDefinition(gd, definition);
       return;
     }
 
     if (fd->isMultiVersion())
       errorNYI(fd->getSourceRange(), "multiversion functions");
-    emitGlobalFunctionDefinition(gd, op);
-    noteSelectedDeclRootDefinition(gd);
+    cir::FuncOp definition = emitGlobalFunctionDefinition(gd, op);
+    noteSelectedDeclRootDefinition(gd, definition);
     return;
   }
 
@@ -2037,6 +2167,10 @@ void CIRGenModule::applyReplacements() {
       for (mlir::NamedAttribute named : dictionary) {
         mlir::Attribute value = named.getValue();
         llvm::StringRef name = named.getName().strref();
+        // Cleanup constructor/destructor symbols and call callee_symbol name
+        // the exact ABI body actually used, so they follow replacement.
+        // ast_constructor_call.canonical_symbol is instead the stable
+        // complete-object C1 declaration identity and must not be rewritten.
         if (name == "constructor_symbol" || name == "destructor_symbol" ||
             name == "callee_symbol") {
           if (auto symbol = mlir::dyn_cast<mlir::StringAttr>(value)) {
@@ -2073,25 +2207,20 @@ void CIRGenModule::applyReplacements() {
   // Build one batch replacer; scope discovery below collects every relevant
   // module-level use before any operation is mutated or erased.
   mlir::AttrTypeReplacer replacer;
-  replacer.addReplacement(
-      [&](mlir::SymbolRefAttr symbolRef)
-          -> std::pair<mlir::Attribute, mlir::WalkResult> {
-        auto replacement =
-            terminalBySource.find(symbolRef.getRootReference());
-        if (replacement == terminalBySource.end())
-          return {symbolRef, mlir::WalkResult::skip()};
+  replacer.addReplacement([&](mlir::SymbolRefAttr symbolRef)
+                              -> std::pair<mlir::Attribute, mlir::WalkResult> {
+    auto replacement = terminalBySource.find(symbolRef.getRootReference());
+    if (replacement == terminalBySource.end())
+      return {symbolRef, mlir::WalkResult::skip()};
 
-        mlir::StringAttr newName = replacement->second;
-        if (mlir::isa<mlir::FlatSymbolRefAttr>(symbolRef))
-          return {mlir::FlatSymbolRefAttr::get(newName),
-                  mlir::WalkResult::skip()};
-        return {mlir::SymbolRefAttr::get(
-                    newName, symbolRef.getNestedReferences()),
-                mlir::WalkResult::skip()};
-      });
+    mlir::StringAttr newName = replacement->second;
+    if (mlir::isa<mlir::FlatSymbolRefAttr>(symbolRef))
+      return {mlir::FlatSymbolRefAttr::get(newName), mlir::WalkResult::skip()};
+    return {mlir::SymbolRefAttr::get(newName, symbolRef.getNestedReferences()),
+            mlir::WalkResult::skip()};
+  });
 
-  using AttributeUpdate =
-      std::pair<mlir::Operation *, mlir::DictionaryAttr>;
+  using AttributeUpdate = std::pair<mlir::Operation *, mlir::DictionaryAttr>;
   llvm::SmallVector<AttributeUpdate> attributeUpdates;
   {
     auto symbolUses =
@@ -2106,7 +2235,8 @@ void CIRGenModule::applyReplacements() {
     theModule.walk([&](mlir::Operation *op) {
       if (op->hasAttr("ast_automatic_object_identity") ||
           op->hasAttr("ast_temporary_object_identities") ||
-          op->hasAttr("ast_conditional_cleanup_identities"))
+          op->hasAttr("ast_conditional_cleanup_identities") ||
+          op->hasAttr("ast_constructor_call"))
         relevantUsers.insert(op);
     });
     for (const mlir::SymbolTable::SymbolUse &use : *symbolUses)
@@ -2116,10 +2246,11 @@ void CIRGenModule::applyReplacements() {
     for (mlir::Operation *op : relevantUsers) {
       mlir::StringAttr normalizedDestructorCallee;
       mlir::StringAttr normalizedDestructorVariant;
+      mlir::StringAttr normalizedConstructorCallee;
+      mlir::StringAttr normalizedConstructorVariant;
       if (auto call = mlir::dyn_cast<cir::CallOp>(op)) {
         if (mlir::FlatSymbolRefAttr callee = call.getCalleeAttr()) {
-          auto replacement =
-              terminalBySource.find(callee.getRootReference());
+          auto replacement = terminalBySource.find(callee.getRootReference());
           if (replacement != terminalBySource.end()) {
             cir::FuncOp newFunction =
                 lookupFuncOp(replacement->second.getValue());
@@ -2134,6 +2265,17 @@ void CIRGenModule::applyReplacements() {
               if (!normalizedDestructorVariant) {
                 errorNYI(op->getLoc(),
                          "destructor replacement target has no ABI variant");
+                return;
+              }
+            }
+            if (op->hasAttr("ast_constructor_call")) {
+              normalizedConstructorCallee = replacement->second;
+              normalizedConstructorVariant =
+                  newFunction->getAttrOfType<mlir::StringAttr>(
+                      "abi_ctor_variant");
+              if (!normalizedConstructorVariant) {
+                errorNYI(op->getLoc(),
+                         "constructor replacement target has no ABI variant");
                 return;
               }
             }
@@ -2153,11 +2295,11 @@ void CIRGenModule::applyReplacements() {
         for (llvm::StringRef name :
              {"ast_automatic_object_identity",
               "ast_temporary_object_identities",
-              "ast_conditional_cleanup_identities"}) {
+              "ast_conditional_cleanup_identities", "ast_constructor_call"}) {
           if (mlir::Attribute identity = newAttrs.get(name))
-            normalized.set(
-                name, normalizeLifecycleIdentitySymbols(
-                          normalizeLifecycleIdentitySymbols, identity));
+            normalized.set(name,
+                           normalizeLifecycleIdentitySymbols(
+                               normalizeLifecycleIdentitySymbols, identity));
         }
         newAttrs = normalized.getDictionary(&getMLIRContext());
       }
@@ -2172,6 +2314,20 @@ void CIRGenModule::applyReplacements() {
         mlir::NamedAttrList normalizedAttrs(newAttrs);
         normalizedAttrs.set(
             "ast_destructor_call",
+            normalizedIdentity.getDictionary(&getMLIRContext()));
+        newAttrs = normalizedAttrs.getDictionary(&getMLIRContext());
+      }
+      if (normalizedConstructorCallee) {
+        auto constructorIdentity =
+            newAttrs.getAs<mlir::DictionaryAttr>("ast_constructor_call");
+        assert(constructorIdentity &&
+               "constructor call identity disappeared during replacement");
+        mlir::NamedAttrList normalizedIdentity(constructorIdentity);
+        normalizedIdentity.set("callee_symbol", normalizedConstructorCallee);
+        normalizedIdentity.set("variant", normalizedConstructorVariant);
+        mlir::NamedAttrList normalizedAttrs(newAttrs);
+        normalizedAttrs.set(
+            "ast_constructor_call",
             normalizedIdentity.getDictionary(&getMLIRContext()));
         newAttrs = normalizedAttrs.getDictionary(&getMLIRContext());
       }
@@ -2657,10 +2813,37 @@ static const RecordDecl *getCastEndpointRecord(QualType type) {
       type = array->getElementType();
       continue;
     }
+    const RecordDecl *record = nullptr;
     if (const auto *tag = type->getAs<TagType>())
-      return dyn_cast<RecordDecl>(tag->getDecl());
-    return type->getAsRecordDecl();
+      record = dyn_cast<RecordDecl>(tag->getDecl());
+    else
+      record = type->getAsRecordDecl();
+    if (!record)
+      return nullptr;
+    record = cast<RecordDecl>(record->getCanonicalDecl());
+    return record->getDefinition() ? record->getDefinition() : record;
   }
+}
+
+std::optional<CIRGenModule::ExactRecordEndpoint>
+CIRGenModule::getExactRecordEndpoint(QualType type) {
+  const RecordDecl *record = getCastEndpointRecord(type);
+  if (!record)
+    return std::nullopt;
+
+  // Conversion can instantiate a previously incomplete specialization.
+  // Resolve the endpoint again afterwards so the schema and identity are both
+  // taken from the same final RecordDecl.
+  (void)getTypes().convertRecordDeclType(record);
+  record = getCastEndpointRecord(type);
+  auto schema =
+      dyn_cast<cir::RecordType>(getTypes().convertRecordDeclType(record));
+  mlir::StringAttr identity = getRecordUSRAttr(record);
+  if (!schema || !schema.getName() || !identity)
+    return std::nullopt;
+
+  addRecordDeclIdentity(schema.getName(), identity);
+  return ExactRecordEndpoint{schema, identity};
 }
 
 static const RecordDecl *getConditionalEndpointRecord(const Expr *expr) {
@@ -2679,14 +2862,294 @@ mlir::StringAttr CIRGenModule::getRecordUSRAttr(const RecordDecl *record) {
   if (!record)
     return {};
   record = cast<RecordDecl>(record->getCanonicalDecl());
-  auto [cached, inserted] = recordUSRCache.try_emplace(record);
-  if (!inserted)
-    return cached->second;
-  llvm::SmallString<256> usr;
-  if (clang::index::generateUSRForDecl(record, usr) || usr.empty())
+  // Cast/conditional endpoint identity is authoritative even when CIR erases
+  // the endpoint behind void storage or only retains it inside a nested
+  // template argument. Materialize this exact canonical RecordDecl through the
+  // ordinary CIR type owner so its name, identity, empty-schema fact, and ABI
+  // layout travel together in the module metadata.
+  mlir::Type schemaType = getTypes().convertRecordDeclType(record);
+  exactRecordDeclByCIRType[schemaType] = record;
+  // An implicit specialization can be named by a pointer while it is still
+  // incomplete and acquire its ODR/argument-owner identity only when a later
+  // use instantiates the definition. Never cache that provisional identity.
+  const RecordDecl *definition = record->getDefinition();
+  const bool identityIsFinal = definition && definition->isCompleteDefinition();
+  if (identityIsFinal) {
+    if (auto cached = recordUSRCache.find(record);
+        cached != recordUSRCache.end())
+      return cached->second;
+  }
+  std::optional<std::string> identity = recordDeclIdentity(*this, record);
+  if (!identity.has_value() || identity->empty())
     return {};
-  cached->second = builder.getStringAttr(usr);
-  return cached->second;
+  mlir::StringAttr result = builder.getStringAttr(*identity);
+  if (identityIsFinal)
+    recordUSRCache[record] = result;
+  return result;
+}
+
+void CIRGenModule::refreshExactRecordOperationIdentities() {
+  auto refreshDictionary =
+      [&](mlir::DictionaryAttr dictionary,
+          llvm::ArrayRef<std::pair<llvm::StringRef, llvm::StringRef>>
+              endpointKeys) -> mlir::DictionaryAttr {
+    mlir::NamedAttrList refreshed(dictionary);
+    for (const auto &[schemaKey, usrKey] : endpointKeys) {
+      auto schema = dictionary.getAs<mlir::TypeAttr>(schemaKey);
+      if (!schema)
+        continue;
+      auto record = exactRecordDeclByCIRType.find(schema.getValue());
+      if (record == exactRecordDeclByCIRType.end())
+        continue;
+      std::optional<std::string> identity =
+          recordDeclIdentity(*this, record->second);
+      if (identity.has_value() && !identity->empty())
+        refreshed.set(usrKey, builder.getStringAttr(*identity));
+    }
+    return refreshed.getDictionary(&getMLIRContext());
+  };
+
+  theModule.walk([&](mlir::Operation *operation) {
+    // Member operations can be cloned after their exact FieldDecl was
+    // recorded. Reconcile the redundant source-location copy from the
+    // operation's final direct identity so a clone cannot retain provisional
+    // template-instantiation metadata.
+    const auto directMember =
+        operation->getAttrOfType<mlir::StringAttr>("ast_member_decl_usr");
+    const auto directRecord =
+        operation->getAttrOfType<mlir::StringAttr>("ast_declaring_record_usr");
+    if (directMember && directRecord) {
+      if (auto fused = dyn_cast<mlir::FusedLoc>(operation->getLoc())) {
+        if (auto metadata =
+                dyn_cast_or_null<mlir::DictionaryAttr>(fused.getMetadata())) {
+          if (metadata.contains("ast_member_decl_usr") ||
+              metadata.contains("ast_declaring_record_usr")) {
+            mlir::NamedAttrList refreshedMetadata(metadata);
+            refreshedMetadata.set("ast_member_decl_usr", directMember);
+            refreshedMetadata.set("ast_declaring_record_usr", directRecord);
+            operation->setLoc(mlir::FusedLoc::get(
+                fused.getLocations(),
+                refreshedMetadata.getDictionary(&getMLIRContext()),
+                &getMLIRContext()));
+          }
+        }
+      }
+    }
+    if (auto classAddr = classAddrIdentityDeclsByOperation.find(operation);
+        classAddr != classAddrIdentityDeclsByOperation.end()) {
+      const mlir::StringAttr derivedUSR = getRecordUSRAttr(classAddr->second.first);
+      const mlir::StringAttr baseUSR = getRecordUSRAttr(classAddr->second.second);
+      if (derivedUSR && baseUSR) {
+        operation->setAttr("ast_derived_record_usr", derivedUSR);
+        operation->setAttr("ast_base_record_usr", baseUSR);
+      }
+    }
+    if (auto specialization =
+            specializationIdentityDeclByOperation.find(operation);
+        specialization != specializationIdentityDeclByOperation.end()) {
+      if (auto identity = operation->getAttrOfType<mlir::DictionaryAttr>(
+              "ast_decl_specialization_identity")) {
+        const FunctionDecl *instantiation = specialization->second;
+        const FunctionDecl *pattern =
+            instantiation ? instantiation->getTemplateInstantiationPattern()
+                          : nullptr;
+        llvm::SmallString<256> patternUSR;
+        if (pattern && pattern != instantiation &&
+            !clang::index::generateUSRForDecl(pattern->getCanonicalDecl(),
+                                              patternUSR)) {
+          mlir::NamedAttrList refreshedIdentity(identity);
+          refreshedIdentity.set("template_pattern_usr",
+                                builder.getStringAttr(patternUSR));
+          if (auto poi = sourceLocationIdentity(
+                  getASTContext(), instantiation->getPointOfInstantiation()))
+            refreshedIdentity.set("poi", builder.getStringAttr(*poi));
+          operation->setAttr(
+              "ast_decl_specialization_identity",
+              refreshedIdentity.getDictionary(&getMLIRContext()));
+        }
+      }
+    }
+    if (auto field = exactFieldDeclByOperation.find(operation);
+        field != exactFieldDeclByOperation.end()) {
+      const FieldDecl *declaration = field->second;
+      const std::optional<std::string> fieldID =
+          fieldDeclIdentity(*this, declaration);
+      const mlir::StringAttr ownerUSR =
+          getRecordUSRAttr(declaration->getParent());
+      if (fieldID.has_value() && !fieldID->empty() && ownerUSR) {
+        operation->setAttr("ast_member_decl_usr",
+                           builder.getStringAttr(*fieldID));
+        operation->setAttr("ast_declaring_record_usr", ownerUSR);
+        if (auto fused = dyn_cast<mlir::FusedLoc>(operation->getLoc())) {
+          if (auto metadata =
+                  dyn_cast_or_null<mlir::DictionaryAttr>(fused.getMetadata())) {
+            mlir::NamedAttrList refreshedMetadata(metadata);
+            refreshedMetadata.set("ast_member_decl_usr",
+                                  builder.getStringAttr(*fieldID));
+            refreshedMetadata.set("ast_declaring_record_usr", ownerUSR);
+            operation->setLoc(mlir::FusedLoc::get(
+                fused.getLocations(),
+                refreshedMetadata.getDictionary(&getMLIRContext()),
+                &getMLIRContext()));
+          }
+        }
+      }
+      if (auto endpoint = operation->getAttrOfType<mlir::DictionaryAttr>(
+              "ast_member_record_endpoint")) {
+        if (fieldID.has_value() && !fieldID->empty() && ownerUSR) {
+          mlir::NamedAttrList refreshedEndpoint(endpoint);
+          refreshedEndpoint.set("declaring_record_usr", ownerUSR);
+          refreshedEndpoint.set("field_decl_usr",
+                                builder.getStringAttr(*fieldID));
+          operation->setAttr(
+              "ast_member_record_endpoint",
+              refreshedEndpoint.getDictionary(&getMLIRContext()));
+        }
+      }
+    }
+    if (auto cast =
+            operation->getAttrOfType<mlir::DictionaryAttr>("ast_cast_expr")) {
+      mlir::DictionaryAttr refreshedCast = refreshDictionary(
+          cast, {{"source_record_schema", "source_record_usr"},
+                 {"result_record_schema", "result_record_usr"}});
+      mlir::NamedAttrList concreteCast(refreshedCast);
+      auto refreshConcreteDependentEndpoint = [&](llvm::StringRef prefix,
+                                                  mlir::Type type) {
+        const std::string presenceKey = (prefix + "_record_presence").str();
+        auto presence =
+            dyn_cast_or_null<mlir::StringAttr>(concreteCast.get(presenceKey));
+        if (!presence || presence.getValue() != "dependent")
+          return;
+        while (auto pointer = dyn_cast<cir::PointerType>(type))
+          type = pointer.getPointee();
+        auto schema = dyn_cast<cir::RecordType>(type);
+        if (!schema)
+          return;
+        auto exact = exactRecordDeclByCIRType.find(schema);
+        if (exact == exactRecordDeclByCIRType.end())
+          return;
+        std::optional<std::string> identity =
+            recordDeclIdentity(*this, exact->second);
+        if (!identity.has_value() || identity->empty())
+          return;
+        concreteCast.set(presenceKey, builder.getStringAttr("record"));
+        concreteCast.set((prefix + "_record_schema").str(),
+                         mlir::TypeAttr::get(schema));
+        concreteCast.set((prefix + "_record_usr").str(),
+                         builder.getStringAttr(*identity));
+      };
+      if (operation->getNumOperands() != 0)
+        refreshConcreteDependentEndpoint("source",
+                                         operation->getOperand(0).getType());
+      if (operation->getNumResults() != 0)
+        refreshConcreteDependentEndpoint("result",
+                                         operation->getResult(0).getType());
+      refreshedCast = concreteCast.getDictionary(&getMLIRContext());
+      operation->setAttr("ast_cast_expr", refreshedCast);
+      auto sourceUSR =
+          refreshedCast.getAs<mlir::StringAttr>("source_record_usr");
+      auto resultUSR =
+          refreshedCast.getAs<mlir::StringAttr>("result_record_usr");
+      if (sourceUSR && resultUSR) {
+        if (llvm::isa<cir::BaseClassAddrOp>(operation)) {
+          operation->setAttr("ast_derived_record_usr", sourceUSR);
+          operation->setAttr("ast_base_record_usr", resultUSR);
+        } else if (llvm::isa<cir::DerivedClassAddrOp>(operation)) {
+          operation->setAttr("ast_base_record_usr", sourceUSR);
+          operation->setAttr("ast_derived_record_usr", resultUSR);
+        }
+      }
+    }
+    // Object-storage, array-allocation, member-endpoint, conditional, and
+    // copy schemas mint their record identity when the operation is created.
+    // Selected-decl emission can complete a specialization afterwards, so
+    // reconcile each dictionary from the final exact RecordDecl exactly as
+    // addRecordDeclIdentity keeps the module map synchronized.
+    if (auto storage = operation->getAttrOfType<mlir::DictionaryAttr>(
+            "ast_object_storage")) {
+      operation->setAttr(
+          "ast_object_storage",
+          refreshDictionary(storage, {{"record_schema", "record_usr"}}));
+    }
+    if (auto arrayAllocation = operation->getAttrOfType<mlir::DictionaryAttr>(
+            "ast_object_array_allocation")) {
+      operation->setAttr(
+          "ast_object_array_allocation",
+          refreshDictionary(arrayAllocation,
+                            {{"element_record_schema", "element_record_usr"}}));
+    }
+    if (auto memberEndpoint = operation->getAttrOfType<mlir::DictionaryAttr>(
+            "ast_member_record_endpoint")) {
+      operation->setAttr(
+          "ast_member_record_endpoint",
+          refreshDictionary(memberEndpoint, {{"record_schema", "record_usr"}}));
+    }
+    if (auto conditional = operation->getAttrOfType<mlir::DictionaryAttr>(
+            "ast_conditional_expr")) {
+      operation->setAttr(
+          "ast_conditional_expr",
+          refreshDictionary(conditional,
+                            {{"result_record_schema", "result_record_usr"}}));
+    }
+    if (auto copySchema = operation->getAttrOfType<mlir::DictionaryAttr>(
+            "ast_copy_schema")) {
+      operation->setAttr(
+          "ast_copy_schema",
+          refreshDictionary(
+              copySchema,
+              {{"source_record_schema", "source_record_usr"},
+               {"destination_record_schema", "destination_record_usr"},
+               {"replacement_record_schema", "replacement_record_usr"}}));
+    }
+    auto temporaryIdentities = operation->getAttrOfType<mlir::ArrayAttr>(
+        "ast_temporary_object_identities");
+    if (!temporaryIdentities)
+      return;
+    llvm::SmallVector<mlir::Attribute> refreshedIdentities;
+    refreshedIdentities.reserve(temporaryIdentities.size());
+    for (mlir::Attribute attribute : temporaryIdentities) {
+      auto identity = mlir::dyn_cast<mlir::DictionaryAttr>(attribute);
+      refreshedIdentities.push_back(
+          identity ? refreshDictionary(identity, {{"constructor_record_schema",
+                                                   "constructor_record_usr"}})
+                   : attribute);
+    }
+    operation->setAttr("ast_temporary_object_identities",
+                       builder.getArrayAttr(refreshedIdentities));
+  });
+  // A module map entry minted while its specialization was provisional and
+  // never re-derived would publish a stale identity for the CIR record name.
+  // Recompute every entry from the exact RecordDecl that owns the schema.
+  llvm::DenseMap<mlir::StringAttr, const RecordDecl *> recordsBySchemaName;
+  for (const auto &[type, record] : exactRecordDeclByCIRType)
+    if (auto recordType = dyn_cast<cir::RecordType>(type))
+      if (recordType.getName())
+        recordsBySchemaName[recordType.getName()] = record;
+  // Recomputing an identity can materialize a nested specialization's record
+  // type, and that path appends to recordDeclIdentityEntries. Snapshot the
+  // names first, compute every identity, then write the results back: holding
+  // a reference into the vector across recordDeclIdentity would dangle the
+  // moment it grows.
+  llvm::SmallVector<mlir::StringAttr> refreshNames;
+  refreshNames.reserve(recordDeclIdentityEntries.size());
+  for (const mlir::NamedAttribute &entry : recordDeclIdentityEntries)
+    if (recordsBySchemaName.contains(entry.getName()))
+      refreshNames.push_back(entry.getName());
+  llvm::DenseMap<mlir::StringAttr, mlir::StringAttr> refreshedIdentityByName;
+  for (mlir::StringAttr name : refreshNames) {
+    auto found = recordsBySchemaName.find(name);
+    if (found == recordsBySchemaName.end())
+      continue;
+    std::optional<std::string> identity =
+        recordDeclIdentity(*this, found->second);
+    if (identity.has_value() && !identity->empty())
+      refreshedIdentityByName[name] = builder.getStringAttr(*identity);
+  }
+  for (mlir::NamedAttribute &entry : recordDeclIdentityEntries) {
+    auto refreshed = refreshedIdentityByName.find(entry.getName());
+    if (refreshed != refreshedIdentityByName.end())
+      entry = mlir::NamedAttribute(entry.getName(), refreshed->second);
+  }
 }
 
 mlir::ArrayAttr CIRGenModule::buildCastEndpointSourceType(QualType type) {
@@ -2749,6 +3212,159 @@ mlir::StringAttr CIRGenModule::getSourceTypeSpelling(QualType type) {
   return cached->second;
 }
 
+void CIRGenModule::setFieldEndpointMetadata(mlir::Operation *op,
+                                            const FieldDecl *field) {
+  if (!op || !field)
+    return;
+
+  const bool recordValued = getCastEndpointRecord(field->getType()) != nullptr;
+  const std::optional<std::string> fieldID = fieldDeclIdentity(*this, field);
+  const RecordDecl *owner = field->getParent();
+  const mlir::StringAttr ownerUSR = getRecordUSRAttr(owner);
+  if (!fieldID.has_value() || fieldID->empty() || !ownerUSR) {
+    if (recordValued) {
+      const std::string detail =
+          "record field has no exact FieldDecl identity: field=" +
+          field->getQualifiedNameAsString() +
+          ", type=" + field->getType().getAsString() +
+          (fieldID.has_value() && !fieldID->empty() ? ", field_usr=exact"
+                                                    : ", field_usr=missing") +
+          (ownerUSR ? ", owner_usr=exact" : ", owner_usr=missing");
+      errorNYI(op->getLoc(), detail);
+    }
+    return;
+  }
+
+  op->setAttr("ast_member_decl_usr", builder.getStringAttr(*fieldID));
+  op->setAttr("ast_declaring_record_usr", ownerUSR);
+  exactFieldDeclByOperation[op] = field->getCanonicalDecl();
+  op->setAttr("ast_member_offset_bits",
+              builder.getI64IntegerAttr(
+                  static_cast<int64_t>(getASTContext().getFieldOffset(field))));
+
+  // Scalar fields need only their exact FieldDecl owner above. For a field
+  // whose terminal AST endpoint is a record, also carry the endpoint's exact
+  // CIR schema. This pair remains authoritative when a return slot,
+  // temporary, or ABI transform retains the field address but rewrites its
+  // surrounding record type.
+  if (!recordValued)
+    return;
+  std::optional<ExactRecordEndpoint> recordEndpoint =
+      getExactRecordEndpoint(field->getType());
+  mlir::Type storageType;
+  if (op->getNumResults() == 1) {
+    if (auto resultPointer =
+            dyn_cast<cir::PointerType>(op->getResult(0).getType()))
+      storageType = resultPointer.getPointee();
+  }
+  if (!recordEndpoint || !storageType) {
+    const std::string detail =
+        "record field has no exact endpoint schema: field=" +
+        field->getQualifiedNameAsString() +
+        ", type=" + field->getType().getAsString() +
+        ", op=" + op->getName().getStringRef().str() +
+        (recordEndpoint ? ", record_endpoint=exact"
+                        : ", record_endpoint=missing") +
+        (storageType ? ", storage_type=exact" : ", storage_type=missing");
+    errorNYI(op->getLoc(), detail);
+    return;
+  }
+
+  mlir::NamedAttrList endpoint;
+  endpoint.set("declaring_record_usr", ownerUSR);
+  endpoint.set("field_decl_usr", builder.getStringAttr(*fieldID));
+  endpoint.set("field_offset_bits",
+               builder.getI64IntegerAttr(static_cast<int64_t>(
+                   getASTContext().getFieldOffset(field))));
+  endpoint.set("field_storage_type", mlir::TypeAttr::get(storageType));
+  endpoint.set("record_schema", mlir::TypeAttr::get(recordEndpoint->schema));
+  endpoint.set("record_usr", recordEndpoint->identity);
+  endpoint.set("source_type", buildCastEndpointSourceType(field->getType()));
+  op->setAttr("ast_member_record_endpoint",
+              endpoint.getDictionary(&getMLIRContext()));
+}
+
+void CIRGenModule::setObjectStorageMetadata(mlir::Operation *op,
+                                            QualType type) {
+  if (!op || type.isNull() || op->hasAttr("ast_object_storage"))
+    return;
+  // MaterializeTemporaryExpr also wraps reference and pointer expressions.
+  // Their alloca stores the pointer value; the pointee RecordDecl is not the
+  // storage object's schema.
+  if (!type.getCanonicalType()->isRecordType())
+    return;
+  std::optional<ExactRecordEndpoint> exact = getExactRecordEndpoint(type);
+  if (!exact)
+    return;
+
+  mlir::NamedAttrList identity;
+  identity.set("record_usr", exact->identity);
+  identity.set("record_schema", mlir::TypeAttr::get(exact->schema));
+  identity.set("source_type", buildCastEndpointSourceType(type));
+  op->setAttr("ast_object_storage", identity.getDictionary(&getMLIRContext()));
+}
+
+void CIRGenModule::setObjectArrayAllocationMetadata(mlir::Operation *op,
+                                                    QualType type) {
+  if (!op || type.isNull() || op->hasAttr("ast_object_array_allocation"))
+    return;
+
+  QualType elementType = type.getCanonicalType();
+  llvm::SmallVector<mlir::Attribute, 2> extents;
+  while (const ArrayType *array = getASTContext().getAsArrayType(elementType)) {
+    const auto *constant = dyn_cast<ConstantArrayType>(array);
+    if (!constant)
+      return;
+    const llvm::APInt &extent = constant->getSize();
+    // A GNU zero-length array is still an exact fixed array. Preserve its
+    // zero extent as provenance; it describes storage with no element
+    // lifetimes.
+    if (extent.getActiveBits() > 63) {
+      errorNYI(op->getLoc(),
+               "object-array alloca extent is not representable in metadata");
+      return;
+    }
+    extents.push_back(
+        builder.getI64IntegerAttr(static_cast<int64_t>(extent.getZExtValue())));
+    elementType = array->getElementType().getCanonicalType();
+  }
+  if (extents.empty())
+    return;
+
+  const RecordDecl *record = elementType->getAsRecordDecl();
+  if (!record)
+    return;
+  if (const RecordDecl *definition = record->getDefinition())
+    record = definition;
+  mlir::StringAttr recordUSR = getRecordUSRAttr(record);
+  if (!recordUSR) {
+    errorNYI(op->getLoc(),
+             "object-array alloca element has no exact RecordDecl identity");
+    return;
+  }
+  auto recordSchema =
+      dyn_cast<cir::RecordType>(getTypes().convertRecordDeclType(record));
+  if (!recordSchema) {
+    errorNYI(op->getLoc(),
+             "object-array alloca element has no exact CIR record schema");
+    return;
+  }
+
+  mlir::NamedAttrList identity;
+  identity.set("array_extents", builder.getArrayAttr(extents));
+  identity.set("element_record_usr", recordUSR);
+  identity.set("element_record_schema", mlir::TypeAttr::get(recordSchema));
+  identity.set("source_type", buildCastEndpointSourceType(type));
+  op->setAttr("ast_object_array_allocation",
+              identity.getDictionary(&getMLIRContext()));
+}
+
+static StringRef getCastEndpointRecordPresence(QualType type) {
+  if (type->isDependentType() || type->isInstantiationDependentType())
+    return "dependent";
+  return getCastEndpointRecord(type) ? "record" : "no_record";
+}
+
 void CIRGenModule::setCastExprMetadata(mlir::Operation *op, const CastExpr *e) {
   if (!op || !e || op->hasAttr("ast_cast_expr"))
     return;
@@ -2763,16 +3379,45 @@ void CIRGenModule::setCastExprMetadata(mlir::Operation *op, const CastExpr *e) {
   identity.set("source_type",
                buildCastEndpointSourceType(e->getSubExpr()->getType()));
   identity.set("result_type", buildCastEndpointSourceType(e->getType()));
+  const StringRef sourceRecordPresence =
+      getCastEndpointRecordPresence(e->getSubExpr()->getType());
+  const StringRef resultRecordPresence =
+      getCastEndpointRecordPresence(e->getType());
+  identity.set("source_record_presence",
+               builder.getStringAttr(sourceRecordPresence));
+  identity.set("result_record_presence",
+               builder.getStringAttr(resultRecordPresence));
   identity.set("source_type_spelling",
                getSourceTypeSpelling(e->getSubExpr()->getType()));
   identity.set("result_type_spelling", getSourceTypeSpelling(e->getType()));
   // AST endpoints own record identity; the materialized CIR operation may
-  // wrap the record in an array or erase it behind a void pointer.
-  if (auto usr =
-          getRecordUSRAttr(getCastEndpointRecord(e->getSubExpr()->getType())))
-    identity.set("source_record_usr", usr);
-  if (auto usr = getRecordUSRAttr(getCastEndpointRecord(e->getType())))
-    identity.set("result_record_usr", usr);
+  // wrap the record in an array, erase it behind a void pointer, or retain
+  // only an enclosing template aggregate. Carry the exact CIR RecordType
+  // schema together with its canonical RecordDecl identity so consumers never
+  // have to reconstruct an endpoint schema from the destination spelling.
+  auto setRecordEndpoint = [&](StringRef endpoint, StringRef usrKey,
+                               StringRef schemaKey, QualType type) -> bool {
+    std::optional<ExactRecordEndpoint> exact = getExactRecordEndpoint(type);
+    if (!exact) {
+      std::string message = "cast ";
+      message.append(endpoint);
+      message.append(
+          " endpoint has no exact RecordDecl identity and CIR schema");
+      errorNYI(op->getLoc(), message);
+      return false;
+    }
+    identity.set(usrKey, exact->identity);
+    identity.set(schemaKey, mlir::TypeAttr::get(exact->schema));
+    return true;
+  };
+  if (sourceRecordPresence == "record" &&
+      !setRecordEndpoint("source", "source_record_usr", "source_record_schema",
+                         e->getSubExpr()->getType()))
+    return;
+  if (resultRecordPresence == "record" &&
+      !setRecordEndpoint("result", "result_record_usr", "result_record_schema",
+                         e->getType()))
+    return;
   op->setAttr("ast_cast_expr", identity.getDictionary(&getMLIRContext()));
 }
 
@@ -2782,37 +3427,166 @@ void CIRGenModule::setConditionalExprMetadata(
     return;
   mlir::NamedAttrList identity;
   identity.set("result_type", buildCastEndpointSourceType(e->getType()));
-  if (auto usr =
-          getRecordUSRAttr(getConditionalEndpointRecord(e->getTrueExpr())))
-    identity.set("result_record_usr", usr);
-  else if (auto usr = getRecordUSRAttr(
-               getConditionalEndpointRecord(e->getFalseExpr())))
-    identity.set("result_record_usr", usr);
-  else if (auto usr = getRecordUSRAttr(getCastEndpointRecord(e->getType())))
-    identity.set("result_record_usr", usr);
+  std::optional<ExactRecordEndpoint> exact =
+      getExactRecordEndpoint(e->getType());
+  if (!exact) {
+    if (const RecordDecl *record =
+            getConditionalEndpointRecord(e->getTrueExpr()))
+      exact = getExactRecordEndpoint(
+          record->getASTContext().getCanonicalTagType(record));
+  }
+  if (!exact) {
+    if (const RecordDecl *record =
+            getConditionalEndpointRecord(e->getFalseExpr()))
+      exact = getExactRecordEndpoint(
+          record->getASTContext().getCanonicalTagType(record));
+  }
+  if (exact) {
+    identity.set("result_record_usr", exact->identity);
+    identity.set("result_record_schema", mlir::TypeAttr::get(exact->schema));
+  }
   op->setAttr("ast_conditional_expr",
               identity.getDictionary(&getMLIRContext()));
 }
 
-void CIRGenModule::setMemberPointerTargetMetadata(mlir::Operation *op,
-                                                  QualType type) {
-  if (!op || op->hasAttr("ast_member_pointer_target"))
+void CIRGenModule::setAggregateCopyMetadata(mlir::Operation *op,
+                                            QualType destinationType,
+                                            QualType sourceType,
+                                            QualType replacementType) {
+  if (!op || op->hasAttr("ast_copy_schema"))
     return;
-  const auto *memberPointer = type->getAs<MemberPointerType>();
+  if (!getCastEndpointRecord(replacementType))
+    return;
+
+  mlir::NamedAttrList identity;
+  auto setEndpoint = [&](StringRef prefix, QualType type) {
+    std::optional<ExactRecordEndpoint> exact = getExactRecordEndpoint(type);
+    if (!exact)
+      return false;
+    identity.set((prefix + "_record_usr").str(), exact->identity);
+    identity.set((prefix + "_record_schema").str(),
+                 mlir::TypeAttr::get(exact->schema));
+    return true;
+  };
+  const bool sourceExact = setEndpoint("source", sourceType);
+  const bool destinationExact = setEndpoint("destination", destinationType);
+  const bool replacementExact = setEndpoint("replacement", replacementType);
+  if (!sourceExact || !destinationExact || !replacementExact) {
+    const std::string detail =
+        "aggregate copy has no exact RecordDecl schema: source=" +
+        sourceType.getAsString() + (sourceExact ? " [exact]" : " [missing]") +
+        ", destination=" + destinationType.getAsString() +
+        (destinationExact ? " [exact]" : " [missing]") +
+        ", replacement=" + replacementType.getAsString() +
+        (replacementExact ? " [exact]" : " [missing]");
+    errorNYI(op->getLoc(), detail);
+    return;
+  }
+  op->setAttr("ast_copy_schema", identity.getDictionary(&getMLIRContext()));
+}
+
+void CIRGenModule::setMemberPointerTargetMetadata(
+    mlir::Operation *op, QualType type,
+    const FieldDecl *constantDataMember) {
+  if (!op)
+    return;
+  // Array storage of member pointers is member-pointer storage: every
+  // element shares the declared target class and pointee kind, so the
+  // annotation describes the element type.
+  QualType elementType = getASTContext().getBaseElementType(type);
+  const auto *memberPointer =
+      elementType.getCanonicalType()->getAs<MemberPointerType>();
   if (!memberPointer)
     return;
-  mlir::StringAttr usr =
-      getRecordUSRAttr(memberPointer->getMostRecentCXXRecordDecl());
+  const CXXRecordDecl *record = memberPointer->getMostRecentCXXRecordDecl();
+  mlir::StringAttr usr = getRecordUSRAttr(record);
   if (!usr)
     return;
-  mlir::NamedAttrList identity;
-  identity.set("record_usr", usr);
-  identity.set("pointee_kind",
-               builder.getStringAttr(memberPointer->isMemberFunctionPointer()
-                                         ? "function"
-                                         : "data"));
-  op->setAttr("ast_member_pointer_target",
-              identity.getDictionary(&getMLIRContext()));
+  if (!op->hasAttr("ast_member_pointer_target")) {
+    mlir::NamedAttrList identity;
+    identity.set("record_usr", usr);
+    identity.set("pointee_kind",
+                 builder.getStringAttr(memberPointer->isMemberFunctionPointer()
+                                           ? "function"
+                                           : "data"));
+    op->setAttr("ast_member_pointer_target",
+                identity.getDictionary(&getMLIRContext()));
+  }
+  if (memberPointer->isMemberFunctionPointer() ||
+      op->hasAttr("ast_data_member_pointer_constant"))
+    return;
+  auto constant = dyn_cast<cir::ConstantOp>(op);
+  auto dataMember = constant
+                        ? dyn_cast<cir::DataMemberAttr>(constant.getValue())
+                        : cir::DataMemberAttr{};
+  if (!dataMember || !record)
+    return;
+  const TypeInfo carrierInfo =
+      getASTContext().getTypeInfo(getASTContext().getPointerDiffType());
+  if (!carrierInfo.Width || !carrierInfo.Align ||
+      getASTContext().getTargetInfo().getCXXABI().isMicrosoft())
+    return;
+  mlir::NamedAttrList exact;
+  exact.set("kind", builder.getStringAttr("data"));
+  exact.set("target_record_usr", usr);
+  exact.set("class_type",
+            mlir::TypeAttr::get(dataMember.getType().getClassTy()));
+  exact.set("pointee_type",
+            mlir::TypeAttr::get(dataMember.getType().getMemberTy()));
+  exact.set("carrier_bits", builder.getI64IntegerAttr(carrierInfo.Width));
+  exact.set("carrier_align_bits", builder.getI64IntegerAttr(carrierInfo.Align));
+  exact.set("carrier_signed", builder.getBoolAttr(true));
+  exact.set("null_value", builder.getStringAttr("-1"));
+  if (dataMember.isNullPtr()) {
+    exact.set("provenance_kind", builder.getStringAttr("null"));
+  } else {
+    if (!constantDataMember)
+      return;
+    const std::optional<uint64_t> memberIndex = dataMember.getMemberIndex();
+    if (!memberIndex ||
+        getTypes()
+                .getCIRGenRecordLayout(constantDataMember->getParent())
+                .getCIRFieldNo(constantDataMember) != *memberIndex)
+      return;
+    const std::optional<std::string> fieldID =
+        fieldDeclIdentity(*this, constantDataMember);
+    const mlir::StringAttr fieldOwner =
+        getRecordUSRAttr(constantDataMember->getParent());
+    if (!fieldID.has_value() || fieldID->empty() || !fieldOwner ||
+        fieldOwner != usr)
+      return;
+    const uint64_t fieldOffset =
+        getASTContext()
+            .getASTRecordLayout(constantDataMember->getParent())
+            .getFieldOffset(constantDataMember->getFieldIndex());
+    exact.set("provenance_kind", builder.getStringAttr("field_decl"));
+    exact.set("field_decl_id", builder.getStringAttr(*fieldID));
+    exact.set("field_declaring_record_usr", fieldOwner);
+    exact.set("field_offset_bits", builder.getI64IntegerAttr(fieldOffset));
+    exact.set("field_declared_type",
+              buildCastEndpointSourceType(constantDataMember->getType()));
+    exact.set("field_declared_type_spelling",
+              getSourceTypeSpelling(constantDataMember->getType()));
+  }
+  op->setAttr("ast_data_member_pointer_constant",
+              exact.getDictionary(&getMLIRContext()));
+}
+
+void CIRGenModule::setBitfieldStoreMetadata(mlir::Operation *op,
+                                            QualType sourceType,
+                                            QualType fieldType,
+                                            mlir::Type storageType) {
+  if (!op || sourceType.isNull() || fieldType.isNull() || !storageType)
+    return;
+  mlir::NamedAttrList exact;
+  exact.set("source_declared_type", buildCastEndpointSourceType(sourceType));
+  exact.set("source_declared_type_spelling",
+            getSourceTypeSpelling(sourceType));
+  exact.set("field_declared_type", buildCastEndpointSourceType(fieldType));
+  exact.set("field_declared_type_spelling", getSourceTypeSpelling(fieldType));
+  exact.set("storage_type", mlir::TypeAttr::get(storageType));
+  op->setAttr("ast_bitfield_assignment",
+              exact.getDictionary(&getMLIRContext()));
 }
 
 mlir::TypedAttr CIRGenModule::emitNullMemberAttr(QualType destTy,
@@ -2833,7 +3607,9 @@ mlir::Value CIRGenModule::emitMemberPointerConstant(const UnaryOperator *e) {
   const auto *decl = cast<DeclRefExpr>(e->getSubExpr())->getDecl();
 
   mlir::Value result;
-  if (const auto *methodDecl = dyn_cast<CXXMethodDecl>(decl)) {
+  const auto *methodDecl = dyn_cast<CXXMethodDecl>(decl);
+  const auto *dataFieldDecl = dyn_cast<FieldDecl>(decl);
+  if (methodDecl) {
     auto ty = mlir::cast<cir::MethodType>(convertType(e->getType()));
     if (methodDecl->isVirtual()) {
       result = cir::ConstantOp::create(
@@ -2848,15 +3624,37 @@ mlir::Value CIRGenModule::emitMemberPointerConstant(const UnaryOperator *e) {
     }
   } else {
     auto ty = mlir::cast<cir::DataMemberType>(convertType(e->getType()));
-    const auto *fieldDecl = cast<FieldDecl>(decl);
-    const RecordDecl *parent = fieldDecl->getParent();
+    assert(dataFieldDecl && "data-member pointer must name a FieldDecl");
+    const RecordDecl *parent = dataFieldDecl->getParent();
     const unsigned memberIndex =
-        getTypes().getCIRGenRecordLayout(parent).getCIRFieldNo(fieldDecl);
+        getTypes().getCIRGenRecordLayout(parent).getCIRFieldNo(dataFieldDecl);
     result = cir::ConstantOp::create(
         builder, loc, builder.getDataMemberAttr(ty, memberIndex));
   }
 
-  setMemberPointerTargetMetadata(result.getDefiningOp(), e->getType());
+  setMemberPointerTargetMetadata(result.getDefiningOp(), e->getType(),
+                                 dataFieldDecl);
+  if (methodDecl) {
+    auto exact = buildCIRGenVirtualMethodIdentityAttrs(
+        *this, getMLIRContext(), getMangledName(GlobalDecl(methodDecl)),
+        methodDecl);
+    mlir::NamedAttrList identity;
+    identity.set("kind", builder.getStringAttr("method"));
+    identity.set("method_symbol", exact.method);
+    identity.set("is_virtual", builder.getBoolAttr(methodDecl->isVirtual()));
+    if (exact.methodUSR)
+      identity.set("method_usr", exact.methodUSR);
+    if (auto declaringClass = getRecordUSRAttr(methodDecl->getParent()))
+      identity.set("method_declaring_class_usr", declaringClass);
+    if (exact.rootMethodUSR)
+      identity.set("virtual_root_method_usr", exact.rootMethodUSR);
+    if (exact.declaringClassUSR)
+      identity.set("virtual_root_declaring_class_usr", exact.declaringClassUSR);
+    if (exact.rootAlternatives)
+      identity.set("virtual_root_alternatives", exact.rootAlternatives);
+    result.getDefiningOp()->setAttr("ast_member_function_pointer_constant",
+                                    identity.getDictionary(&getMLIRContext()));
+  }
   return result;
 }
 
@@ -3489,9 +4287,6 @@ std::pair<cir::FuncType, cir::FuncOp> CIRGenModule::getAddrAndTypeOfCXXStructor(
     fnType = getTypes().getFunctionType(*fnInfo);
   }
 
-  if (selectedDeclRootMode && curCGF && !isSelectedDeclRoot(gd))
-    addSelectedDeclDependency(gd);
-
   auto fn = getOrCreateCIRFunction(getMangledName(gd), fnType, gd,
                                    /*ForVtable=*/false, dontDefer,
                                    /*IsThunk=*/false, isForDefinition);
@@ -3521,9 +4316,6 @@ cir::FuncOp CIRGenModule::getAddrOfFunction(clang::GlobalDecl gd,
       errorNYI(dd->getSourceRange(),
                "getAddrOfFunction: MS ABI complete destructor");
   }
-
-  if (selectedDeclRootMode && curCGF && !isSelectedDeclRoot(gd))
-    addSelectedDeclDependency(gd);
 
   StringRef mangledName = getMangledName(gd);
   cir::FuncOp func =
@@ -3664,6 +4456,113 @@ CIRGenModule::getOpenACCBindMangledName(const IdentifierInfo *bindName,
   return ret;
 }
 
+bool CIRGenModule::hasEmitCapableSelectedDeclDefinition(GlobalDecl gd) const {
+  const auto *decl = dyn_cast<ValueDecl>(gd.getDecl());
+  if (!decl || decl->hasAttr<WeakRefAttr>() || decl->hasAttr<DLLImportAttr>())
+    return false;
+  if (decl->hasAttr<AliasAttr>())
+    return true;
+
+  if (const auto *function = dyn_cast<FunctionDecl>(decl)) {
+    if (isa<CXXDeductionGuideDecl>(function) || function->isDeleted() ||
+        function->isConsteval())
+      return false;
+    if (function->getTemplateSpecializationKind() ==
+        TSK_ExplicitInstantiationDeclaration)
+      return false;
+    if (const auto *dtor = dyn_cast<CXXDestructorDecl>(function))
+      if (dtor->isTrivial() && !dtor->hasAttr<DLLExportAttr>())
+        return false;
+    if (const FunctionDecl *definition = function->getDefinition())
+      if (definition->hasBody())
+        return true;
+    if (function->isDefaulted())
+      return true;
+    if (const FunctionDecl *pattern =
+            function->getTemplateInstantiationPattern())
+      return pattern->getDefinition() != nullptr;
+    return false;
+  }
+
+  const auto *variable = cast<VarDecl>(decl);
+  if (variable->isStaticLocal())
+    return false;
+  if (variable->getDefinition())
+    return true;
+  for (const VarDecl *redecl : variable->redecls())
+    if (redecl->isThisDeclarationADefinition() != VarDecl::DeclarationOnly ||
+        astContext.isMSStaticDataMemberInlineDefinition(redecl))
+      return true;
+  return false;
+}
+GlobalDecl CIRGenModule::getEmitCapableSelectedDecl(GlobalDecl gd) const {
+  if (const auto *function = dyn_cast<FunctionDecl>(gd.getDecl())) {
+    if (const FunctionDecl *definition = function->getDefinition())
+      return gd.getWithDecl(definition);
+
+    // Defaulted functions do not necessarily acquire a body until Sema
+    // prepares them. A unique defaulted redeclaration is nevertheless the
+    // declaration that owns that eventual definition.
+    const FunctionDecl *defaultedDefinition = nullptr;
+    for (const FunctionDecl *redecl : function->redecls()) {
+      if (!redecl->isDefaulted() || redecl->isDeleted())
+        continue;
+      if (defaultedDefinition)
+        return gd;
+      defaultedDefinition = redecl;
+    }
+    if (defaultedDefinition)
+      return gd.getWithDecl(defaultedDefinition);
+    return gd;
+  }
+
+  if (const auto *variable = dyn_cast<VarDecl>(gd.getDecl()))
+    if (const VarDecl *definition = variable->getDefinition())
+      return GlobalDecl(definition);
+  return gd;
+}
+bool CIRGenModule::isSelectedStaticDataMemberDeclaration(
+    const VarDecl *variable) {
+  if (!selectedDeclRootMode || !variable || !variable->isStaticDataMember() ||
+      variable->isThisDeclarationADefinition() != VarDecl::DeclarationOnly ||
+      astContext.isMSStaticDataMemberInlineDefinition(variable) ||
+      variable->getDefinition() ||
+      !isSelectedDeclRoot(GlobalDecl(variable)))
+    return false;
+
+  const VarDecl *initializingDecl = nullptr;
+  if (!variable->getAnyInitializer(initializingDecl) || !initializingDecl)
+    return false;
+
+  // Top-level declarations reach CIR while the parser is still streaming. An
+  // exact selected static member can therefore name a record type whose
+  // definition appears later, together with the member's out-of-line
+  // definition. QualType::isConstantStorage queries CXX definition data; defer
+  // classification until selected-variable traversal revisits the completed
+  // AST instead of querying a fact the incomplete record does not own.
+  QualType elementType = astContext.getBaseElementType(variable->getType());
+  if (elementType->isIncompleteType() ||
+      variable->needsDestruction(astContext) ||
+      !variable->getType().isConstantStorage(astContext,
+                                             /*ExcludeCtor=*/true,
+                                             /*ExcludeDtor=*/true))
+    return false;
+
+  return initializingDecl->evaluateValue() != nullptr;
+}
+
+
+void CIRGenModule::addSelectedDeclDependency(GlobalDecl gd) {
+  if (!selectedDeclRootMode || !hasEmitCapableSelectedDeclDefinition(gd))
+    return;
+
+  GlobalDecl canonical = gd.getCanonicalDecl();
+  if (!selectedDeclDependencies.insert(canonical).second)
+    return;
+  gd = getEmitCapableSelectedDecl(gd);
+  selectedDeclDependencyWorklist.push_back(gd);
+}
+
 void CIRGenModule::loadSelectedDeclRoots() {
   if (codeGenOpts.ClangIRSelectedDeclsFile.empty())
     return;
@@ -3687,7 +4586,75 @@ void CIRGenModule::loadSelectedDeclRoots() {
       .split(lines, '\n', /*MaxSplit=*/-1, /*KeepEmpty=*/false);
   for (llvm::StringRef line : lines) {
     line = line.trim();
-    if (line.consume_front("usr:")) {
+    if (line.consume_front("parse-symbol:")) {
+      if (!line.empty())
+        selectedDeclParseSymbols.insert(line);
+    } else if (line.consume_front("parse-usr:")) {
+      if (!line.empty())
+        selectedDeclParseUSRs.insert(line);
+    } else if (line.starts_with("symbol-usr:")) {
+      llvm::StringRef selector = line;
+      llvm::StringRef payload = line.drop_front(sizeof("symbol-usr:") - 1);
+      auto [symbolLengthText, identities] = payload.split(':');
+      uint64_t symbolLength = 0;
+      bool valid = !symbolLengthText.empty() &&
+                   !symbolLengthText.getAsInteger(10, symbolLength) &&
+                   symbolLengthText == std::to_string(symbolLength) &&
+                   symbolLength < identities.size();
+      llvm::StringRef symbol;
+      llvm::StringRef usr;
+      if (valid) {
+        symbol = identities.take_front(symbolLength);
+        usr = identities.drop_front(symbolLength);
+        valid = !symbol.empty() && !usr.empty();
+      }
+      if (valid) {
+        for (const auto &entry : selectedDeclRootUSRBySymbol)
+          if (entry.getValue() == usr && entry.getKey() != symbol) {
+            valid = false;
+            break;
+          }
+      }
+      if (valid) {
+        selectedDeclRoots.insert(symbol);
+        selectedDeclRootUSRBySymbol.try_emplace(symbol, usr.str());
+      } else {
+        unsigned diagID = diags.getCustomDiagID(
+            DiagnosticsEngine::Error,
+            "invalid exact symbol/USR identity selector '%0' in "
+            "-fclangir-emit-selected-decls file");
+        diags.Report(diagID) << selector;
+      }
+    } else if (line.starts_with("lambda-usr:")) {
+      llvm::StringRef selector = line;
+      llvm::StringRef payload = line.drop_front(sizeof("lambda-usr:") - 1);
+      auto [indexText, afterIndex] = payload.split(':');
+      auto [contextLengthText, identities] = afterIndex.split(':');
+      unsigned index = 0;
+      uint64_t contextLength = 0;
+      bool valid = !indexText.empty() && !contextLengthText.empty() &&
+                   !indexText.getAsInteger(10, index) &&
+                   !contextLengthText.getAsInteger(10, contextLength) &&
+                   indexText == std::to_string(index) &&
+                   contextLengthText == std::to_string(contextLength) &&
+                   contextLength < identities.size();
+      if (valid) {
+        llvm::StringRef contextUSR = identities.take_front(contextLength);
+        llvm::StringRef declarationUSR = identities.drop_front(contextLength);
+        valid = !contextUSR.empty() && !declarationUSR.empty();
+        if (valid)
+          selectedDeclLambdaRoots.try_emplace(
+              selector, SelectedLambdaRoot{declarationUSR.str(),
+                                           contextUSR.str(), index});
+      }
+      if (!valid) {
+        unsigned diagID = diags.getCustomDiagID(
+            DiagnosticsEngine::Error,
+            "invalid exact lambda identity selector '%0' in "
+            "-fclangir-emit-selected-decls file");
+        diags.Report(diagID) << selector;
+      }
+    } else if (line.consume_front("usr:")) {
       if (!line.empty())
         selectedDeclRootUSRs.insert(line);
     } else if (!line.empty()) {
@@ -3695,13 +4662,44 @@ void CIRGenModule::loadSelectedDeclRoots() {
     }
   }
 
-  if (selectedDeclRoots.empty() && selectedDeclRootUSRs.empty()) {
+  if (selectedDeclRoots.empty() && selectedDeclRootUSRs.empty() &&
+      selectedDeclLambdaRoots.empty()) {
     unsigned diagID = diags.getCustomDiagID(
         DiagnosticsEngine::Error,
         "-fclangir-emit-selected-decls file '%0' did not contain any CIR "
         "symbol or declaration USR identities");
     diags.Report(diagID) << codeGenOpts.ClangIRSelectedDeclsFile;
   }
+}
+
+llvm::StringRef CIRGenModule::selectedLambdaRootSelector(GlobalDecl gd) const {
+  const auto *method = dyn_cast<CXXMethodDecl>(gd.getDecl());
+  if (!method || !method->getParent() || !method->getParent()->isLambda())
+    return {};
+  const CXXRecordDecl *closure = method->getParent();
+  llvm::SmallString<256> declarationUSR;
+  if (clang::index::generateUSRForDecl(method->getCanonicalDecl(),
+                                       declarationUSR))
+    return {};
+  const Decl *context = closure->getLambdaContextDecl();
+  if (!context)
+    context = Decl::castFromDeclContext(closure->getDeclContext());
+  llvm::SmallString<256> contextUSR;
+  if (!context || clang::index::generateUSRForDecl(context, contextUSR))
+    return {};
+
+  llvm::StringRef match;
+  for (const auto &entry : selectedDeclLambdaRoots) {
+    const SelectedLambdaRoot &identity = entry.getValue();
+    if (identity.index != closure->getLambdaIndexInContext() ||
+        llvm::StringRef(identity.declarationUSR) != declarationUSR ||
+        llvm::StringRef(identity.contextUSR) != contextUSR)
+      continue;
+    if (!match.empty())
+      return {};
+    match = entry.getKey();
+  }
+  return match;
 }
 
 bool CIRGenModule::isSelectedDeclRoot(GlobalDecl gd) {
@@ -3715,70 +4713,356 @@ bool CIRGenModule::isSelectedDeclRoot(GlobalDecl gd) {
   // name a selected root, so answer before any mangling is attempted.
   if (isa<CXXDeductionGuideDecl>(decl))
     return false;
+  // Constructor and destructor USRs identify the source declaration but not
+  // one ABI entry point. Selected-root manifests carry the exact producer
+  // symbol as well as that shared USR, so only the symbol may select a
+  // structor root; the other ABI variants remain ordinary closure
+  // dependencies.
+  if (isa<CXXConstructorDecl, CXXDestructorDecl>(decl))
+    return selectedDeclRoots.contains(getMangledName(gd));
+  if (const auto *method = dyn_cast<CXXMethodDecl>(decl);
+      method && method->getParent() && method->getParent()->isLambda())
+    return !selectedLambdaRootSelector(gd).empty() ||
+           selectedDeclRoots.contains(getMangledName(gd));
+  GlobalDecl canonicalGD = gd.getCanonicalDecl();
   llvm::SmallString<256> usr;
-  if (!clang::index::generateUSRForDecl(decl, usr) &&
+  if (!clang::index::generateUSRForDecl(canonicalGD.getDecl(), usr) &&
       selectedDeclRootUSRs.contains(usr))
     return true;
-  if (selectedDeclRoots.contains(getMangledName(gd)))
-    return true;
-  if (const auto *ctor = dyn_cast<CXXConstructorDecl>(decl))
-    return selectedDeclRoots.contains(
-               getMangledName(GlobalDecl(ctor, Ctor_Complete))) ||
-           selectedDeclRoots.contains(
-               getMangledName(GlobalDecl(ctor, Ctor_Base)));
-  if (const auto *dtor = dyn_cast<CXXDestructorDecl>(decl))
-    return selectedDeclRoots.contains(
-               getMangledName(GlobalDecl(dtor, Dtor_Deleting))) ||
-           selectedDeclRoots.contains(
-               getMangledName(GlobalDecl(dtor, Dtor_Complete))) ||
-           selectedDeclRoots.contains(
-               getMangledName(GlobalDecl(dtor, Dtor_Base)));
-  return false;
+  if (!usr.empty())
+    for (const auto &entry : selectedDeclRootUSRBySymbol)
+      if (entry.getValue() == usr)
+        return true;
+  return selectedDeclRoots.contains(getMangledName(gd));
 }
 
-void CIRGenModule::noteSelectedDeclRootDefinition(GlobalDecl gd) {
-  if (!selectedDeclRootMode || !isSelectedDeclRoot(gd))
+void CIRGenModule::noteSelectedDeclRootDefinition(GlobalDecl gd,
+                                                  mlir::Operation *definition) {
+  if (!selectedDeclRootMode)
     return;
 
-  auto global = mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(
-      getGlobalValue(getMangledName(gd)));
+  if (!definition)
+    definition = getGlobalValue(getMangledName(gd));
+  auto global =
+      mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(definition);
   if (!global || !global.isDefinition())
     return;
+  auto actualSymbol = definition->getAttrOfType<mlir::StringAttr>(
+      mlir::SymbolTable::getSymbolAttrName());
+  if (!actualSymbol || actualSymbol.getValue().empty())
+    return;
 
+  GlobalDecl canonicalGD = gd.getCanonicalDecl();
   llvm::SmallString<256> usr;
-  if (!clang::index::generateUSRForDecl(gd.getDecl(), usr) &&
-      selectedDeclRootUSRs.contains(usr))
-    emittedSelectedDeclRootUSRs.insert(usr);
+  const bool hasUSR =
+      !clang::index::generateUSRForDecl(canonicalGD.getDecl(), usr);
+  cir::FuncOp function;
+  if (isa<FunctionDecl>(gd.getDecl())) {
+    function = mlir::dyn_cast<cir::FuncOp>(definition);
+    if (!function || function.getBody().empty())
+      return;
+    auto producerUSR =
+        function->getAttrOfType<mlir::StringAttr>("ast_decl_usr");
+    const auto *method = dyn_cast<CXXMethodDecl>(gd.getDecl());
+    const bool isLambda =
+        method && method->getParent() && method->getParent()->isLambda();
+    // A generic lambda specialization's emitted function may retain the
+    // primary call operator's ast_decl_usr. An exact emitted ABI symbol is
+    // independently compiler-owned declaration identity, so it also
+    // authenticates a selected symbol even when Clang collapses the
+    // specialization's source USR to its template pattern.
+    const bool exactSelectedSymbol =
+        selectedDeclRoots.contains(actualSymbol.getValue());
+    if (!exactSelectedSymbol &&
+        (!hasUSR || !producerUSR ||
+         (!isLambda && producerUSR.getValue() != usr)))
+      return;
+  }
+
+  emittedSelectedDeclDependencies.insert(canonicalGD);
+  // A specialized lambda root may emit the primary call operator definition,
+  // whose ast_decl_usr differs from the selected specialization USR. Bind that
+  // already-emitted definition through the producer-owned context USR and
+  // lambda index only when they select one manifest entry.
+  if (function) {
+    const auto context =
+        function->getAttrOfType<mlir::StringAttr>("ast_lambda_context_usr");
+    const auto index =
+        function->getAttrOfType<mlir::IntegerAttr>("ast_lambda_index");
+    llvm::StringRef contextualSelector;
+    bool contextualAmbiguity = false;
+    if (context && index) {
+      for (const auto &entry : selectedDeclLambdaRoots) {
+        const SelectedLambdaRoot &identity = entry.getValue();
+        if (context.getValue() != llvm::StringRef(identity.contextUSR) ||
+            index.getInt() != static_cast<int64_t>(identity.index))
+          continue;
+        if (contextualSelector.empty())
+          contextualSelector = entry.getKey();
+        else if (contextualSelector != entry.getKey())
+          contextualAmbiguity = true;
+      }
+    }
+    if (!contextualSelector.empty() && !contextualAmbiguity) {
+      emittedSelectedDeclRootDefinitionsBySelector[contextualSelector].insert(
+          actualSymbol.getValue());
+    }
+  }
+  // The emitted ABI symbol is itself compiler-owned declaration identity.
+  // Record an exact selected-symbol hit even when the source declaration was
+  // reached through a template or lambda specialization path whose GlobalDecl
+  // does not compare equal to the root-resolution candidate.
+  if (selectedDeclRoots.contains(actualSymbol.getValue()))
+    emittedSelectedDeclRootDefinitionsBySelector[actualSymbol.getValue()]
+        .insert(actualSymbol.getValue());
+  // A symbol-USR pair authenticates one exact ABI symbol. Do not fan that
+  // selector out to every emitted declaration with the same USR: Clang can
+  // collapse template and lambda specialization USRs, while their ABI symbols
+  // and bodies remain distinct.
+  if (!isSelectedDeclRoot(gd))
+    return;
+  llvm::StringRef lambdaSelector = selectedLambdaRootSelector(gd);
+  if (!lambdaSelector.empty()) {
+    const SelectedLambdaRoot &identity =
+        selectedDeclLambdaRoots.find(lambdaSelector)->getValue();
+    auto producerContextUSR =
+        function->getAttrOfType<mlir::StringAttr>("ast_lambda_context_usr");
+    auto producerIndex =
+        function->getAttrOfType<mlir::IntegerAttr>("ast_lambda_index");
+    if (!producerContextUSR ||
+        producerContextUSR.getValue() != llvm::StringRef(identity.contextUSR) ||
+        !producerIndex ||
+        producerIndex.getInt() != static_cast<int64_t>(identity.index))
+      return;
+    emittedSelectedDeclRootDefinitionsBySelector[lambdaSelector].insert(
+        actualSymbol.getValue());
+  }
+
+  llvm::StringRef requestedSymbol = getMangledName(gd);
+  if (selectedDeclRoots.contains(requestedSymbol))
+    emittedSelectedDeclRootDefinitionsBySelector[requestedSymbol].insert(
+        actualSymbol.getValue());
+  if (hasUSR && selectedDeclRootUSRs.contains(usr)) {
+    std::string selector = "usr:";
+    selector.append(usr.data(), usr.size());
+    emittedSelectedDeclRootDefinitionsBySelector[selector].insert(
+        actualSymbol.getValue());
+  }
 }
 
 void CIRGenModule::diagnoseUnemittedSelectedDeclRoots() {
   if (!selectedDeclRootMode)
     return;
 
-  for (const auto &root : selectedDeclRoots) {
+  mlir::NamedAttrList completedBindings;
+  auto exactDefinitionFor =
+      [&](llvm::StringRef selector) -> std::optional<llvm::StringRef> {
+    auto binding = emittedSelectedDeclRootDefinitionsBySelector.find(selector);
+    if (binding == emittedSelectedDeclRootDefinitionsBySelector.end()) {
+      // A deferred template specialization can be materialized by an
+      // enclosing emission path before the selected-root worklist observes
+      // its GlobalDecl. The module's exact symbol table is the final
+      // compiler-owned authority, so prefer a definition under the selected
+      // mangled symbol itself.
+      auto direct = mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(
+          getGlobalValue(selector));
+      if (direct && direct.isDefinition()) {
+        completedBindings.set(selector, builder.getStringAttr(selector));
+        return selector;
+      }
+
+      // A symbol-USR entry may intentionally carry a stale ABI symbol. Only
+      // when that exact symbol is absent may its paired compiler USR select a
+      // replacement, and the replacement must be unique among emitted bodies.
+      auto pairedUSR = selectedDeclRootUSRBySymbol.find(selector);
+      if (pairedUSR == selectedDeclRootUSRBySymbol.end())
+        return std::nullopt;
+      llvm::StringRef uniqueCandidateSymbol;
+      unsigned candidateCount = 0;
+      theModule.walk([&](cir::FuncOp function) {
+        auto producerUSR =
+            function->getAttrOfType<mlir::StringAttr>("ast_decl_usr");
+        if (!producerUSR || producerUSR.getValue() != pairedUSR->getValue() ||
+            function.getBody().empty())
+          return;
+        ++candidateCount;
+        uniqueCandidateSymbol = function.getSymName();
+      });
+      if (candidateCount != 1)
+        return std::nullopt;
+      completedBindings.set(
+          selector, builder.getStringAttr(uniqueCandidateSymbol));
+      return uniqueCandidateSymbol;
+    }
+    if (binding->second.size() != 1)
+      return std::nullopt;
+    llvm::StringRef actualSymbol = binding->second.begin()->getKey();
     auto global = mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(
-        getGlobalValue(root.getKey()));
-    if (global && global.isDefinition())
+        getGlobalValue(actualSymbol));
+    if (!global || !global.isDefinition())
+      return std::nullopt;
+    completedBindings.set(selector, builder.getStringAttr(actualSymbol));
+    return actualSymbol;
+  };
+
+  for (const auto &root : selectedDeclRoots) {
+    if (exactDefinitionFor(root.getKey()))
       continue;
     unsigned diagID = diags.getCustomDiagID(
         DiagnosticsEngine::Error,
-        "failed to emit exact selected declaration symbol '%0': no CIR "
-        "definition was produced");
+        "failed to emit exact selected declaration symbol '%0': one "
+        "identity-authenticated CIR definition was required");
     diags.Report(diagID) << root.getKey();
+    if (getenv("AENEAS_SELECTED_NEAR_MISS")) {
+      llvm::StringRef prefix = root.getKey().take_front(72);
+      theModule.walk([&](cir::FuncOp function) {
+        if (function.getSymName().starts_with(prefix))
+          llvm::errs() << "AENEAS_NEAR_MISS missing=" << root.getKey()
+                       << "\n  candidate=" << function.getSymName()
+                       << " definition=" << !function.getBody().empty()
+                       << "\n";
+      });
+    }
+  }
+  for (const auto &root : selectedDeclLambdaRoots) {
+    if (exactDefinitionFor(root.getKey()))
+      continue;
+    const SelectedLambdaRoot &identity = root.getValue();
+    std::string candidates;
+    std::optional<std::string> uniqueCandidateSymbol;
+    unsigned candidateCount = 0;
+    theModule.walk([&](cir::FuncOp function) {
+      const auto index =
+          function->getAttrOfType<mlir::IntegerAttr>("ast_lambda_index");
+      const auto context =
+          function->getAttrOfType<mlir::StringAttr>("ast_lambda_context_usr");
+      if (!index || !context ||
+          index.getInt() != static_cast<int64_t>(identity.index) ||
+          context.getValue() != llvm::StringRef(identity.contextUSR))
+        return;
+      if (function.getBody().empty())
+        return;
+      ++candidateCount;
+      uniqueCandidateSymbol = function.getSymName().str();
+      if (!candidates.empty())
+        candidates += ",";
+      const auto declaration =
+          function->getAttrOfType<mlir::StringAttr>("ast_decl_usr");
+      candidates += declaration ? declaration.getValue().str() : "<no-usr>";
+      candidates += "=>";
+      candidates += function.getSymName().str();
+    });
+    if (candidateCount == 1 && uniqueCandidateSymbol.has_value()) {
+      completedBindings.set(root.getKey(),
+                            builder.getStringAttr(*uniqueCandidateSymbol));
+      continue;
+    }
+    if (candidates.empty())
+      candidates = "<none>";
+    unsigned diagID = diags.getCustomDiagID(
+        DiagnosticsEngine::Error,
+        "failed to emit exact selected lambda identity '%0': one "
+        "identity-authenticated CIR definition was required; matching "
+        "context/index candidates=%1");
+    diags.Report(diagID) << root.getKey() << candidates;
   }
   for (const auto &root : selectedDeclRootUSRs) {
-    if (emittedSelectedDeclRootUSRs.contains(root.getKey()))
+    std::string selector = "usr:";
+    selector.append(root.getKey());
+    if (exactDefinitionFor(selector))
       continue;
     unsigned diagID = diags.getCustomDiagID(
         DiagnosticsEngine::Error,
-        "failed to emit exact selected declaration USR '%0': no CIR "
-        "definition was produced");
+        "failed to emit exact selected declaration USR '%0': one "
+        "identity-authenticated CIR definition was required");
     diags.Report(diagID) << root.getKey();
   }
+  if (!completedBindings.empty())
+    theModule->setAttr("cir.selected_decl_root_definitions",
+                       completedBindings.getDictionary(&getMLIRContext()));
+}
+void CIRGenModule::diagnoseUnemittedSelectedDeclDependencies() {
+  if (!selectedDeclRootMode)
+    return;
+  auto hasExactNonStructorDefinition = [&](GlobalDecl gd) {
+    if (isa<CXXConstructorDecl, CXXDestructorDecl>(gd.getDecl()))
+      return false;
+    auto function =
+        mlir::dyn_cast_or_null<cir::FuncOp>(getGlobalValue(getMangledName(gd)));
+    if (!function || function.isDeclaration())
+      return false;
+    GlobalDecl canonicalGD = gd.getCanonicalDecl();
+    llvm::SmallString<256> usr;
+    if (clang::index::generateUSRForDecl(canonicalGD.getDecl(), usr))
+      return false;
+    auto emittedUSR = function->getAttrOfType<mlir::StringAttr>("ast_decl_usr");
+    return emittedUSR && emittedUSR.getValue() == usr;
+  };
+
+  for (GlobalDecl gd : selectedDeclDependencyWorklist) {
+    GlobalDecl canonical = gd.getCanonicalDecl();
+    if (emittedSelectedDeclDependencies.contains(canonical))
+      continue;
+    if (hasExactNonStructorDefinition(gd))
+      continue;
+
+    llvm::SmallString<256> usr;
+    if (clang::index::generateUSRForDecl(canonical.getDecl(), usr))
+      usr = "<unavailable>";
+    std::string producerState =
+        attemptedSelectedDeclDependencies.contains(canonical)
+            ? "exact emission attempted; "
+            : "exact emission was not attempted; ";
+    mlir::Operation *operation = getGlobalValue(getMangledName(gd));
+    auto global =
+        mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(operation);
+    if (!global) {
+      producerState += "CIR symbol is absent";
+    } else if (global.isDeclaration()) {
+      producerState += "CIR symbol is declaration-only";
+    } else if (auto function = mlir::dyn_cast<cir::FuncOp>(operation)) {
+      if (auto emittedUSR =
+              function->getAttrOfType<mlir::StringAttr>("ast_decl_usr"))
+        producerState += "CIR definition carries Clang USR '" +
+                         emittedUSR.getValue().str() + "'";
+      else
+        producerState += "CIR definition has no Clang USR";
+    } else {
+      producerState += "CIR global definition exists";
+    }
+    unsigned diagID = diags.getCustomDiagID(
+        DiagnosticsEngine::Error,
+        "failed to emit referenced selected-declaration closure definition "
+        "for exact CIR symbol '%0' (Clang USR '%1'; %2)");
+    diags.Report(gd.getDecl()->getLocation(), diagID)
+        << getMangledName(gd) << usr << producerState;
+  }
+}
+bool CIRGenModule::shouldEmitSelectedMethod(const FunctionDecl *fd) {
+  if (!selectedDeclRootMode)
+    return true;
+  if (!fd)
+    return false;
+  auto selected = [&](GlobalDecl gd) {
+    return isSelectedDeclRoot(gd) || isSelectedDeclDependency(gd);
+  };
+  if (const auto *ctor = dyn_cast<CXXConstructorDecl>(fd))
+    return selected(GlobalDecl(ctor, Ctor_Complete)) ||
+           selected(GlobalDecl(ctor, Ctor_Base));
+  if (const auto *dtor = dyn_cast<CXXDestructorDecl>(fd))
+    return selected(GlobalDecl(dtor, Dtor_Deleting)) ||
+           selected(GlobalDecl(dtor, Dtor_Complete)) ||
+           selected(GlobalDecl(dtor, Dtor_Base));
+  return selected(GlobalDecl(fd));
 }
 
 bool CIRGenModule::shouldParseSelectedDeclBody(const FunctionDecl *fd) {
   if (!selectedDeclRootMode)
+    return true;
+  const FunctionDecl *canonicalFD = fd ? fd->getCanonicalDecl() : nullptr;
+  llvm::SmallString<256> usr;
+  if (canonicalFD && !clang::index::generateUSRForDecl(canonicalFD, usr) &&
+      selectedDeclParseUSRs.contains(usr))
     return true;
   // A dependent friend defined inside a class template can acquire its
   // concrete selected linkage name only after the class is specialized.
@@ -3790,24 +5074,38 @@ bool CIRGenModule::shouldParseSelectedDeclBody(const FunctionDecl *fd) {
       fd->getLexicalDeclContext()->isDependentContext())
     return true;
   if (const auto *ctor = dyn_cast<CXXConstructorDecl>(fd))
-    return isSelectedDeclRoot(GlobalDecl(ctor, Ctor_Complete)) ||
+    return selectedDeclParseSymbols.contains(
+               getMangledName(GlobalDecl(ctor, Ctor_Complete))) ||
+           selectedDeclParseSymbols.contains(
+               getMangledName(GlobalDecl(ctor, Ctor_Base))) ||
+           isSelectedDeclRoot(GlobalDecl(ctor, Ctor_Complete)) ||
            isSelectedDeclRoot(GlobalDecl(ctor, Ctor_Base)) ||
            isSelectedDeclDependency(GlobalDecl(ctor, Ctor_Complete)) ||
            isSelectedDeclDependency(GlobalDecl(ctor, Ctor_Base));
   if (const auto *dtor = dyn_cast<CXXDestructorDecl>(fd))
-    return isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Deleting)) ||
+    return selectedDeclParseSymbols.contains(
+               getMangledName(GlobalDecl(dtor, Dtor_Deleting))) ||
+           selectedDeclParseSymbols.contains(
+               getMangledName(GlobalDecl(dtor, Dtor_Complete))) ||
+           selectedDeclParseSymbols.contains(
+               getMangledName(GlobalDecl(dtor, Dtor_Base))) ||
+           isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Deleting)) ||
            isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Complete)) ||
            isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Base)) ||
            isSelectedDeclDependency(GlobalDecl(dtor, Dtor_Deleting)) ||
            isSelectedDeclDependency(GlobalDecl(dtor, Dtor_Complete)) ||
            isSelectedDeclDependency(GlobalDecl(dtor, Dtor_Base));
+  if (!isa<CXXDeductionGuideDecl>(fd) &&
+      selectedDeclParseSymbols.contains(getMangledName(GlobalDecl(fd))))
+    return true;
   return isSelectedDeclRoot(GlobalDecl(fd)) ||
          isSelectedDeclDependency(GlobalDecl(fd));
 }
 
 void CIRGenModule::emitSelectedMethods(
     const DeclContext *context,
-    llvm::function_ref<void(llvm::ArrayRef<GlobalDecl>)> prepareForEmission) {
+    llvm::function_ref<void(llvm::MutableArrayRef<GlobalDecl>)>
+        prepareForEmission) {
   if (!selectedDeclRootMode)
     return;
 
@@ -3822,6 +5120,8 @@ void CIRGenModule::emitSelectedMethods(
       visitedClassSpecializations;
   llvm::SmallVector<GlobalDecl, 32> methods;
   llvm::DenseSet<GlobalDecl> visitedMethods;
+  llvm::SmallVector<GlobalDecl, 16> parseOnlyMethods;
+  llvm::DenseSet<GlobalDecl> visitedParseOnlyMethods;
   llvm::DenseSet<const FunctionDecl *> scannedFunctionBodies;
 
   auto enqueueContext = [&](const DeclContext *declContext) {
@@ -3829,9 +5129,21 @@ void CIRGenModule::emitSelectedMethods(
       contexts.push_back(declContext);
   };
   auto enqueueMethod = [&](GlobalDecl gd) {
-    gd = gd.getCanonicalDecl();
-    if (visitedMethods.insert(gd).second)
-      methods.push_back(gd);
+    // Canonical GlobalDecl is only the deduplication key.  Emission and Sema
+    // preparation must retain the concrete specialization definition and the
+    // original structor ABI variant: the canonical declaration can be an
+    // earlier declaration with no instantiated body.
+    GlobalDecl canonical = gd.getCanonicalDecl();
+    if (!visitedMethods.insert(canonical).second)
+      return;
+    gd = getEmitCapableSelectedDecl(gd);
+    methods.push_back(gd);
+  };
+  auto enqueueParseOnlyMethod = [&](GlobalDecl gd) {
+    GlobalDecl canonical = gd.getCanonicalDecl();
+    if (!visitedParseOnlyMethods.insert(canonical).second)
+      return;
+    parseOnlyMethods.push_back(getEmitCapableSelectedDecl(gd));
   };
   auto enqueueFunctionTemplate = [&](const FunctionTemplateDecl *decl) {
     if (visitedFunctionTemplates.insert(decl).second)
@@ -3841,9 +5153,34 @@ void CIRGenModule::emitSelectedMethods(
     if (visitedClassTemplates.insert(decl).second)
       classTemplates.push_back(decl);
   };
+  llvm::StringSet<> selectedLambdaContextUSRs;
+  for (const auto &root : selectedDeclLambdaRoots)
+    selectedLambdaContextUSRs.insert(root.getValue().contextUSR);
+  auto ownsSelectedLambdaRoot = [&](const FunctionDecl *function) {
+    auto matchesContextUSR = [&](const FunctionDecl *candidate) {
+      if (!candidate)
+        return false;
+      llvm::SmallString<256> usr;
+      return !clang::index::generateUSRForDecl(candidate->getCanonicalDecl(),
+                                               usr) &&
+             selectedLambdaContextUSRs.contains(usr);
+    };
+    return matchesContextUSR(function) ||
+           matchesContextUSR(function->getTemplateInstantiationPattern());
+  };
   auto enqueueFunction = [&](const FunctionDecl *function) {
-    if (!shouldParseSelectedDeclBody(function))
+    if (!shouldEmitSelectedMethod(function)) {
+      if (!shouldParseSelectedDeclBody(function) ||
+          !ownsSelectedLambdaRoot(function))
+        return;
+      if (auto *ctor = dyn_cast<CXXConstructorDecl>(function))
+        enqueueParseOnlyMethod(GlobalDecl(ctor, Ctor_Complete));
+      else if (auto *dtor = dyn_cast<CXXDestructorDecl>(function))
+        enqueueParseOnlyMethod(GlobalDecl(dtor, Dtor_Complete));
+      else
+        enqueueParseOnlyMethod(GlobalDecl(function));
       return;
+    }
     if (auto *ctor = dyn_cast<CXXConstructorDecl>(function)) {
       enqueueMethod(GlobalDecl(ctor, Ctor_Base));
       if (!ctor->getParent()->isAbstract())
@@ -3905,6 +5242,7 @@ void CIRGenModule::emitSelectedMethods(
   enqueueContext(context);
   size_t contextCursor = 0;
   size_t methodCursor = 0;
+  size_t parseOnlyMethodCursor = 0;
   for (;;) {
     while (contextCursor < contexts.size()) {
       llvm::SmallVector<Decl *, 32> decls;
@@ -3958,13 +5296,27 @@ void CIRGenModule::emitSelectedMethods(
       }
     }
     for (const ClassTemplateDecl *classTemplate : classTemplates) {
+      // Member function-template registries live on the primary or partial
+      // pattern, while their exact FunctionDecl specializations can be owned
+      // by a concrete class specialization. Visit every producer-owned
+      // context; enqueueFunction still gates bodies by exact symbol or USR.
+      enqueueContext(classTemplate->getTemplatedDecl());
+      llvm::SmallVector<ClassTemplatePartialSpecializationDecl *, 8>
+          partialSpecializations;
+      classTemplate->getPartialSpecializations(partialSpecializations);
+      for (ClassTemplatePartialSpecializationDecl *partial :
+           partialSpecializations)
+        if (visitedClassSpecializations.insert(partial).second) {
+          foundSpecialization = true;
+          enqueueContext(partial);
+        }
+
       llvm::SmallVector<ClassTemplateSpecializationDecl *, 16> specializations;
       for (ClassTemplateSpecializationDecl *specialization :
            classTemplate->specializations())
         specializations.push_back(specialization);
       for (ClassTemplateSpecializationDecl *specialization : specializations) {
         if (isa<ClassTemplatePartialSpecializationDecl>(specialization) ||
-            !specialization->isCompleteDefinition() ||
             !visitedClassSpecializations.insert(specialization).second)
           continue;
         foundSpecialization = true;
@@ -3976,6 +5328,23 @@ void CIRGenModule::emitSelectedMethods(
       continue;
 
     bool madeProgress = false;
+    if (parseOnlyMethodCursor != parseOnlyMethods.size()) {
+      // A parse-only concrete member can own the template instantiations and
+      // local declarations named by exact selected roots. Materialize its body
+      // through Sema, discover those declarations, but never enqueue the
+      // member itself for CIR emission.
+      llvm::SmallVector<GlobalDecl, 16> frontier(
+          parseOnlyMethods.begin() + parseOnlyMethodCursor,
+          parseOnlyMethods.end());
+      parseOnlyMethodCursor = parseOnlyMethods.size();
+      prepareForEmission(frontier);
+      for (GlobalDecl &gd : frontier)
+        gd = getEmitCapableSelectedDecl(gd);
+      for (GlobalDecl gd : frontier)
+        if (const auto *function = dyn_cast<FunctionDecl>(gd.getDecl()))
+          discoverFunctionBody(function);
+      madeProgress = true;
+    }
     if (methodCursor != methods.size()) {
       // Emission can instantiate into one of the specialization collections
       // above. Emit a stable frontier, then resnapshot only those template
@@ -3984,11 +5353,48 @@ void CIRGenModule::emitSelectedMethods(
                                                  methods.end());
       methodCursor = methods.size();
       prepareForEmission(frontier);
+      // Sema preparation can attach the body to a later redeclaration. Rebind
+      // every work item before body discovery and emission so selected
+      // declaration and lambda roots authenticate the operation that actually
+      // owns the definition.
+      for (GlobalDecl &gd : frontier)
+        gd = getEmitCapableSelectedDecl(gd);
       for (GlobalDecl gd : frontier)
         if (const auto *function = dyn_cast<FunctionDecl>(gd.getDecl()))
           discoverFunctionBody(function);
       for (GlobalDecl gd : frontier) {
+        if (const auto *ctor = dyn_cast<CXXConstructorDecl>(gd.getDecl());
+            ctor && ctor->getParent()->getNumVBases() != 0) {
+          if (selectedConstructorFamilies.insert(ctor->getCanonicalDecl())
+                  .second) {
+            // A virtual-base constructor's complete and base variants have
+            // different signatures and bodies. Once either exact root selects
+            // the source constructor, the ABI producer owns both definitions.
+            bool wasEmittingDependency = emittingSelectedDeclDependency;
+            emittingSelectedDeclDependency = true;
+            getCXXABI().emitCXXConstructors(ctor);
+            emittingSelectedDeclDependency = wasEmittingDependency;
+          } else {
+            mlir::Operation *existing = getGlobalValue(getMangledName(gd));
+            auto global =
+                mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(existing);
+            if (!global || !global.isDefinition()) {
+              // Family ownership authenticates this exact ABI variant even
+              // when only its sibling spelling was the manifest root.
+              emitGlobalDecl(gd);
+            } else {
+              noteSelectedDeclRootDefinition(gd, existing);
+            }
+          }
+          continue;
+        }
         if (const auto *dtor = dyn_cast<CXXDestructorDecl>(gd.getDecl())) {
+          // Trivial destructors have no callable ABI body unless DLL export
+          // explicitly requires one. Selected-root discovery can encounter
+          // them through an instantiated class closure, but forcing a family
+          // definition violates the same precondition as ordinary codegen.
+          if (dtor->isTrivial() && !dtor->hasAttr<DLLExportAttr>())
+            continue;
           if (selectedDestructorFamilies.insert(dtor->getCanonicalDecl())
                   .second) {
             bool wasEmittingDependency = emittingSelectedDeclDependency;
@@ -3996,13 +5402,40 @@ void CIRGenModule::emitSelectedMethods(
               emittingSelectedDeclDependency = true;
             getCXXABI().emitCXXDestructors(dtor);
             emittingSelectedDeclDependency = wasEmittingDependency;
+          } else {
+            // A previously emitted family may have omitted this exact ABI
+            // entry point because the concrete redeclaration did not carry
+            // virtuality. An exact selected/dependency variant still owns its
+            // own body and must not be suppressed by family deduplication.
+            mlir::Operation *existing = getGlobalValue(getMangledName(gd));
+            auto global =
+                mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(existing);
+            if (!global || !global.isDefinition()) {
+              if (isSelectedDeclRoot(gd))
+                emitGlobalDecl(gd);
+              else
+                emitGlobal(gd);
+            } else {
+              // Inline callbacks can emit a local/lambda definition before the
+              // selected worklist reaches it. Authenticate the already-owned
+              // definition through the same exact USR/symbol checks instead
+              // of silently treating its body as an unbound root.
+              noteSelectedDeclRootDefinition(gd, existing);
+            }
           }
           continue;
         }
-        auto global = mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(
-            getGlobalValue(getMangledName(gd)));
-        if (!global || !global.isDefinition())
-          emitGlobal(gd);
+        mlir::Operation *existing = getGlobalValue(getMangledName(gd));
+        auto global =
+            mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(existing);
+        if (!global || !global.isDefinition()) {
+          if (isSelectedDeclRoot(gd))
+            emitGlobalDecl(gd);
+          else
+            emitGlobal(gd);
+        } else {
+          noteSelectedDeclRootDefinition(gd, existing);
+        }
       }
       madeProgress = true;
     }
@@ -4013,6 +5446,8 @@ void CIRGenModule::emitSelectedMethods(
       if (dependencies.empty())
         break;
       prepareForEmission(dependencies);
+      for (GlobalDecl &gd : dependencies)
+        gd = getEmitCapableSelectedDecl(gd);
       for (GlobalDecl gd : dependencies)
         if (const auto *function = dyn_cast<FunctionDecl>(gd.getDecl()))
           discoverFunctionBody(function);
@@ -4049,8 +5484,10 @@ void CIRGenModule::emitSelectedVariables(const DeclContext *context) {
   auto enqueueVariable = [&](const VarDecl *variable) {
     if (!variable->isFileVarDecl() && !variable->isStaticDataMember())
       return;
-    if (variable->isThisDeclarationADefinition() == VarDecl::DeclarationOnly &&
-        !astContext.isMSStaticDataMemberInlineDefinition(variable))
+    if (variable->isThisDeclarationADefinition() ==
+            VarDecl::DeclarationOnly &&
+        !astContext.isMSStaticDataMemberInlineDefinition(variable) &&
+        !isSelectedStaticDataMemberDeclaration(variable))
       return;
     GlobalDecl gd(variable);
     if (!isSelectedDeclRoot(gd))
@@ -4144,15 +5581,6 @@ void CIRGenModule::emitSelectedVariables(const DeclContext *context) {
       madeProgress = true;
     }
 
-    for (;;) {
-      llvm::SmallVector<GlobalDecl, 16> dependencies =
-          takeSelectedDeclDependencyFrontier();
-      if (dependencies.empty())
-        break;
-      emitSelectedDependencies(dependencies);
-      madeProgress = true;
-    }
-
     if (contextCursor < contexts.size() || foundSpecialization)
       continue;
     if (!madeProgress)
@@ -4167,19 +5595,69 @@ void CIRGenModule::emitSelectedDependencies(
 
   bool wasEmittingSelectedDeclDependency = emittingSelectedDeclDependency;
   emittingSelectedDeclDependency = true;
+  auto emitExactDefinition = [&](GlobalDecl gd) {
+    attemptedSelectedDeclDependencies.insert(gd.getCanonicalDecl());
+    const auto *function = dyn_cast<FunctionDecl>(gd.getDecl());
+    if (function && !function->hasAttr<AliasAttr>())
+      emitGlobalDecl(gd);
+    else
+      emitGlobal(gd);
+  };
   for (GlobalDecl gd : dependencies) {
+    gd = getEmitCapableSelectedDecl(gd);
+    if (const auto *ctor = dyn_cast<CXXConstructorDecl>(gd.getDecl());
+        ctor && ctor->getParent()->getNumVBases() != 0) {
+      if (selectedConstructorFamilies.insert(ctor->getCanonicalDecl()).second) {
+        getCXXABI().emitCXXConstructors(ctor);
+      } else {
+        auto global = mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(
+            getGlobalValue(getMangledName(gd)));
+        if (!global || !global.isDefinition())
+          emitExactDefinition(gd);
+      }
+      continue;
+    }
     if (const auto *dtor = dyn_cast<CXXDestructorDecl>(gd.getDecl())) {
-      if (selectedDestructorFamilies.insert(dtor->getCanonicalDecl()).second)
+      if (dtor->isTrivial() && !dtor->hasAttr<DLLExportAttr>())
+        continue;
+      if (selectedDestructorFamilies.insert(dtor->getCanonicalDecl()).second) {
         getCXXABI().emitCXXDestructors(dtor);
+      } else {
+        auto global = mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(
+            getGlobalValue(getMangledName(gd)));
+        if (!global || !global.isDefinition())
+          emitExactDefinition(gd);
+      }
       continue;
     }
     auto global = mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(
         getGlobalValue(getMangledName(gd)));
     if (!global || !global.isDefinition())
-      emitGlobal(gd);
+      emitExactDefinition(gd);
   }
   emittingSelectedDeclDependency = wasEmittingSelectedDeclDependency;
   emitDeferred();
+}
+void CIRGenModule::emitSelectedDeclDependencyClosure(
+    llvm::function_ref<void(llvm::MutableArrayRef<GlobalDecl>)>
+        prepareForEmission) {
+  if (!selectedDeclRootMode)
+    return;
+
+  for (;;) {
+    // Vtables and constant initializers can materialize exact CIR symbol
+    // references without an active CIRGenFunction. Their producer-owned
+    // GlobalDecls are enqueued by the address-creation paths above.
+    emitDeferred();
+    emitVTablesOpportunistically();
+
+    llvm::SmallVector<GlobalDecl, 16> dependencies =
+        takeSelectedDeclDependencyFrontier();
+    if (dependencies.empty())
+      break;
+    prepareForEmission(dependencies);
+    emitSelectedDependencies(dependencies);
+  }
 }
 
 StringRef CIRGenModule::getMangledName(GlobalDecl gd) {
@@ -4544,16 +6022,64 @@ void CIRGenModule::setTLSMode(mlir::Operation *op, const VarDecl &d,
 
   setGlobalTlsReferences(d, global);
 }
-
 void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
                                             const CIRGenFunctionInfo &info,
                                             cir::FuncOp func, bool isThunk) {
+  const auto *emissionDecl = globalDecl.getDecl();
+  const auto *emissionFunctionDecl =
+      dyn_cast_or_null<FunctionDecl>(emissionDecl);
+  // Selected-declaration closure discovery can first enqueue a canonical
+  // function-template specialization and later replace the worklist entry
+  // with its defining redeclaration. Keep the semantic identity anchored to
+  // the canonical instantiated FunctionDecl across that emission rewrite;
+  // the exact GlobalDecl linkage name below remains the ABI endpoint fact.
+  const auto *identityFunctionDecl =
+      emissionFunctionDecl ? emissionFunctionDecl->getCanonicalDecl() : nullptr;
+  const Decl *decl = identityFunctionDecl
+                         ? static_cast<const Decl *>(identityFunctionDecl)
+                         : emissionDecl;
   llvm::SmallString<256> astDeclUSR;
-  const auto *decl = globalDecl.getDecl();
   bool hasASTDeclUSR =
       decl && !clang::index::generateUSRForDecl(decl, astDeclUSR);
   if (hasASTDeclUSR)
     func->setAttr("ast_decl_usr", builder.getStringAttr(astDeclUSR));
+  if (identityFunctionDecl) {
+    const std::string sourceName = identityFunctionDecl->getNameAsString();
+    if (!sourceName.empty())
+      func->setAttr("ast_decl_source_name", builder.getStringAttr(sourceName));
+  }
+  if (const auto *method =
+          dyn_cast_or_null<CXXMethodDecl>(identityFunctionDecl);
+      method && !isThunk && !isa<CXXConstructorDecl>(method) &&
+      !isa<CXXDestructorDecl>(method)) {
+    auto exact = buildCIRGenVirtualMethodIdentityAttrs(
+        *this, getMLIRContext(), getMangledName(globalDecl), method);
+    mlir::NamedAttrList identity;
+    identity.set("method_symbol", exact.method);
+    identity.set("is_virtual", builder.getBoolAttr(method->isVirtual()));
+    if (exact.methodUSR)
+      identity.set("method_usr", exact.methodUSR);
+    if (auto declaringClass = getRecordUSRAttr(method->getParent()))
+      identity.set("method_declaring_class_usr", declaringClass);
+    if (exact.rootMethodUSR)
+      identity.set("virtual_root_method_usr", exact.rootMethodUSR);
+    if (exact.declaringClassUSR)
+      identity.set("virtual_root_declaring_class_usr",
+                   exact.declaringClassUSR);
+    if (exact.rootAlternatives)
+      identity.set("virtual_root_alternatives", exact.rootAlternatives);
+    func->setAttr("ast_method_callable_identity",
+                  identity.getDictionary(&getMLIRContext()));
+  }
+  // The USR authenticates the canonical source declaration, while the exact
+  // GlobalDecl linkage name authenticates the public ABI endpoint from which
+  // this operation was produced. Inline builtin emission may move the body to
+  // a distinct private symbol; retaining both facts lets consumers distinguish
+  // that definition from the declaration-only public alias without decoding
+  // either symbol spelling.
+  if (decl)
+    func->setAttr("ast_decl_linkage_name",
+                  builder.getStringAttr(getMangledName(globalDecl)));
   if (isa<CXXConstructorDecl>(decl)) {
     llvm::StringRef variant;
     switch (globalDecl.getCtorType()) {
@@ -4611,12 +6137,11 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
   // declaration. CIR does not mint a source-location discriminator here;
   // consumers that need a local structural discriminator compute it from the
   // exact AST declaration chain.
-  const auto *functionDecl = dyn_cast_or_null<FunctionDecl>(decl);
 
   // A thunk has no FunctionDecl of its own. GlobalDecl is the exact ABI target
   // supplied by Clang's thunk emission path; preserve it explicitly rather
   // than requiring a consumer to decode the thunk symbol.
-  if (isThunk && functionDecl) {
+  if (isThunk && identityFunctionDecl) {
     mlir::NamedAttrList identity;
     identity.set("mangled_name",
                  builder.getStringAttr(getMangledName(globalDecl)));
@@ -4630,12 +6155,15 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
   // declaration USR, and template-pattern USR. Consumers may use the USR pair
   // only when both producer and consumer prove it unique.
   const FunctionDecl *templateInstantiationPattern =
-      functionDecl ? functionDecl->getTemplateInstantiationPattern() : nullptr;
+      identityFunctionDecl
+          ? identityFunctionDecl->getTemplateInstantiationPattern()
+          : nullptr;
   const bool isConcreteClassTemplateMemberInstantiation =
       templateInstantiationPattern &&
-      templateInstantiationPattern != functionDecl;
-  if (functionDecl && (functionDecl->isFunctionTemplateSpecialization() ||
-                       isConcreteClassTemplateMemberInstantiation)) {
+      templateInstantiationPattern != identityFunctionDecl;
+  if (identityFunctionDecl &&
+      (identityFunctionDecl->isFunctionTemplateSpecialization() ||
+       isConcreteClassTemplateMemberInstantiation)) {
     mlir::NamedAttrList identity;
     identity.set("mangled_name", builder.getStringAttr(func.getSymName()));
     if (hasASTDeclUSR)
@@ -4643,36 +6171,117 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
 
     llvm::SmallString<256> patternUSR;
     if (templateInstantiationPattern &&
-        !clang::index::generateUSRForDecl(templateInstantiationPattern,
-                                          patternUSR)) {
+        !clang::index::generateUSRForDecl(
+            templateInstantiationPattern->getCanonicalDecl(), patternUSR)) {
       identity.set("template_pattern_usr", builder.getStringAttr(patternUSR));
-      if (auto poi = specializationPointOfInstantiationIdentity(getASTContext(),
-                                                                functionDecl))
+      if (auto poi = specializationPointOfInstantiationIdentity(
+              getASTContext(), identityFunctionDecl))
         identity.set("poi", builder.getStringAttr(*poi));
     }
 
     func->setAttr("ast_decl_specialization_identity",
                   identity.getDictionary(&getMLIRContext()));
+    // The pattern USR spelled at emission time can come from an earlier
+    // redeclaration whose written types print differently (dependent
+    // expressions change shape with the declarations visible at their parse
+    // point). Remember the exact instantiation decl so release() can
+    // reconcile the identity against the final AST.
+    specializationIdentityDeclByOperation[func.getOperation()] =
+        identityFunctionDecl;
   }
-  auto memberPointerFacts = [&](QualType type) -> mlir::DictionaryAttr {
+  const FunctionDecl *functionDecl = emissionFunctionDecl;
+  auto memberPointerFacts = [&](QualType type,
+                                const FunctionDecl *resultDecl =
+                                    nullptr) -> mlir::DictionaryAttr {
     const auto *mpt = type.getCanonicalType()->getAs<MemberPointerType>();
-    if (!mpt || !mpt->isMemberFunctionPointer())
+    if (!mpt)
       return {};
     const CXXRecordDecl *record = mpt->getMostRecentCXXRecordDecl();
-    llvm::SmallString<256> recordUSR;
-    if (!record || clang::index::generateUSRForDecl(record, recordUSR) ||
-        recordUSR.empty())
+    const std::optional<std::string> recordID =
+        record ? recordDeclIdentity(*this, record) : std::nullopt;
+    if (!recordID.has_value() || recordID->empty())
       return {};
-    const TypeInfo pointerInfo =
-        getASTContext().getTypeInfo(getASTContext().VoidPtrTy);
     const TypeInfo adjustmentInfo =
         getASTContext().getTypeInfo(getASTContext().getPointerDiffType());
-    if (!pointerInfo.Width || !pointerInfo.Align || !adjustmentInfo.Width ||
-        !adjustmentInfo.Align)
+    if (!adjustmentInfo.Width || !adjustmentInfo.Align)
       return {};
     mlir::NamedAttrList facts;
+    facts.set("target_record_usr", builder.getStringAttr(*recordID));
+    if (!mpt->isMemberFunctionPointer()) {
+      if (getASTContext().getTargetInfo().getCXXABI().isMicrosoft())
+        return {};
+      facts.set("kind", builder.getStringAttr("data"));
+      auto cirType = mlir::cast<cir::DataMemberType>(convertType(type));
+      facts.set("class_type", mlir::TypeAttr::get(cirType.getClassTy()));
+      facts.set("pointee_type", mlir::TypeAttr::get(cirType.getMemberTy()));
+      std::string provenance = "runtime_projection";
+      std::optional<std::string> fieldID;
+      if (resultDecl && resultDecl->hasBody()) {
+        bool sawReturn = false;
+        bool closed = true;
+        std::string commonKind;
+        std::optional<std::string> commonFieldID;
+        std::function<void(const Stmt *)> visit = [&](const Stmt *stmt) {
+          if (!stmt || isa<LambdaExpr>(stmt))
+            return;
+          if (const auto *ret = dyn_cast<ReturnStmt>(stmt)) {
+            std::string kind = "runtime_projection";
+            std::optional<std::string> returnedFieldID;
+            const Expr *value = ret->getRetValue();
+            if (value) {
+              value = value->IgnoreParens();
+              if (value->isNullPointerConstant(
+                      getASTContext(), Expr::NPC_ValueDependentIsNull)) {
+                kind = "null";
+              } else if (const auto *address = dyn_cast<UnaryOperator>(value);
+                         address && address->getOpcode() == UO_AddrOf) {
+                const Expr *operand =
+                    address->getSubExpr()->IgnoreParenImpCasts();
+                if (const auto *reference = dyn_cast<DeclRefExpr>(operand)) {
+                  if (const auto *field =
+                          dyn_cast<FieldDecl>(reference->getDecl())) {
+                    returnedFieldID = fieldDeclIdentity(*this, field);
+                    if (returnedFieldID.has_value() &&
+                        !returnedFieldID->empty())
+                      kind = "field_decl";
+                  }
+                }
+              }
+            }
+            if (!sawReturn) {
+              sawReturn = true;
+              commonKind = kind;
+              commonFieldID = returnedFieldID;
+            } else if (commonKind != kind || commonFieldID != returnedFieldID) {
+              closed = false;
+            }
+            return;
+          }
+          for (const Stmt *child : stmt->children())
+            visit(child);
+        };
+        visit(resultDecl->getBody());
+        if (sawReturn && closed) {
+          provenance = commonKind;
+          fieldID = std::move(commonFieldID);
+        }
+      }
+      facts.set("provenance_kind", builder.getStringAttr(provenance));
+      if (provenance == "field_decl")
+        facts.set("field_decl_id", builder.getStringAttr(*fieldID));
+      facts.set("carrier_bits",
+                builder.getI64IntegerAttr(adjustmentInfo.Width));
+      facts.set("carrier_align_bits",
+                builder.getI64IntegerAttr(adjustmentInfo.Align));
+      facts.set("carrier_signed", builder.getBoolAttr(true));
+      facts.set("null_value", builder.getStringAttr("-1"));
+      return facts.getDictionary(&getMLIRContext());
+    }
+    const TypeInfo pointerInfo =
+        getASTContext().getTypeInfo(getASTContext().VoidPtrTy);
+    if (!pointerInfo.Width || !pointerInfo.Align)
+      return {};
     facts.set("kind", builder.getStringAttr("function"));
-    facts.set("target_record_usr", builder.getStringAttr(recordUSR));
     facts.set("pointee_function_type",
               builder.getStringAttr(mpt->getPointeeType().getAsString()));
     facts.set("pointer_bits", builder.getI64IntegerAttr(pointerInfo.Width));
@@ -4688,25 +6297,6 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
     return facts.getDictionary(&getMLIRContext());
   };
   if (functionDecl) {
-    if (isa<CXXConstructorDecl>(functionDecl)) {
-      func->setAttr("abi_ctor_variant",
-                    builder.getStringAttr(globalDecl.getCtorType() == Ctor_Base
-                                              ? "base"
-                                              : "complete"));
-      func->setAttr(
-          "abi_has_vtt",
-          builder.getBoolAttr(getCXXABI().needsVTTParameter(globalDecl)));
-    } else if (isa<CXXDestructorDecl>(functionDecl)) {
-      StringRef variant = "complete";
-      if (globalDecl.getDtorType() == Dtor_Base)
-        variant = "base";
-      else if (globalDecl.getDtorType() == Dtor_Deleting)
-        variant = "deleting";
-      func->setAttr("abi_dtor_variant", builder.getStringAttr(variant));
-      func->setAttr(
-          "abi_has_vtt",
-          builder.getBoolAttr(getCXXABI().needsVTTParameter(globalDecl)));
-    }
     auto sourceTypeLayer = [&](QualType type, StringRef kind,
                                bool referenceStorage) {
       mlir::NamedAttrList layer;
@@ -4834,6 +6424,40 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
     }
     func->setAttr("ast_lambda_index", builder.getI32IntegerAttr(
                                           closure->getLambdaIndexInContext()));
+    // getLambdaIndexInContext numbers closures within one context decl and
+    // cannot separate sibling closures a macro spells from one argument.
+    // The lexical ordinal among the owning function's unnamed tags is the
+    // same source fact the record identity binds through #fnlocal.
+    {
+      const FunctionDecl *ordinalOwner = nullptr;
+      for (const DeclContext *dc = closure->getDeclContext(); dc;
+           dc = dc->getParent()) {
+        if (const auto *fnOwner = dyn_cast<FunctionDecl>(dc)) {
+          ordinalOwner = fnOwner;
+          break;
+        }
+      }
+      if (ordinalOwner && !ordinalOwner->isTemplated()) {
+        if (std::optional<unsigned> ordinal =
+                functionLocalUnnamedTagLexicalOrdinal(ordinalOwner, closure)) {
+          func->setAttr("ast_lambda_ordinal",
+                        builder.getI32IntegerAttr(*ordinal));
+        }
+      }
+    }
+    SourceLocation lambdaLocation =
+        getASTContext().getSourceManager().getSpellingLoc(
+            closure->getLocation());
+    PresumedLoc lambdaPresumed =
+        getASTContext().getSourceManager().getPresumedLoc(lambdaLocation);
+    if (lambdaPresumed.isValid()) {
+      func->setAttr("ast_lambda_file",
+                    builder.getStringAttr(lambdaPresumed.getFilename()));
+      func->setAttr("ast_lambda_line",
+                    builder.getI32IntegerAttr(lambdaPresumed.getLine()));
+      func->setAttr("ast_lambda_column",
+                    builder.getI32IntegerAttr(lambdaPresumed.getColumn()));
+    }
     if (haveContextUSR) {
       func->setAttr("ast_lambda_context_usr",
                     builder.getStringAttr(contextUSR));
@@ -4948,7 +6572,8 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
     }
   }
   if (functionDecl) {
-    if (auto facts = memberPointerFacts(functionDecl->getReturnType())) {
+    if (auto facts =
+            memberPointerFacts(functionDecl->getReturnType(), functionDecl)) {
       mlir::NamedAttrList resultAttrs = retAttrs;
       resultAttrs.set("cir.ast_member_pointer", facts);
       mlir::function_interface_impl::setResultAttrs(func, 0, resultAttrs);
@@ -5106,6 +6731,8 @@ cir::FuncOp CIRGenModule::getOrCreateCIRFunction(
     bool dontDefer, bool isThunk, ForDefinition_t isForDefinition,
     mlir::NamedAttrList extraAttrs) {
   const Decl *d = gd.getDecl();
+  if (selectedDeclRootMode && d && !isSelectedDeclRoot(gd))
+    addSelectedDeclDependency(gd);
 
   if (const auto *fd = cast_or_null<FunctionDecl>(d)) {
     // For the device, mark the function as one that should be emitted.
@@ -5485,6 +7112,8 @@ void CIRGenModule::release() {
   emitVTablesOpportunistically();
   applyReplacements();
   diagnoseUnemittedSelectedDeclRoots();
+  diagnoseUnemittedSelectedDeclDependencies();
+  refreshExactRecordOperationIdentities();
 
   theModule->setAttr(cir::CIRDialect::getModuleLevelAsmAttrName(),
                      builder.getArrayAttr(globalScopeAsm));
@@ -6012,6 +7641,50 @@ CIRGenModule::getAddrOfGlobalTemporary(const MaterializeTemporaryExpr *mte,
   gv.setInitialValueAttr(initialValue);
   gv.setLinkage(linkage);
   gv.setVisibility(getMLIRVisibilityFromCIRLinkage(linkage));
+  if (const auto *memberPointer =
+          materializedType.getCanonicalType()->getAs<MemberPointerType>();
+      memberPointer && memberPointer->isMemberFunctionPointer()) {
+    setMemberPointerTargetMetadata(gv.getOperation(), materializedType);
+    const Expr *constantExpr = init->IgnoreParenImpCasts();
+    const CXXMethodDecl *methodDecl = nullptr;
+    if (const auto *address = dyn_cast<UnaryOperator>(constantExpr);
+        address && address->getOpcode() == UO_AddrOf) {
+      const Expr *referenced = address->getSubExpr()->IgnoreParenImpCasts();
+      if (const auto *declRef = dyn_cast<DeclRefExpr>(referenced))
+        methodDecl = dyn_cast<CXXMethodDecl>(declRef->getDecl());
+      else if (const auto *member = dyn_cast<MemberExpr>(referenced))
+        methodDecl = dyn_cast<CXXMethodDecl>(member->getMemberDecl());
+    }
+    mlir::NamedAttrList identity;
+    if (methodDecl) {
+      auto exact = buildCIRGenVirtualMethodIdentityAttrs(
+          *this, getMLIRContext(), getMangledName(GlobalDecl(methodDecl)),
+          methodDecl);
+      identity.set("kind", builder.getStringAttr("method"));
+      identity.set("method_symbol", exact.method);
+      identity.set("is_virtual", builder.getBoolAttr(methodDecl->isVirtual()));
+      if (exact.methodUSR)
+        identity.set("method_usr", exact.methodUSR);
+      if (auto declaringClass = getRecordUSRAttr(methodDecl->getParent()))
+        identity.set("method_declaring_class_usr", declaringClass);
+      if (exact.rootMethodUSR)
+        identity.set("virtual_root_method_usr", exact.rootMethodUSR);
+      if (exact.declaringClassUSR)
+        identity.set("virtual_root_declaring_class_usr",
+                     exact.declaringClassUSR);
+      if (exact.rootAlternatives)
+        identity.set("virtual_root_alternatives", exact.rootAlternatives);
+    } else if (init->isNullPointerConstant(getASTContext(),
+                                           Expr::NPC_ValueDependentIsNull)) {
+      identity.set("kind", builder.getStringAttr("null"));
+      identity.set("null_function_value", builder.getStringAttr("0"));
+      identity.set("null_adjustment_value", builder.getStringAttr("0"));
+    }
+    if (!identity.empty()) {
+      gv->setAttr("ast_member_function_pointer_constant",
+                  identity.getDictionary(&getMLIRContext()));
+    }
+  }
 
   if (emitter)
     emitter->finalize(gv);

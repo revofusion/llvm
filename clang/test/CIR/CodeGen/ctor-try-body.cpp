@@ -39,10 +39,10 @@ struct HasThings : Base {
 // CIR-NEXT:  cir.scope {
 // CIR-NEXT:    cir.try {
 // CIR-NEXT:      %[[BASE_ADDR:.*]] = cir.base_class_addr %[[THIS_LOAD]] : !cir.ptr<!rec_HasThings> nonnull [0] -> !cir.ptr<!rec_Base>
-// CIR-NEXT:      cir.call @_ZN4BaseC2Ev(%[[BASE_ADDR]]) : (!cir.ptr<!rec_Base>{{.*}}) -> ()
+// CIR-NEXT:      cir.call @_ZN4BaseC2Ev(%[[BASE_ADDR]]) {{.*}} : (!cir.ptr<!rec_Base>{{.*}}) -> ()
 // CIR-NEXT:      %[[FROMCTOR_ADDR:.*]] = cir.cast bitcast %[[THIS_LOAD]] : !cir.ptr<!rec_HasThings> -> !cir.ptr<!rec_FromCtor>
 // CIR-NEXT:      %[[C_LOAD:.*]] = cir.load %[[C_ALLOC]] : !cir.ptr<!cir.ptr<!rec_Ctor>>, !cir.ptr<!rec_Ctor>
-// CIR-NEXT:      cir.call @_ZN8FromCtorC1ERK4Ctor(%[[FROMCTOR_ADDR]], %[[C_LOAD]]) : (!cir.ptr<!rec_FromCtor> {{.*}}, !cir.ptr<!rec_Ctor> {{.*}}) -> ()
+// CIR-NEXT:      cir.call @_ZN8FromCtorC1ERK4Ctor(%[[FROMCTOR_ADDR]], %[[C_LOAD]]) {{.*}} : (!cir.ptr<!rec_FromCtor> {{.*}}, !cir.ptr<!rec_Ctor> {{.*}}) -> ()
 // CIR-NEXT:      cir.call @_Z11side_effectv() : () -> ()
 // CIR-NEXT:      cir.yield
 // CIR-NEXT:    } catch all (%[[CATCH_ARG:.*]]: !cir.eh_token {{.*}}) {

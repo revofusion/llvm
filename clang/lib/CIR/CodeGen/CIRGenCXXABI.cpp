@@ -13,6 +13,7 @@
 
 #include "CIRGenCXXABI.h"
 #include "CIRGenFunction.h"
+#include "CIRGenTypes.h"
 
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
@@ -20,6 +21,9 @@
 #include "clang/AST/GlobalDecl.h"
 #include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "llvm/ADT/SmallString.h"
+#include <algorithm>
+#include <unordered_set>
+#include <vector>
 
 using namespace clang;
 using namespace clang::CIRGen;
@@ -35,19 +39,37 @@ std::string usrForDecl(const NamedDecl *decl) {
   return std::string(usr.str());
 }
 
-const CXXMethodDecl *rootOverriddenMethodOrNull(const CXXMethodDecl *method) {
-  while (method->size_overridden_methods() > 0) {
-    if (method->size_overridden_methods() > 1)
-      return nullptr;
-    method = *method->overridden_methods().begin();
+bool collectRootOverrideEvidence(
+    const CXXMethodDecl *method,
+    std::unordered_set<const CXXMethodDecl *> &active,
+    std::vector<const CXXMethodDecl *> &roots) {
+  const CXXMethodDecl *canonical = method->getCanonicalDecl();
+  if (!active.insert(canonical).second)
+    return false;
+  bool hasOverrideEdge = false;
+  for (const FunctionDecl *functionRedecl : method->redecls()) {
+    const auto *redecl = dyn_cast<CXXMethodDecl>(functionRedecl);
+    if (!redecl)
+      continue;
+    for (const CXXMethodDecl *overridden : redecl->overridden_methods()) {
+      hasOverrideEdge = true;
+      if (!collectRootOverrideEvidence(overridden, active, roots)) {
+        active.erase(canonical);
+        return false;
+      }
+    }
   }
-  return method;
+  active.erase(canonical);
+  if (!hasOverrideEdge)
+    roots.push_back(canonical);
+  return true;
 }
 
 } // namespace
 
 CIRGenVirtualMethodIdentityAttrs clang::CIRGen::
-    buildCIRGenVirtualMethodIdentityAttrs(mlir::MLIRContext &mlirContext,
+    buildCIRGenVirtualMethodIdentityAttrs(CIRGenModule &cgm,
+                                          mlir::MLIRContext &mlirContext,
                                           llvm::StringRef mangledName,
                                           const CXXMethodDecl *methodDecl) {
   CIRGenVirtualMethodIdentityAttrs attrs;
@@ -58,16 +80,48 @@ CIRGenVirtualMethodIdentityAttrs clang::CIRGen::
   if (methodUSR.empty())
     return attrs;
   attrs.methodUSR = mlir::StringAttr::get(&mlirContext, methodUSR);
-  const CXXMethodDecl *root = rootOverriddenMethodOrNull(methodDecl);
-  if (!root)
+  if (!methodDecl->isVirtual())
     return attrs;
-  std::string rootUSR = usrForDecl(root);
-  std::string declaringClassUSR = usrForDecl(root->getParent());
-  if (rootUSR.empty() || declaringClassUSR.empty())
+
+  // Preserve the complete exact root set. One final overrider can own several
+  // unrelated vtable slots, so choosing one root would lose callable identity.
+  std::unordered_set<const CXXMethodDecl *> active;
+  std::vector<const CXXMethodDecl *> roots;
+  if (!collectRootOverrideEvidence(methodDecl, active, roots))
     return attrs;
-  attrs.rootMethodUSR = mlir::StringAttr::get(&mlirContext, rootUSR);
-  attrs.declaringClassUSR =
-      mlir::StringAttr::get(&mlirContext, declaringClassUSR);
+  std::vector<std::pair<std::string, std::string>> rootIdentities;
+  for (const CXXMethodDecl *root : roots) {
+    std::string rootUSR = usrForDecl(root);
+    std::string declaringClassUSR;
+    if (auto identity = recordDeclIdentity(cgm, root->getParent()))
+      declaringClassUSR = std::move(*identity);
+    if (rootUSR.empty() || declaringClassUSR.empty())
+      return attrs;
+    rootIdentities.emplace_back(std::move(rootUSR),
+                                std::move(declaringClassUSR));
+  }
+  std::sort(rootIdentities.begin(), rootIdentities.end());
+  rootIdentities.erase(
+      std::unique(rootIdentities.begin(), rootIdentities.end()),
+      rootIdentities.end());
+  if (rootIdentities.empty())
+    return attrs;
+  llvm::SmallVector<mlir::Attribute> alternatives;
+  for (const auto &[rootUSR, declaringClassUSR] : rootIdentities) {
+    mlir::NamedAttrList alternative;
+    alternative.set("method_usr",
+                    mlir::StringAttr::get(&mlirContext, rootUSR));
+    alternative.set("declaring_class_usr",
+                    mlir::StringAttr::get(&mlirContext, declaringClassUSR));
+    alternatives.push_back(alternative.getDictionary(&mlirContext));
+  }
+  attrs.rootAlternatives = mlir::ArrayAttr::get(&mlirContext, alternatives);
+  if (rootIdentities.size() == 1) {
+    attrs.rootMethodUSR =
+        mlir::StringAttr::get(&mlirContext, rootIdentities.front().first);
+    attrs.declaringClassUSR =
+        mlir::StringAttr::get(&mlirContext, rootIdentities.front().second);
+  }
   return attrs;
 }
 

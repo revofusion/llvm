@@ -95,6 +95,23 @@ void CIRGenModule::setGlobalTlsReferences(const VarDecl &vd,
              "setGlobalTlsReferences: non-itanium mangler");
     return;
   }
+  const VarDecl *canonicalDecl = vd.getCanonicalDecl();
+  llvm::SmallString<256> declarationUSR;
+  if (!canonicalDecl ||
+      clang::index::generateUSRForDecl(canonicalDecl, declarationUSR) ||
+      declarationUSR.empty()) {
+    errorNYI(vd.getSourceRange(),
+             "thread-local wrapper owner has no exact canonical declaration "
+             "USR");
+    return;
+  }
+  CIRGenBuilderTy &builder = getBuilder();
+  mlir::NamedAttrList wrapperIdentity;
+  wrapperIdentity.set("kind", builder.getStringAttr("tls_wrapper"));
+  wrapperIdentity.set("owner_usr", builder.getStringAttr(declarationUSR));
+  wrapperIdentity.set("symbol", builder.getStringAttr(wrapperFuncName));
+  globalOp->setAttr("ast_tls_wrapper_identity",
+                    wrapperIdentity.getDictionary(&getMLIRContext()));
   globalOp.setDynTlsRefsAttr(cir::ThreadLocalGlobalWrapperInitAttr::get(
       &getMLIRContext(), wrapperFuncName, initFuncName, guardName));
 }

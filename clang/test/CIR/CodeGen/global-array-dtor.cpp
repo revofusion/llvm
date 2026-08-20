@@ -26,7 +26,7 @@ ArrayDtor arrDtor[16];
 // CIR-BEFORE-LPP:        }
 
 // CIR: cir.global external @arrDtor = #cir.zero : !cir.array<!rec_ArrayDtor x 16>
-// CIR: cir.func internal private @__cxx_global_array_dtor(%[[ARR_ARG:.*]]: !cir.ptr<!void> {{.*llvm.noundef.*}}) attributes {{.*lifecycle_kind = "dtor".*}} {
+// CIR: cir.func internal private @__cxx_global_array_dtor(%[[ARR_ARG:.*]]: !cir.ptr<!void> {cir.ast_source_type = [{align_bits = 8 : i64, bit_width = 128 : i64{{.*}}kind = "value"{{.*}}}], llvm.noundef}{{.*}}) attributes {{.*lifecycle_kind = "dtor".*}} {
 // CIR:   %[[CONST16:.*]] = cir.const #cir.int<16> : !u64i
 // CIR:   %[[BEGIN:.*]] = cir.cast array_to_ptrdecay %[[ARR_ARG]] : !cir.ptr<!void> -> !cir.ptr<!rec_ArrayDtor>
 // CIR:   %[[END:.*]] = cir.ptr_stride %[[BEGIN]], %[[CONST16]] : (!cir.ptr<!rec_ArrayDtor>, !u64i) -> !cir.ptr<!rec_ArrayDtor>

@@ -71,6 +71,8 @@ private:
   llvm::DenseMap<const BlockDecl *, unsigned> LocalBlockIds;
   llvm::DenseMap<const NamedDecl *, uint64_t> AnonStructIds;
   llvm::DenseMap<const FunctionDecl *, unsigned> FuncAnonStructSize;
+  uint64_t NullOwnerAnonStructSize = 0;
+  bool DeterministicAnonymousStructIds = false;
 
 public:
   ManglerKind getKind() const { return Kind; }
@@ -86,6 +88,16 @@ public:
   ASTContext &getASTContext() const { return Context; }
 
   DiagnosticsEngine &getDiags() const { return Diags; }
+  /// Make anonymous-tag discriminators a function of the AST rather than
+  /// mangling request order. This is intentionally opt-in: changing the
+  /// process-wide policy would alter existing Itanium ABI names.
+  void enableDeterministicAnonymousStructIds() {
+    DeterministicAnonymousStructIds = true;
+  }
+
+  bool usesDeterministicAnonymousStructIds() const {
+    return DeterministicAnonymousStructIds;
+  }
 
   virtual void startNewFunction() { LocalBlockIds.clear(); }
 
@@ -103,12 +115,20 @@ public:
     if (FindResult != AnonStructIds.end())
       return FindResult->second;
 
-    // If FunctionDecl is passed in, the anonymous structID will be per-function
-    // based.
-    unsigned Id = FD ? FuncAnonStructSize[FD]++ : AnonStructIds.size();
+    uint64_t Id;
+    if (FD)
+      Id = FuncAnonStructSize[FD]++;
+    else if (DeterministicAnonymousStructIds)
+      Id = NullOwnerAnonStructSize++;
+    else
+      Id = AnonStructIds.size();
     std::pair<llvm::DenseMap<const NamedDecl *, uint64_t>::iterator, bool>
         Result = AnonStructIds.insert(std::make_pair(D, Id));
     return Result.first->second;
+  }
+
+  bool hasAnonymousStructId(const NamedDecl *D) const {
+    return AnonStructIds.contains(D);
   }
 
   uint64_t getAnonymousStructIdForDebugInfo(const NamedDecl *D) {

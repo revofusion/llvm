@@ -27,11 +27,16 @@ void f() {
 
 // CIR: cir.func {{.*}} @_Z1fv()
 // CIR:   %[[D:.*]] = cir.alloca "d" {{.*}} init : !cir.ptr<!rec_Derived>
-// CIR:   cir.call @_ZN7DerivedC1Ev(%[[D]]) : (!cir.ptr<!rec_Derived> {{.*}}) -> ()
+// CIR:   cir.call @_ZN7DerivedC1Ev(%[[D]]) {ast_constructor_call = {callee_symbol = "_ZN7DerivedC1Ev", canonical_symbol = "_ZN7DerivedC1Ev", constructor_usr = "c:@S@Derived@F@Derived#", variant = "complete"}} : (!cir.ptr<!rec_Derived> {{.*}}) -> ()
 // CIR:   %[[D_BASE:.*]] = cir.base_class_addr %[[D]] : !cir.ptr<!rec_Derived> nonnull [0] -> !cir.ptr<!rec_Base>
 // CIR-SAME: ast_base_is_virtual = false
 // CIR-SAME: ast_base_offset_bytes = 0
 // CIR-SAME: ast_base_record_usr = "c:@S@Base"
+// CIR-SAME: ast_cast_expr = {cast_kind = "UncheckedDerivedToBase", is_explicit = false, is_part_of_explicit_cast = false
+// CIR-SAME: result_record_schema = !rec_Base
+// CIR-SAME: result_record_usr = "c:@S@Base"
+// CIR-SAME: source_record_schema = !rec_Derived
+// CIR-SAME: source_record_usr = "c:@S@Derived"
 // CIR-SAME: ast_derived_record_usr = "c:@S@Derived"
 // CIR:   cir.call @_ZN4Base1fEv(%[[D_BASE]]) : (!cir.ptr<!rec_Base> {{.*}}) -> ()
 
@@ -56,6 +61,11 @@ void callBaseUsingDerived(Derived *derived) {
 // CIR:   cir.store %[[DERIVED_ARG]], %[[DERIVED_ADDR]]
 // CIR:   %[[DERIVED:.*]] = cir.load{{.*}} %[[DERIVED_ADDR]]
 // CIR:   %[[DERIVED_BASE:.*]] = cir.base_class_addr %[[DERIVED]] : !cir.ptr<!rec_Derived> nonnull [0] -> !cir.ptr<!rec_Base>
+// CIR-SAME: ast_cast_expr = {cast_kind = "DerivedToBase", is_explicit = false, is_part_of_explicit_cast = false
+// CIR-SAME: result_record_schema = !rec_Base
+// CIR-SAME: result_record_usr = "c:@S@Base"
+// CIR-SAME: source_record_schema = !rec_Derived
+// CIR-SAME: source_record_usr = "c:@S@Derived"
 // CIR:   cir.call @_Z7useBaseP4Base(%[[DERIVED_BASE]]) : (!cir.ptr<!rec_Base> {{.*}}) -> ()
 
 // LLVM: define {{.*}} void @_Z20callBaseUsingDerivedP7Derived(ptr {{.*}} %[[DERIVED_ARG:.*]])
@@ -80,6 +90,11 @@ Base *returnBaseFromDerived(Derived* derived) {
 // CIR:   cir.store %[[DERIVED_ARG]], %[[DERIVED_ADDR]]
 // CIR:   %[[DERIVED:.*]] = cir.load{{.*}} %[[DERIVED_ADDR]]
 // CIR:   %[[DERIVED_BASE:.*]] = cir.base_class_addr %[[DERIVED]] : !cir.ptr<!rec_Derived> nonnull [0] -> !cir.ptr<!rec_Base>
+// CIR-SAME: ast_cast_expr = {cast_kind = "DerivedToBase", is_explicit = false, is_part_of_explicit_cast = false
+// CIR-SAME: result_record_schema = !rec_Base
+// CIR-SAME: result_record_usr = "c:@S@Base"
+// CIR-SAME: source_record_schema = !rec_Derived
+// CIR-SAME: source_record_usr = "c:@S@Derived"
 // CIR:   cir.store %[[DERIVED_BASE]], %[[BASE_ADDR]]
 // CIR:   %[[BASE:.*]] = cir.load{{.*}} %[[BASE_ADDR]]
 // CIR:   cir.return %[[BASE]] : !cir.ptr<!rec_Base>
@@ -104,7 +119,12 @@ void test_volatile_store() {
 // CIR:   %[[ZERO:.*]] = cir.const #cir.int<0> : !s32i
 // CIR:   %[[DERIVED_OBJ:.*]] = cir.get_global @derivedObj : !cir.ptr<!rec_Derived>
 // CIR:   %[[DERIVED_OBJ_BASE:.*]] = cir.base_class_addr %[[DERIVED_OBJ]] : !cir.ptr<!rec_Derived> nonnull [0] -> !cir.ptr<!rec_Base>
-// CIR:   %[[DERIVED_OBJ_A:.*]] = cir.get_member %[[DERIVED_OBJ_BASE]][0] {ast_declaring_record_usr = "c:@S@Base", ast_member_decl_usr = "c:@S@Base@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
+// CIR-SAME: ast_cast_expr = {cast_kind = "UncheckedDerivedToBase", is_explicit = false, is_part_of_explicit_cast = false
+// CIR-SAME: result_record_schema = !rec_Base
+// CIR-SAME: result_record_usr = "c:@S@Base"
+// CIR-SAME: source_record_schema = !rec_Derived
+// CIR-SAME: source_record_usr = "c:@S@Derived"
+// CIR:   %[[DERIVED_OBJ_A:.*]] = cir.get_member %[[DERIVED_OBJ_BASE]][0] {ast_declaring_record_usr = "c:@S@Base", ast_member_decl_usr = "clang-field:9:c:@S@Base:c:@S@Base@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
 // CIR:   cir.store volatile {{.*}} %[[ZERO]], %[[DERIVED_OBJ_A]] : !s32i, !cir.ptr<!s32i>
 
 // LLVM: define {{.*}} void @_Z19test_volatile_storev()
@@ -120,7 +140,12 @@ void test_volatile_load() {
 // CIR: cir.func {{.*}} @_Z18test_volatile_loadv()
 // CIR:   %[[DERIVED_OBJ:.*]] = cir.get_global @derivedObj : !cir.ptr<!rec_Derived>
 // CIR:   %[[DERIVED_OBJ_BASE:.*]] = cir.base_class_addr %[[DERIVED_OBJ]] : !cir.ptr<!rec_Derived> nonnull [0] -> !cir.ptr<!rec_Base>
-// CIR:   %[[DERIVED_OBJ_A:.*]] = cir.get_member %[[DERIVED_OBJ_BASE]][0] {ast_declaring_record_usr = "c:@S@Base", ast_member_decl_usr = "c:@S@Base@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
+// CIR-SAME: ast_cast_expr = {cast_kind = "UncheckedDerivedToBase", is_explicit = false, is_part_of_explicit_cast = false
+// CIR-SAME: result_record_schema = !rec_Base
+// CIR-SAME: result_record_usr = "c:@S@Base"
+// CIR-SAME: source_record_schema = !rec_Derived
+// CIR-SAME: source_record_usr = "c:@S@Derived"
+// CIR:   %[[DERIVED_OBJ_A:.*]] = cir.get_member %[[DERIVED_OBJ_BASE]][0] {ast_declaring_record_usr = "c:@S@Base", ast_member_decl_usr = "clang-field:9:c:@S@Base:c:@S@Base@FI@a", ast_member_offset_bits = 0 : i64, name = "a"} : !cir.ptr<!rec_Base> -> !cir.ptr<!s32i>
 // CIR:   %[[VAL:.*]] = cir.load volatile {{.*}} %[[DERIVED_OBJ_A]] : !cir.ptr<!s32i>, !s32i
 
 // LLVM: define {{.*}} void @_Z18test_volatile_loadv()

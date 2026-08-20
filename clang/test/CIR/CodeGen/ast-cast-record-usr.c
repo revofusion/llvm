@@ -23,6 +23,13 @@ void *no_record_endpoint(long value) { return (void *)value; }
 struct IncompleteRecord;
 struct IncompleteRecord *recover_incomplete(void *value) { return value; }
 
+struct ByteRecord {
+  int value;
+};
+struct ByteRecord *recover_byte_record(unsigned char *value) {
+  return (struct ByteRecord *)value;
+}
+
 
 
 // The source CIR types are pointers to arrays. The USRs come from the direct
@@ -30,28 +37,36 @@ struct IncompleteRecord *recover_incomplete(void *value) { return value; }
 // CHECK-LABEL: cir.func{{.*}}@decay_record
 // CHECK: cir.cast array_to_ptrdecay{{.*}}ast_cast_expr = {
 // CHECK-SAME: cast_kind = "ArrayToPointerDecay"
-// CHECK-SAME: result_record_usr = "c:@SA@AnonRecord"
-// CHECK-SAME: source_record_usr = "c:@SA@AnonRecord"
+// CHECK-SAME: result_record_schema = !rec_AnonRecord
+// CHECK-SAME: result_record_usr = "[[ANON_RECORD_USR:c:@SA@AnonRecord#[^"]+]]"
+// CHECK-SAME: source_record_schema = !rec_AnonRecord
+// CHECK-SAME: source_record_usr = "[[ANON_RECORD_USR]]"
 
 // CHECK-LABEL: cir.func{{.*}}@decay_union
 // CHECK: cir.cast array_to_ptrdecay{{.*}}ast_cast_expr = {
 // CHECK-SAME: cast_kind = "ArrayToPointerDecay"
-// CHECK-SAME: result_record_usr = "c:@UA@AnonUnion"
-// CHECK-SAME: source_record_usr = "c:@UA@AnonUnion"
+// CHECK-SAME: result_record_schema = !rec_AnonUnion
+// CHECK-SAME: result_record_usr = "[[ANON_UNION_USR:c:@UA@AnonUnion#[^"]+]]"
+// CHECK-SAME: source_record_schema = !rec_AnonUnion
+// CHECK-SAME: source_record_usr = "[[ANON_UNION_USR]]"
 
 // The erased void endpoint has no record; only the exact AST record endpoint
 // contributes a USR.
 // CHECK-LABEL: cir.func{{.*}}@erase_record
 // CHECK: cir.cast bitcast{{.*}}ast_cast_expr = {
 // CHECK-SAME: cast_kind = "BitCast"
+// CHECK-SAME: result_record_presence = "no_record"
 // CHECK-NOT: result_record_usr
 // CHECK-SAME: result_type = [
-// CHECK-SAME: source_record_usr = "c:@SA@AnonRecord"
+// CHECK-SAME: source_record_schema = !rec_AnonRecord
+// CHECK-SAME: source_record_usr = "[[ANON_RECORD_USR]]"
 
 // CHECK-LABEL: cir.func{{.*}}@recover_record
 // CHECK: cir.cast bitcast{{.*}}ast_cast_expr = {
 // CHECK-SAME: cast_kind = "BitCast"
-// CHECK-SAME: result_record_usr = "c:@SA@AnonRecord"
+// CHECK-SAME: result_record_schema = !rec_AnonRecord
+// CHECK-SAME: result_record_usr = "[[ANON_RECORD_USR]]"
+// CHECK-SAME: source_record_presence = "no_record"
 // CHECK-NOT: source_record_usr
 // CHECK-SAME: source_type = [
 
@@ -68,5 +83,19 @@ struct IncompleteRecord *recover_incomplete(void *value) { return value; }
 // CHECK-LABEL: cir.func{{.*}}@recover_incomplete
 // CHECK: cir.cast bitcast{{.*}}ast_cast_expr = {
 // CHECK-SAME: cast_kind = "BitCast"
+// CHECK-SAME: result_record_schema = !rec_IncompleteRecord
 // CHECK-SAME: result_record_usr = "c:@S@IncompleteRecord"
+// CHECK-NOT: source_record_usr
+
+// An opaque byte-storage pointer has no RecordDecl endpoint of its own. The
+// typed destination still carries the exact declaration schema/USR pair; the
+// producer must not recover it from pointee width or layout coincidence.
+// CHECK-LABEL: cir.func{{.*}}@recover_byte_record
+// CHECK: cir.cast bitcast{{.*}}ast_cast_expr = {
+// CHECK-SAME: cast_kind = "BitCast"
+// CHECK-SAME: result_record_presence = "record"
+// CHECK-SAME: result_record_schema = !rec_ByteRecord
+// CHECK-SAME: result_record_usr = "c:@S@ByteRecord"
+// CHECK-SAME: source_record_presence = "no_record"
+// CHECK-NOT: source_record_schema
 // CHECK-NOT: source_record_usr

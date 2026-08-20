@@ -346,7 +346,7 @@ int test_temp_in_condition(G &obj) {
 // CIR:     cir.store{{.*}} %[[COPY]], %[[REF_TMP0]]
 // CIR:     cir.cleanup.scope {
 // CIR:       %[[ONE:.*]] = cir.const #cir.int<1> : !s32i
-// CIR:       cir.call @_ZN1GC1Ei(%[[REF_TMP1]], %[[ONE]]) : (!cir.ptr<!rec_G> {{.*}}, !s32i {{.*}}) -> ()
+// CIR:       cir.call @_ZN1GC1Ei(%[[REF_TMP1]], %[[ONE]]) {{.*}} : (!cir.ptr<!rec_G> {{.*}}, !s32i {{.*}}) -> ()
 // CIR:       cir.cleanup.scope {
 // CIR:         %[[EQUAL:.*]] = cir.call @_ZNK1GeqERKS_(%[[REF_TMP0]], %[[REF_TMP1]]) : (!cir.ptr<!rec_G> {{.*}}, !cir.ptr<!rec_G> {{.*}}) -> (!cir.bool {{.*}})
 // CIR:         cir.store{{.*}} %[[EQUAL]], %[[CLEANUP_TMP]]

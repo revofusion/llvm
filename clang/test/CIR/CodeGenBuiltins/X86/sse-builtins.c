@@ -8,8 +8,8 @@
 // RUN: %clang_cc1 -x c++ -flax-vector-conversions=none -ffreestanding %s -triple=x86_64-unknown-linux -target-feature +sse -fclangir -emit-llvm -o %t.ll -Wall -Werror
 // RUN: FileCheck --check-prefixes=LLVM --input-file=%t.ll %s
 
-// RUN: %clang_cc1 -x c -flax-vector-conversions=none -ffreestanding %s -triple=x86_64-unknown-linux -target-feature +sse -emit-llvm -o - -Wall -Werror | FileCheck %s -check-prefix=OGCG
-// RUN: %clang_cc1 -x c++ -flax-vector-conversions=none -ffreestanding %s -triple=x86_64-unknown-linux -target-feature +sse -emit-llvm -o - -Wall -Werror | FileCheck %s -check-prefix=OGCG
+// RUN: %clang_cc1 -x c -flax-vector-conversions=none -ffreestanding %s -triple=x86_64-unknown-linux -target-feature +sse -emit-llvm -o - -Wall -Werror | FileCheck %s -check-prefixes=OGCG,OGCG-C
+// RUN: %clang_cc1 -x c++ -flax-vector-conversions=none -ffreestanding %s -triple=x86_64-unknown-linux -target-feature +sse -emit-llvm -o - -Wall -Werror | FileCheck %s -check-prefixes=OGCG,OGCG-CXX
 
 // This test mimics clang/test/CodeGen/X86/sse-builtins.c, which eventually
 // CIR shall be able to support fully.
@@ -112,4 +112,32 @@ __m128 test_mm_shuffle_ps(__m128 A, __m128 B) {
   // OGCG-LABEL: test_mm_shuffle_ps
   // OGCG: shufflevector <4 x float> {{.*}}, <4 x float> {{.*}}, <4 x i32> <i32 0, i32 0, i32 4, i32 4>
   return _mm_shuffle_ps(A, B, 0);
+}
+
+__m128 test_mm_sqrt_ps(__m128 A) {
+  // CIR-LABEL: _mm_sqrt_ps
+  // CIR: cir.sqrt %{{.*}} : !cir.vector<4 x !cir.float> {inactive_lane_semantics = "none", lane_count = 4 : i64, lane_type = !cir.float, source_builtin = "__builtin_elementwise_sqrt"}
+  // LLVM-LABEL: test_mm_sqrt_ps
+  // LLVM: call <4 x float> @llvm.sqrt.v4f32
+  // OGCG-LABEL: test_mm_sqrt_ps
+  // OGCG-C: %[[OGCG_SQRT_PS:.*]] = call <4 x float> @llvm.sqrt.v4f32(<4 x float> %{{.*}})
+  // OGCG-CXX: %[[OGCG_SQRT_PS:.*]] = call noundef <4 x float> @llvm.sqrt.v4f32(<4 x float> %{{.*}})
+  // OGCG-NEXT: ret <4 x float> %[[OGCG_SQRT_PS]]
+  return _mm_sqrt_ps(A);
+}
+
+__m128 test_mm_sqrt_ss(__m128 A) {
+  // CIR-LABEL: _mm_sqrt_ss
+  // CIR: %[[SQRT:.*]] = cir.sqrt %{{.*}} : !cir.float {inactive_lane_semantics = "not_applicable", lane_count = 1 : i64, lane_type = !cir.float, source_builtin = "__builtin_elementwise_sqrt"}
+  // CIR: %[[PRESERVED:.*]] = cir.vec.insert %[[SQRT]], %{{.*}}[%{{.*}} : !s32i] : !cir.vector<4 x !cir.float>
+  // CIR: cir.store align(16) %[[PRESERVED]], %[[VECTOR_ADDR:.*]] : !cir.vector<4 x !cir.float>, !cir.ptr<!cir.vector<4 x !cir.float>>
+  // CIR: %[[RELOADED:.*]] = cir.load align(16) %[[VECTOR_ADDR]] : !cir.ptr<!cir.vector<4 x !cir.float>>, !cir.vector<4 x !cir.float>
+  // CIR: cir.store %[[RELOADED]], %[[RETURN_ADDR:.*]] : !cir.vector<4 x !cir.float>, !cir.ptr<!cir.vector<4 x !cir.float>>
+  // CIR: %[[RETURN_VALUE:.*]] = cir.load %[[RETURN_ADDR]] : !cir.ptr<!cir.vector<4 x !cir.float>>, !cir.vector<4 x !cir.float>
+  // CIR: cir.return %[[RETURN_VALUE]] : !cir.vector<4 x !cir.float>
+  // LLVM-LABEL: test_mm_sqrt_ss
+  // LLVM: call float @llvm.sqrt.f32
+  // OGCG-LABEL: test_mm_sqrt_ss
+  // OGCG: call float @llvm.sqrt.f32
+  return _mm_sqrt_ss(A);
 }

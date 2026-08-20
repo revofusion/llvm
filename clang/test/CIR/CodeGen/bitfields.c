@@ -182,7 +182,7 @@ void store_bitfield_to_bitfield() {
 // CIR:   [[TMP1:%.*]] = cir.get_member [[TMP0]][0] {{.*name = "c".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!u64i>
 // CIR:   [[TMP2:%.*]] = cir.get_bitfield align(4) (#bfi_c, [[TMP1]] {{.*}} : !cir.ptr<!u64i>) -> !s32i
 // CIR:   [[TMP3:%.*]] = cir.get_member [[TMP0]][0] {{.*name = "a".*}} : !cir.ptr<!rec_S> -> !cir.ptr<!u64i>
-// CIR:   [[TMP4:%.*]] = cir.set_bitfield align(4) (#bfi_a, [[TMP3]] : !cir.ptr<!u64i>, [[TMP2]] : !s32i) -> !s32i
+// CIR:   [[TMP4:%.*]] = cir.set_bitfield align(4) (#bfi_a, [[TMP3]] : !cir.ptr<!u64i>, [[TMP2]] : !s32i) {{.*}} -> !s32i
 
 // LLVM: define dso_local void @store_bitfield_to_bitfield()
 // LLVM:  [[TMP0:%.*]] = alloca %struct.S, i64 1, align 4
@@ -233,7 +233,7 @@ void get_volatile(V* v) {
 // CIR:   [[TMP1:%.*]] = cir.const #cir.int<3> : !s32i
 // CIR:   [[TMP2:%.*]] = cir.load align(8) [[TMP0]] : !cir.ptr<!cir.ptr<!rec_V>>, !cir.ptr<!rec_V>
 // CIR:   [[TMP3:%.*]] = cir.get_member [[TMP2]][0] {{.*name = "b".*}} : !cir.ptr<!rec_V> -> !cir.ptr<!u64i>
-// CIR:   [[TMP4:%.*]] = cir.set_bitfield align(4) (#bfi_b, [[TMP3]] : !cir.ptr<!u64i>, [[TMP1]] : !s32i) {is_volatile} -> !s32i
+// CIR:   [[TMP4:%.*]] = cir.set_bitfield align(4) (#bfi_b, [[TMP3]] : !cir.ptr<!u64i>, [[TMP1]] : !s32i) {{.*is_volatile.*}} -> !s32i
 
 // LLVM: define dso_local void @get_volatile
 // LLVM:   [[TMP0:%.*]] = alloca ptr, i64 1, align 8
@@ -260,7 +260,7 @@ void set_volatile(V* v) {
 //CIR:   [[TMP1:%.*]] = cir.const #cir.int<3> : !s32i
 //CIR:   [[TMP2:%.*]] = cir.load align(8) [[TMP0]] : !cir.ptr<!cir.ptr<!rec_V>>, !cir.ptr<!rec_V>
 //CIR:   [[TMP3:%.*]] = cir.get_member [[TMP2]][0] {{.*name = "b".*}} : !cir.ptr<!rec_V> -> !cir.ptr<!u64i>
-//CIR:   [[TMP4:%.*]] = cir.set_bitfield align(4) (#bfi_b, [[TMP3]] : !cir.ptr<!u64i>, [[TMP1]] : !s32i) {is_volatile} -> !s32i
+//CIR:   [[TMP4:%.*]] = cir.set_bitfield align(4) (#bfi_b, [[TMP3]] : !cir.ptr<!u64i>, [[TMP1]] : !s32i) {{.*is_volatile.*}} -> !s32i
 
 // LLVM: define dso_local void @set_volatile
 // LLVM:   [[TMP0:%.*]] = alloca ptr, i64 1, align 8

@@ -22,7 +22,7 @@ struct HasDtor {
 // CHECK-NEXT: acc.private.recipe @privatization__ZTS14NonDefaultCtor : !cir.ptr<!rec_NonDefaultCtor> init {
 // CHECK-NEXT: ^bb0(%[[ARG:.*]]: !cir.ptr<!rec_NonDefaultCtor> {{.*}}):
 // CHECK-NEXT: %[[ALLOCA:.*]] = cir.alloca "openacc.private.init" {{.*}} init : !cir.ptr<!rec_NonDefaultCtor>
-// CHECK-NEXT: cir.call @_ZN14NonDefaultCtorC1Ev(%[[ALLOCA]]) : (!cir.ptr<!rec_NonDefaultCtor> {{.*}}) -> ()
+// CHECK-NEXT: cir.call @_ZN14NonDefaultCtorC1Ev(%[[ALLOCA]]) {{.*}} : (!cir.ptr<!rec_NonDefaultCtor> {{.*}}) -> ()
 // CHECK-NEXT: acc.yield
 // CHECK-NEXT: }
 //
