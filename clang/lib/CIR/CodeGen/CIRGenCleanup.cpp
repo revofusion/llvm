@@ -442,7 +442,16 @@ bool CIRGenFunction::setMaterializedConversionTemporaryObjectIdentity(
   // Declaration ordinals for CXXBindTemporaryExpr and direct
   // MaterializeTemporaryExpr producers occupy distinct AST node domains.
   // Tag the latter while retaining its exact FunctionDecl preorder ordinal.
-  constexpr uint64_t materializedConversionOrdinalDomain = uint64_t{1} << 62;
+  //
+  // Keep the tag inside OCaml's non-negative 63-bit integer range: framed
+  // artifacts parse this producer-owned identity as an OCaml int.
+  constexpr uint64_t materializedConversionOrdinalDomain = uint64_t{1} << 61;
+  if (*declarationOrdinal >= materializedConversionOrdinalDomain) {
+    cgm.errorNYI(temporary->getSourceRange(),
+                 "materialized conversion cleanup declaration ordinal exceeds "
+                 "its producer identity domain");
+    return true;
+  }
   identity.set("declaration_ordinal",
                builder.getI64IntegerAttr(materializedConversionOrdinalDomain |
                                          *declarationOrdinal));

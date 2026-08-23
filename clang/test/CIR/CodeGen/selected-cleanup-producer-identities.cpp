@@ -33,7 +33,7 @@ SelectedConversion force_selected_conversion = &selected_conversion<Big>;
 // CONVERSION-LABEL: cir.func{{.*}} @_Z19selected_conversionI3BigEbRKT_
 // CONVERSION: cir.alloca "ref.tmp
 // CONVERSION-SAME: ast_temporary_object_identities
-// CONVERSION-SAME: declaration_ordinal = 4611686018427387904 : i64
+// CONVERSION-SAME: declaration_ordinal = 2305843009213693952 : i64
 // CONVERSION-SAME: producer_kind = "materialized_conversion"
 
 struct Item {
