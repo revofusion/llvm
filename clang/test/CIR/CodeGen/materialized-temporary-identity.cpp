@@ -248,6 +248,16 @@ void conditional_temporary_continue(bool b) {
     continue;
   }
 }
+using size_t = __SIZE_TYPE__;
+struct ConditionalNewTarget {
+  static void *operator new(size_t) noexcept;
+  static void operator delete(void *) noexcept;
+  explicit ConditionalNewTarget(const Cleanup &);
+};
+ConditionalNewTarget *conditional_new_initializer_cleanup() {
+  return new ConditionalNewTarget(Cleanup{});
+}
+
 
 // Clang hoists temporary storage before a loop even though construction and
 // its cleanup scope execute only in the body. The ordered producer tuple on
@@ -400,6 +410,15 @@ void loop_body_temporary_cleanup(bool b) {
 // CIR: cir.call @_ZN7CleanupD1Ev(%[[CONDITIONAL_CONTINUE_TEMP]])
 // CIR: } {ast_conditional_cleanup_identities = {{.*}}instance_token = "[[CONDITIONAL_CONTINUE_TOKEN]]"
 // CIR: cir.continue
+// A nothrow allocation-success branch owns the complete initializer temporary
+// lifetime, so the branch carries that alloca's exact producer identity.
+// CIR-LABEL: cir.func{{.*}} @{{[^ (]*conditional_new_initializer_cleanup[^ (]*}}()
+// CIR: %[[CONDITIONAL_NEW_TEMP:.*]] = cir.alloca "ref.tmp0"{{.*}}ast_temporary_object_identities = [{{.*}}constructor_symbol = "_ZN7CleanupC1Ev"{{.*}}destructor_symbol = "_ZN7CleanupD1Ev"{{.*}}instance_token = "[[CONDITIONAL_NEW_TOKEN:mte\.instance\.[0-9]+]]"
+// CIR: cir.if
+// CIR: cir.call @_ZN7CleanupC1Ev(%[[CONDITIONAL_NEW_TEMP]])
+// CIR: cir.call @_ZN20ConditionalNewTargetC1ERK7Cleanup
+// CIR: cir.call @_ZN7CleanupD1Ev(%[[CONDITIONAL_NEW_TEMP]])
+// CIR: } {ast_conditional_cleanup_identities = [{{.*}}instance_token = "[[CONDITIONAL_NEW_TOKEN]]"{{.*}}]}
 // Loop-local storage retains one exact constructor/destructor tuple and keeps
 // both calls structurally inside the loop body.
 // CIR-LABEL: cir.func{{.*}} @{{[^ (]*loop_body_temporary_cleanup[^ (]*}}(

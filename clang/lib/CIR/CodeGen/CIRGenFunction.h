@@ -2043,6 +2043,7 @@ public:
       const MaterializeTemporaryExpr *temporary, Address address);
   std::optional<mlir::DictionaryAttr>
   setCXXAutomaticObjectIdentity(const VarDecl *variable, Address address);
+  void attachConditionalTemporaryCleanupIdentities();
 
   void emitCXXThrowExpr(const CXXThrowExpr *e);
 

@@ -1608,6 +1608,87 @@ void CIRGenFunction::emitCXXDeleteExpr(const CXXDeleteExpr *e) {
   }
 }
 
+static mlir::ArrayAttr
+getConditionalNewInitializerCleanupIdentities(cir::IfOp ifOp) {
+  struct TemporaryCalls {
+    mlir::Operation *alloca = nullptr;
+    llvm::SmallVector<mlir::StringAttr> callees;
+  };
+  llvm::SmallVector<TemporaryCalls> temporaryCalls;
+  ifOp.getThenRegion().walk([&](cir::CallOp call) {
+    mlir::FlatSymbolRefAttr callee = call.getCalleeAttr();
+    mlir::OperandRange arguments = call.getArgOperands();
+    if (!callee || arguments.empty())
+      return;
+    mlir::Value receiver = arguments.front();
+    while (cir::CastOp cast = receiver.getDefiningOp<cir::CastOp>()) {
+      if (cast.getKind() != cir::CastKind::address_space &&
+          cast.getKind() != cir::CastKind::bitcast)
+        break;
+      receiver = cast.getSrc();
+    }
+    cir::AllocaOp alloca = receiver.getDefiningOp<cir::AllocaOp>();
+    if (!alloca || ifOp->isProperAncestor(alloca.getOperation()) ||
+        !alloca.getAstTemporaryObjectIdentitiesAttr())
+      return;
+    auto found = llvm::find_if(temporaryCalls, [&](const TemporaryCalls &item) {
+      return item.alloca == alloca.getOperation();
+    });
+    if (found == temporaryCalls.end()) {
+      temporaryCalls.push_back(TemporaryCalls{alloca.getOperation(), {}});
+      found = std::prev(temporaryCalls.end());
+    }
+    found->callees.push_back(
+        mlir::StringAttr::get(ifOp.getContext(), callee.getValue()));
+  });
+  mlir::ArrayAttr matched;
+  for (const TemporaryCalls &candidate : temporaryCalls) {
+    cir::AllocaOp alloca =
+        mlir::cast<cir::AllocaOp>(candidate.alloca);
+    mlir::ArrayAttr identities =
+        alloca.getAstTemporaryObjectIdentitiesAttr();
+    bool completeLifetime = identities && !identities.empty();
+    for (mlir::Attribute attribute : identities) {
+      auto identity = mlir::dyn_cast<mlir::DictionaryAttr>(attribute);
+      auto destructor =
+          identity ? identity.getAs<mlir::StringAttr>("destructor_symbol")
+                   : mlir::StringAttr();
+      auto constructor =
+          identity ? identity.getAs<mlir::StringAttr>("constructor_symbol")
+                   : mlir::StringAttr();
+      auto requiresObserved =
+          identity ? identity.getAs<mlir::BoolAttr>(
+                         "requires_observed_constructor_call")
+                   : mlir::BoolAttr();
+      auto containsCallee = [&](mlir::StringAttr expected) {
+        return llvm::is_contained(candidate.callees, expected);
+      };
+      if (!destructor || !requiresObserved || !containsCallee(destructor) ||
+          (requiresObserved.getValue() &&
+           (!constructor || !containsCallee(constructor)))) {
+        completeLifetime = false;
+        break;
+      }
+    }
+    if (!completeLifetime)
+      continue;
+    if (matched)
+      return {};
+    matched = identities;
+  }
+  return matched;
+}
+void CIRGenFunction::attachConditionalTemporaryCleanupIdentities() {
+  mlir::cast<cir::FuncOp>(curFn).walk([&](cir::IfOp ifOp) {
+    if (ifOp.getAstConditionalCleanupIdentitiesAttr())
+      return;
+    if (mlir::ArrayAttr identities =
+            getConditionalNewInitializerCleanupIdentities(ifOp))
+      ifOp.setAstConditionalCleanupIdentitiesAttr(identities);
+  });
+}
+
+
 mlir::Value CIRGenFunction::emitCXXNewExpr(const CXXNewExpr *e) {
   // The element type being allocated.
   QualType allocType = getContext().getBaseElementType(e->getAllocatedType());

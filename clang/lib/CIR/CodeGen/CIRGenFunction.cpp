@@ -696,6 +696,7 @@ void CIRGenFunction::finishFunction(SourceLocation endLoc) {
     // FIXME(cir): should we clearInsertionPoint? breaks many testcases
     popCleanupBlocks(prologueCleanupDepth);
   }
+  attachConditionalTemporaryCleanupIdentities();
 
   assert(deferredConditionalCleanupStack.empty() &&
          "deferred conditional cleanups were not consumed by a "
