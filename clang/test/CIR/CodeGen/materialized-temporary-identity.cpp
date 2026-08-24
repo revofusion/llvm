@@ -399,6 +399,10 @@ void loop_body_temporary_cleanup(bool b) {
 // CIR: cir.if %[[CONDITIONAL_BRANCH_FLAG:.*]] {
 // CIR: cir.call @_ZN7CleanupD1Ev(%[[CONDITIONAL_BRANCH_TEMP]])
 // CIR: } {ast_conditional_cleanup_identities = {{.*}}instance_token = "[[CONDITIONAL_BRANCH_TOKEN]]"
+// CIR: cir.yield
+// CIR: } loc(
+// CIR: %{{.*}} = cir.load
+// CIR: } loc(
 // CIR-LABEL: cir.func{{.*}} @{{[^ (]*conditional_temporary_loop[^ (]*}}(
 // CIR: %[[CONDITIONAL_LOOP_TEMP:.*]] = cir.alloca{{.*}}ast_temporary_object_identities = {{.*}}cleanup_kind = "cxx_destructor"{{.*}}function = @{{[^ (]*conditional_temporary_loop[^ (]*}}{{.*}}instance_token = "[[CONDITIONAL_LOOP_TOKEN:mte\.instance\.[0-9]+]]"
 // CIR: cir.if %[[CONDITIONAL_LOOP_FLAG:.*]] {

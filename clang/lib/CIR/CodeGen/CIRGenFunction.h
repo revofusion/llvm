@@ -119,6 +119,10 @@ public:
   llvm::SmallVector<PendingCleanupEntry> lifetimeExtendedCleanupStack;
 
   llvm::SmallVector<PendingCleanupEntry> deferredConditionalCleanupStack;
+  /// Allocation-success branches emitted by CXXNewExpr. Cleanup identities
+  /// discovered after EH cleanup emission may only be attached to these exact
+  /// operations; a generic cir.if has no source-level new-expression fact.
+  llvm::SmallVector<cir::IfOp> conditionalNewInitializerCleanupGuards;
 
   /// A cleanup that was pushed to the EH stack but whose deactivation is
   /// deferred until the enclosing CleanupDeactivationScope exits. Used to

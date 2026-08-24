@@ -1679,13 +1679,14 @@ getConditionalNewInitializerCleanupIdentities(cir::IfOp ifOp) {
   return matched;
 }
 void CIRGenFunction::attachConditionalTemporaryCleanupIdentities() {
-  mlir::cast<cir::FuncOp>(curFn).walk([&](cir::IfOp ifOp) {
+  for (cir::IfOp ifOp : conditionalNewInitializerCleanupGuards) {
     if (ifOp.getAstConditionalCleanupIdentitiesAttr())
-      return;
+      continue;
     if (mlir::ArrayAttr identities =
             getConditionalNewInitializerCleanupIdentities(ifOp))
       ifOp.setAstConditionalCleanupIdentitiesAttr(identities);
-  });
+  }
+  conditionalNewInitializerCleanupGuards.clear();
 }
 
 
@@ -1909,6 +1910,7 @@ mlir::Value CIRGenFunction::emitCXXNewExpr(const CXXNewExpr *e) {
         /*thenBuilder=*/
         [&](mlir::OpBuilder &, mlir::Location) { emitInit(); });
     terminateStructuredRegionBody(ifOp.getThenRegion(), loc);
+    conditionalNewInitializerCleanupGuards.push_back(ifOp);
   } else {
     emitInit();
   }
