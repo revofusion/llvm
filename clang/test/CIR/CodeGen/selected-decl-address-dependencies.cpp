@@ -20,6 +20,8 @@ int selected() {
   return 0;
 }
 
+// CHECK: cir.selected_decl_root_definitions = {
+// CHECK-SAME: _ZN12_GLOBAL__N_15LocalD1Ev = "_ZN12_GLOBAL__N_15LocalD1Ev"
 // CHECK-DAG: cir.func{{.*}} @_Z8selectedv{{.*}} {
 // CHECK-DAG: cir.func{{.*}} @_ZN9BindStateIiE6SelectEv{{.*}} {
 // CHECK-DAG: cir.func{{.*}} @_ZN9BindStateIiE7DestroyEv{{.*}} {

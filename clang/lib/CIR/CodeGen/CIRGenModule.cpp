@@ -27,6 +27,7 @@
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclOpenACC.h"
 #include "clang/AST/GlobalDecl.h"
+#include "clang/AST/ODRHash.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/StmtOpenMP.h"
@@ -5205,9 +5206,21 @@ bool CIRGenModule::isSelectedDeclRoot(GlobalDecl gd) {
   // carries its exact producer symbol, so a variable/template USR or shared
   // declaration context must never promote a method while the roster is
   // scanned. Stateful source-span bridging is intentionally VarDecl-only
-  // above; non-lambda functions are selected by exact mangled identity.
-  if (isa<FunctionDecl>(decl))
-    return selectedDeclRoots.contains(getMangledName(gd));
+  // above; non-lambda functions are selected by exact ABI identity.
+  if (const auto *function = dyn_cast<FunctionDecl>(decl)) {
+    if (selectedDeclRoots.contains(getMangledName(gd)))
+      return true;
+    // C functions have no distinct Itanium ABI symbol identity. Accept the
+    // exact compiler USR selector only for C-linkage declarations; C++
+    // functions remain gated by their manifest mangled symbol above.
+    if (!astContext.getLangOpts().CPlusPlus || function->isExternC()) {
+      llvm::SmallString<256> functionUSR;
+      if (!clang::index::generateUSRForDecl(
+              function->getCanonicalDecl(), functionUSR))
+        return selectedDeclRootUSRs.contains(functionUSR);
+    }
+    return false;
+  }
   GlobalDecl canonicalGD = gd.getCanonicalDecl();
   llvm::SmallString<256> declarationUSR;
   if (!clang::index::generateUSRForDecl(gd.getDecl(), declarationUSR))
@@ -5713,19 +5726,21 @@ void CIRGenModule::emitSelectedMethods(
       return;
     }
     if (auto *ctor = dyn_cast<CXXConstructorDecl>(function)) {
-      enqueueMethod(GlobalDecl(ctor, Ctor_Base));
-      if (!ctor->getParent()->isAbstract())
+      // ABI companions are not independent roster roots. Put each exact
+      // selected variant on the frontier directly; family emission may create
+      // its companion, but an unselected variant must never lead the family
+      // under dependency-emission mode.
+      if (isSelectedDeclRoot(GlobalDecl(ctor, Ctor_Complete)))
         enqueueMethod(GlobalDecl(ctor, Ctor_Complete));
+      if (isSelectedDeclRoot(GlobalDecl(ctor, Ctor_Base)))
+        enqueueMethod(GlobalDecl(ctor, Ctor_Base));
     } else if (auto *dtor = dyn_cast<CXXDestructorDecl>(function)) {
-      enqueueMethod(GlobalDecl(dtor, Dtor_Base));
-      enqueueMethod(GlobalDecl(dtor, Dtor_Complete));
-      // A selected deleting-destructor root is authoritative evidence for the
-      // ABI variant even when this AST declaration does not report virtuality
-      // after canonicalization. Keep the complete virtual-destructor closure.
-      if (dtor->isVirtual() ||
-          isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Deleting)) ||
-          isSelectedDeclDependency(GlobalDecl(dtor, Dtor_Deleting)))
+      if (isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Deleting)))
         enqueueMethod(GlobalDecl(dtor, Dtor_Deleting));
+      if (isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Complete)))
+        enqueueMethod(GlobalDecl(dtor, Dtor_Complete));
+      if (isSelectedDeclRoot(GlobalDecl(dtor, Dtor_Base)))
+        enqueueMethod(GlobalDecl(dtor, Dtor_Base));
     } else {
       enqueueMethod(GlobalDecl(function));
     }
@@ -6772,6 +6787,16 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
       if (auto poi = specializationPointOfInstantiationIdentity(
               getASTContext(), identityFunctionDecl))
         identity.set("poi", builder.getStringAttr(*poi));
+    }
+    if (const TemplateArgumentList *arguments =
+            identityFunctionDecl->getTemplateSpecializationArgs()) {
+      ODRHash argumentHash;
+      for (const TemplateArgument &argument : arguments->asArray())
+        argumentHash.AddTemplateArgument(argument);
+      identity.set(
+          "template_arguments_odr_hash",
+          builder.getI64IntegerAttr(
+              static_cast<int64_t>(argumentHash.CalculateHash())));
     }
 
     func->setAttr("ast_decl_specialization_identity",

@@ -117,10 +117,10 @@ void instantiate_same_signature_nttp() {
 }
 
 // CIR: cir.func{{.*}} @[[NTTP_ONE:[^ (]*same_signature_nttp[^ (]*]]()
-// CIR-SAME: ast_decl_specialization_identity = {{.*}}mangled_name = "[[NTTP_ONE]]"{{.*}}poi = "[[NTTP_ONE_POI:v1:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+]]"{{.*}}template_pattern_usr = "[[NTTP_PATTERN:[^"]+]]"
+// CIR-SAME: ast_decl_specialization_identity = {{.*}}mangled_name = "[[NTTP_ONE]]"{{.*}}poi = "[[NTTP_ONE_POI:v1:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+]]"{{.*}}template_arguments_odr_hash = {{[0-9]+}} : i64{{.*}}template_pattern_usr = "[[NTTP_PATTERN:[^"]+]]"
 // CIR: cir.func{{.*}} @[[NTTP_TWO:[^ (]*same_signature_nttp[^ (]*]]()
 // CIR-NOT: poi = "[[NTTP_ONE_POI]]"
-// CIR-SAME: ast_decl_specialization_identity = {{.*}}mangled_name = "[[NTTP_TWO]]"{{.*}}poi = "[[NTTP_TWO_POI:v1:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+]]"{{.*}}template_pattern_usr = "[[NTTP_PATTERN]]"
+// CIR-SAME: ast_decl_specialization_identity = {{.*}}mangled_name = "[[NTTP_TWO]]"{{.*}}poi = "[[NTTP_TWO_POI:v1:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+]]"{{.*}}template_arguments_odr_hash = {{[0-9]+}} : i64{{.*}}template_pattern_usr = "[[NTTP_PATTERN]]"
  
 template <typename T>
 struct MemberTemplate {

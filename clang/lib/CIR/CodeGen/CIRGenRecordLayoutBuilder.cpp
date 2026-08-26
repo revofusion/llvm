@@ -981,6 +981,28 @@ recordDeclIdentityImpl(CIRGenModule &cgm, const RecordDecl *decl,
         }
       }
     }
+    if (!identity.empty() && record->getIdentifier()) {
+      const FunctionDecl *owningFunction = nullptr;
+      for (const DeclContext *context = record->getDeclContext(); context;
+           context = context->getParent()) {
+        if (const auto *function = dyn_cast<FunctionDecl>(context)) {
+          owningFunction = function;
+          break;
+        }
+      }
+      if (owningFunction) {
+        const std::string anchor =
+            mangledFunctionAnchor(cgm.getIdentityMangleContext(),
+                                  owningFunction);
+        if (anchor.empty()) {
+          identity.clear();
+        } else {
+          identity += "#fnowner:" +
+                      sha256Hex(
+                          {"record-exact-function-owner-v1", anchor});
+        }
+      }
+    }
     if (!identity.empty()) {
       const DeclContext *context = record->getDeclContext();
       const auto *parent =
