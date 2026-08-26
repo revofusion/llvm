@@ -187,9 +187,13 @@ int selectedNestedCall(A lhs, B rhs, F failure) {
 
 template <typename T>
 struct NestedBox {
+  template <bool Enabled>
+  int memberTemplate(int lhs, int rhs) const;
   int at(int lhs, int rhs) const {
+    int value = memberTemplate<true>(lhs, rhs);
     return selectedNestedCall(
-        lhs, rhs, [](int first, int second) -> int { return first + second; });
+        value, rhs,
+        [](int first, int second) -> int { return first + second; });
   }
 };
 
@@ -298,6 +302,10 @@ int lambdaCarrier() {
 // NESTED-LIBCXX-SAME: ast_decl_usr = "[[FOREACH_USR]]"
 // NESTED-LAMBDA-SYMBOL-DAG: cir.func{{.*}} @_ZZNK9NestedBoxIiE2atEiiENKUliiE_clEii({{.*}}ast_decl_linkage_name = "_ZZNK9NestedBoxIiE2atEiiENKUliiE_clEii"{{.*}}ast_decl_specialization_identity = {mangled_name = "_ZZNK9NestedBoxIiE2atEiiENKUliiE_clEii", template_pattern_usr = "c:@ST>1#T@NestedBox@F@at#I#I#1@Sa@F@operator()#I#I#1", usr = "c:@S@NestedBox>#I@F@at#I#I#1@Sa@F@operator()#I#I#1"}{{.*}}ast_decl_usr = "c:@S@NestedBox>#I@F@at#I#I#1@Sa@F@operator()#I#I#1"{{.*}} {
 // NESTED-LAMBDA-SYMBOL-DAG: cir.func{{.*}} @_Z18selectedNestedCallIiiZNK9NestedBoxIiE2atEiiEUliiE_EiT_T0_T1_({{.*}}ast_decl_linkage_name = "_Z18selectedNestedCallIiiZNK9NestedBoxIiE2atEiiEUliiE_EiT_T0_T1_"{{.*}}ast_decl_specialization_identity = {mangled_name = "_Z18selectedNestedCallIiiZNK9NestedBoxIiE2atEiiEUliiE_EiT_T0_T1_", poi = "{{[^"]+}}", template_pattern_usr = "c:@FT@>3#T#T#TselectedNestedCall#t0.0#t0.1#t0.2#I#", usr = "c:@F@selectedNestedCall<#I#I#$@S@NestedBox>#I@F@at#I#I#1@Sa>#I#I#S0_#"}{{.*}}ast_decl_usr = "c:@F@selectedNestedCall<#I#I#$@S@NestedBox>#I@F@at#I#I#1@Sa>#I#I#S0_#"{{.*}} {
+// A function-template specialization discovered from the parse-only enclosing
+// method is declaration-only, but its CIR type still owns the implicit object
+// slot followed by both explicit source parameters.
+// NESTED-LAMBDA-SYMBOL-DAG: cir.func private @_ZNK9NestedBoxIiE14memberTemplateILb1EEEiii(!cir.ptr<!rec_NestedBox3Cint3E>{{.*}}, !s32i{{.*}}, !s32i
 
 
 // A parse-only declaration can discover an exact selected specialization

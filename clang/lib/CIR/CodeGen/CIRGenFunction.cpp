@@ -1404,6 +1404,17 @@ std::string CIRGenFunction::getCXXTemporaryObjectInstanceToken() {
                              counterCXXTemporaryObjectIdentity++);
 }
 
+std::string
+CIRGenFunction::getAggregateConditionalDestinationInstanceToken() {
+  // The token is minted while visiting the exact AST conditional and is
+  // attached to both the conditional operation and its actual destination
+  // producer. Consumers compare those facts; they must not reconstruct the
+  // destination from branch result types or storage names.
+  return getVersionedTmpName(
+      "aggregate.conditional.destination.",
+      counterAggregateConditionalDestinationIdentity++);
+}
+
 std::string CIRGenFunction::getCounterAggTmpAsString() {
   return getVersionedTmpName("agg.tmp", counterAggTmp++);
 }

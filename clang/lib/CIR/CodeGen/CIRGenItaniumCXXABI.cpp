@@ -1959,7 +1959,7 @@ CIRGenCallee CIRGenItaniumCXXABI::getVirtualFunctionPointer(
       auto vtableSlotPtr = cir::VTableGetVirtualFnAddrOp::create(
           builder, loc, builder.getPointerTo(tyPtr), vtable, vtableIndex);
       auto identityAttrs = buildCIRGenVirtualMethodIdentityAttrs(
-          cgm, cgm.getMLIRContext(), cgm.getMangledName(gd), methodDecl);
+          cgm, cgm.getMLIRContext(), gd);
       vtableSlotPtr->setAttr("method", identityAttrs.method);
       if (identityAttrs.methodUSR)
         vtableSlotPtr->setAttr("method_usr", identityAttrs.methodUSR);

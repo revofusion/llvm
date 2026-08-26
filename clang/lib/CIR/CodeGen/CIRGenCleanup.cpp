@@ -392,15 +392,28 @@ bool CIRGenFunction::setMaterializedConversionTemporaryObjectIdentity(
     return false;
   const Expr *producer = temporary->getSubExpr()->IgnoreParenImpCasts();
   const auto *construct = dyn_cast_or_null<CXXConstructExpr>(producer);
-  if (!construct)
-    return false;
-  const CXXConstructorDecl *constructor = construct->getConstructor();
+  const CXXConstructorDecl *constructor =
+      construct ? construct->getConstructor() : nullptr;
+  const CXXConversionDecl *conversion = nullptr;
+  if (!constructor) {
+    const auto *call = dyn_cast_or_null<CXXMemberCallExpr>(producer);
+    conversion =
+        call ? dyn_cast_or_null<CXXConversionDecl>(call->getMethodDecl())
+             : nullptr;
+    if (!conversion ||
+        !getContext().hasSameUnqualifiedType(conversion->getConversionType(),
+                                             temporary->getType()))
+      return false;
+  }
+  const FunctionDecl *constructionProducer =
+      constructor ? static_cast<const FunctionDecl *>(constructor)
+                  : static_cast<const FunctionDecl *>(conversion);
   const CXXRecordDecl *record = temporary->getType()->getAsCXXRecordDecl();
   if (record && record->getDefinition())
     record = record->getDefinition();
   const CXXDestructorDecl *destructor =
       record ? record->getDestructor() : nullptr;
-  if (!constructor || !destructor || destructor->isTrivial())
+  if (!constructionProducer || !destructor || destructor->isTrivial())
     return false;
 
   cir::AllocaOp alloca = address.getUnderlyingAllocaOp();
@@ -479,21 +492,31 @@ bool CIRGenFunction::setMaterializedConversionTemporaryObjectIdentity(
     return true;
   }
   identity.set("destructor_usr", builder.getStringAttr(destructorUSR));
-  identity.set("constructor_symbol",
-               builder.getStringAttr(
-                   cgm.getMangledName(GlobalDecl(constructor, Ctor_Complete))));
+  const GlobalDecl constructionProducerGlobal =
+      constructor ? GlobalDecl(constructor, Ctor_Complete)
+                  : GlobalDecl(constructionProducer);
+  identity.set(
+      "constructor_symbol",
+      builder.getStringAttr(cgm.getMangledName(constructionProducerGlobal)));
   llvm::SmallString<256> constructorUSR;
-  if (clang::index::generateUSRForDecl(constructor->getCanonicalDecl(),
-                                       constructorUSR)) {
-    cgm.errorNYI(temporary->getSourceRange(),
-                 "materialized conversion constructor has no exact canonical "
-                 "USR");
+  if (clang::index::generateUSRForDecl(
+          constructionProducer->getCanonicalDecl(), constructorUSR)) {
+    cgm.errorNYI(
+        temporary->getSourceRange(),
+        "materialized conversion construction producer has no exact canonical "
+        "USR");
     return true;
   }
   identity.set("constructor_usr", builder.getStringAttr(constructorUSR));
+  // A conversion-function call constructs its record result, not its adapter
+  // receiver. The exact conversion declaration remains the construction
+  // producer identity, but there is no constructor receiver call for replay
+  // to observe. Nontrivial CXXConstructExpr producers still require their
+  // explicit constructor completion.
   identity.set("requires_observed_constructor_call",
-               builder.getBoolAttr(!constructor->isTrivial() &&
-                                   !construct->isElidable()));
+               builder.getBoolAttr(
+                   constructor && !constructor->isTrivial() &&
+                   !construct->isElidable()));
 
   mlir::DictionaryAttr temporaryIdentity =
       identity.getDictionary(&getMLIRContext());

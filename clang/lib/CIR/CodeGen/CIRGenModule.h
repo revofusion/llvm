@@ -144,6 +144,11 @@ private:
   llvm::StringSet<> selectedDeclRoots;
   llvm::StringSet<> selectedDeclRootUSRs;
   llvm::StringMap<std::string> selectedDeclRootUSRBySymbol;
+  /// Exact expansion spans captured by the authority-producing AST pass,
+  /// mapped to the ABI symbol that pass selected. This preserves identity when
+  /// stateful preprocessing (for example __COUNTER__) gives the selective CIR
+  /// parse a different source spelling.
+  llvm::StringMap<std::string> selectedDeclRootSymbolBySourceSpan;
   struct SelectedLambdaRoot {
     std::string declarationUSR;
     std::string contextUSR;
@@ -172,6 +177,8 @@ private:
   clang::GlobalDecl getEmitCapableSelectedDecl(clang::GlobalDecl gd) const;
   bool isSelectedStaticDataMemberDeclaration(const clang::VarDecl *variable);
   bool isSelectedVariableTemplatePattern(const clang::VarDecl *variable) const;
+  bool isSelectedConstantVariableTemplatePattern(
+      const clang::VarDecl *variable) const;
 
   llvm::SmallVector<clang::GlobalDecl, 16>
   takeSelectedDeclDependencyFrontier() {
@@ -188,6 +195,8 @@ private:
   void loadSelectedDeclRoots();
   bool isSelectedDeclRoot(clang::GlobalDecl gd);
   llvm::StringRef selectedLambdaRootSelector(clang::GlobalDecl gd) const;
+  llvm::StringRef
+  selectedSourceRootSymbol(clang::GlobalDecl gd) const;
   void noteSelectedDeclRootDefinition(clang::GlobalDecl gd,
                                       mlir::Operation *definition = nullptr);
   void diagnoseUnemittedSelectedDeclRoots();
@@ -292,6 +301,7 @@ private:
   struct ExactRecordEndpoint {
     cir::RecordType schema;
     mlir::StringAttr identity;
+    const RecordDecl *record;
   };
   std::optional<ExactRecordEndpoint> getExactRecordEndpoint(QualType type);
   mlir::ArrayAttr buildCastEndpointSourceType(QualType type);
@@ -851,9 +861,12 @@ public:
   /// Preserve exact AST-owned endpoint and syntax facts on the CIR operation
   /// that implements a CastExpr.
   void setCastExprMetadata(mlir::Operation *op, const CastExpr *e);
-  /// Preserve the exact AST result endpoint on a CIR conditional operation.
-  void setConditionalExprMetadata(mlir::Operation *op,
-                                  const AbstractConditionalOperator *e);
+  /// Preserve the exact AST result endpoint and, for aggregate emission, the
+  /// producer-selected destination storage on a CIR conditional operation.
+  void setConditionalExprMetadata(
+      mlir::Operation *op, const AbstractConditionalOperator *e,
+      mlir::Value aggregateDestination = {},
+      llvm::StringRef aggregateDestinationInstanceToken = {});
 
   /// Preserve the owning class identity of a data- or function-member pointer
   /// on storage and constant producers. A non-null data-member constant passes

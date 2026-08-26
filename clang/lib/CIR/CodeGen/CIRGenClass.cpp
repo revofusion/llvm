@@ -315,10 +315,62 @@ static bool baseInitializerUsesThis(ASTContext &c, const Expr *init) {
   return checker.usesThis;
 }
 
-static void setBaseIdentityAttrs(CIRGenFunction &cgf, mlir::Value address,
-                                 const CXXRecordDecl *derived,
-                                 const CXXRecordDecl *base, CharUnits offset,
-                                 bool baseIsVirtual) {
+static void collectNonVirtualBasePathVirtualities(
+    ASTContext &context, const CXXRecordDecl *record,
+    const CXXRecordDecl *target, CharUnits completeOffset, bool isVirtual,
+    llvm::SmallVectorImpl<std::pair<CharUnits, bool>> &paths) {
+  const ASTRecordLayout &layout = context.getASTRecordLayout(record);
+  for (const CXXBaseSpecifier &base : record->bases()) {
+    if (base.isVirtual())
+      continue;
+    const CXXRecordDecl *baseRecord =
+        base.getType()->getAsCXXRecordDecl()->getDefinition();
+    if (!baseRecord)
+      continue;
+    const CharUnits offset =
+        completeOffset + layout.getBaseClassOffset(baseRecord);
+    if (baseRecord->getCanonicalDecl() == target->getCanonicalDecl())
+      paths.emplace_back(offset, isVirtual);
+    collectNonVirtualBasePathVirtualities(context, baseRecord, target, offset,
+                                          isVirtual, paths);
+  }
+}
+
+static std::optional<bool>
+exactBasePathVirtuality(ASTContext &context, const CXXRecordDecl *derived,
+                        const CXXRecordDecl *base, CharUnits selectedOffset) {
+  llvm::SmallVector<std::pair<CharUnits, bool>, 4> paths;
+  const ASTRecordLayout &layout = context.getASTRecordLayout(derived);
+  for (const CXXBaseSpecifier &virtualBase : derived->vbases()) {
+    const CXXRecordDecl *baseRecord =
+        virtualBase.getType()->getAsCXXRecordDecl()->getDefinition();
+    if (!baseRecord)
+      return std::nullopt;
+    const CharUnits offset = layout.getVBaseClassOffset(baseRecord);
+    if (baseRecord->getCanonicalDecl() == base->getCanonicalDecl())
+      paths.emplace_back(offset, true);
+    collectNonVirtualBasePathVirtualities(context, baseRecord, base, offset,
+                                          /*isVirtual=*/true, paths);
+  }
+  collectNonVirtualBasePathVirtualities(
+      context, derived, base, CharUnits::Zero(), /*isVirtual=*/false, paths);
+  std::optional<bool> selected;
+  unsigned selectedCount = 0;
+  for (const auto &[offset, isVirtual] : paths) {
+    if (offset != selectedOffset)
+      continue;
+    selected = isVirtual;
+    ++selectedCount;
+  }
+  if (selectedCount != 1)
+    return std::nullopt;
+  return selected;
+}
+
+static void setBaseIdentityAttrs(
+    CIRGenFunction &cgf, mlir::Value address, const CXXRecordDecl *derived,
+    const CXXRecordDecl *base, CharUnits offset,
+    std::optional<bool> expectedVirtuality = std::nullopt) {
   const std::optional<std::string> derivedID =
       derived ? recordDeclIdentity(cgf.getCIRGenModule(), derived)
               : std::nullopt;
@@ -327,17 +379,40 @@ static void setBaseIdentityAttrs(CIRGenFunction &cgf, mlir::Value address,
   if (!derivedID.has_value() || !baseID.has_value() || derivedID->empty() ||
       baseID->empty())
     return;
+  const std::optional<bool> baseIsVirtual =
+      exactBasePathVirtuality(cgf.getContext(), derived, base, offset);
+  if (!baseIsVirtual.has_value())
+    return;
   mlir::Operation *op = address.getDefiningOp();
   if (!op)
+    return;
+  if (expectedVirtuality.has_value() &&
+      *expectedVirtuality != *baseIsVirtual)
     return;
   op->setAttr("ast_derived_record_usr",
               cgf.getBuilder().getStringAttr(*derivedID));
   op->setAttr("ast_base_record_usr",
               cgf.getBuilder().getStringAttr(*baseID));
+  const ASTRecordLayout &derivedLayout =
+      cgf.getContext().getASTRecordLayout(derived);
+  const ASTRecordLayout &baseLayout =
+      cgf.getContext().getASTRecordLayout(base);
+  op->setAttr("ast_derived_record_size_bytes",
+              cgf.getBuilder().getI64IntegerAttr(
+                  derivedLayout.getSize().getQuantity()));
+  op->setAttr("ast_derived_record_align_bytes",
+              cgf.getBuilder().getI64IntegerAttr(
+                  derivedLayout.getAlignment().getQuantity()));
+  op->setAttr(
+      "ast_base_record_size_bytes",
+      cgf.getBuilder().getI64IntegerAttr(baseLayout.getSize().getQuantity()));
+  op->setAttr("ast_base_record_align_bytes",
+              cgf.getBuilder().getI64IntegerAttr(
+                  baseLayout.getAlignment().getQuantity()));
   op->setAttr("ast_base_offset_bytes",
               cgf.getBuilder().getI64IntegerAttr(offset.getQuantity()));
   op->setAttr("ast_base_is_virtual",
-              cgf.getBuilder().getBoolAttr(baseIsVirtual));
+              cgf.getBuilder().getBoolAttr(*baseIsVirtual));
   cgf.getCIRGenModule().rememberClassAddrIdentityDecls(op, derived, base);
 }
 
@@ -527,8 +602,7 @@ static Address applyNonVirtualAndVirtualOffset(
           loc, addr, baseValueTy, nonVirtualOffset.getQuantity(),
           assumeNotNull);
       setBaseIdentityAttrs(cgf, baseAddr.getPointer(), derivedClass, baseClass,
-                           nonVirtualOffset,
-                           /*baseIsVirtual=*/nearestVBase != nullptr);
+                           nonVirtualOffset);
       return baseAddr;
     }
   } else {
@@ -1370,9 +1444,14 @@ Address CIRGenFunction::getAddressOfDerivedClass(
   // Note that in OG, no offset (nonVirtualOffset.getQuantity() == 0) means it
   // just gives the address back. In CIR a `cir.derived_class` is created and
   // made into a nop later on during lowering.
-  return builder.createDerivedClassAddr(loc, baseAddr, derivedValueTy,
-                                        nonVirtualOffset.getQuantity(),
-                                        /*assumeNotNull=*/!nullCheckValue);
+  Address derivedAddr = builder.createDerivedClassAddr(
+      loc, baseAddr, derivedValueTy, nonVirtualOffset.getQuantity(),
+      /*assumeNotNull=*/!nullCheckValue);
+  const CXXRecordDecl *base =
+      (path.end()[-1])->getType()->getAsCXXRecordDecl();
+  setBaseIdentityAttrs(*this, derivedAddr.getPointer(), derived, base,
+                       nonVirtualOffset);
+  return derivedAddr;
 }
 
 Address CIRGenFunction::getAddressOfBaseClass(
@@ -1410,14 +1489,14 @@ Address CIRGenFunction::getAddressOfBaseClass(
   // Get the base pointer type.
   assert(!cir::MissingFeatures::addressSpace());
 
-  // If there is no virtual base, use cir.base_class_addr.  It takes care of
+  // If there is no virtual base, use cir.base_class_addr. It takes care of
   // the adjustment and the null pointer check.
   if (nonVirtualOffset.isZero() && !vBase) {
     assert(!cir::MissingFeatures::sanitizers());
     Address baseAddr = builder.createBaseClassAddr(
         getLoc(loc), value, baseValueTy, 0, /*assumeNotNull=*/true);
     setBaseIdentityAttrs(*this, baseAddr.getPointer(), derived, baseClass,
-                         CharUnits::Zero(), /*baseIsVirtual=*/false);
+                         CharUnits::Zero());
     return baseAddr;
   }
 

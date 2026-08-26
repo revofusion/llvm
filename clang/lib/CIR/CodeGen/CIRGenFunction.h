@@ -565,11 +565,13 @@ public:
       llvm::ScopedHashTableScope<const clang::Decl *, mlir::Value>;
 
   /// Hold counters for incrementally naming temporaries and minting opaque
-  /// producer metadata tokens for temporary storage.
+  /// producer metadata tokens for temporary and conditional destination
+  /// storage.
   unsigned counterRefTmp = 0;
   unsigned counterAggTmp = 0;
   unsigned counterMaterializedTemporaryIdentity = 0;
   unsigned counterCXXTemporaryObjectIdentity = 0;
+  unsigned counterAggregateConditionalDestinationIdentity = 0;
   // Declaration ordinals join CIR identities with an importer-side AST walk
   // that numbers one node kind at a time. Bind-temporary and materialized
   // temporary identities are therefore numbered from separate counters: one
@@ -585,6 +587,7 @@ public:
   std::string getCounterAggTmpAsString();
   std::string getMaterializedTemporaryInstanceToken();
   std::string getCXXTemporaryObjectInstanceToken();
+  std::string getAggregateConditionalDestinationInstanceToken();
   std::optional<uint64_t> getBindTemporaryDeclarationOrdinal(
       const clang::CXXBindTemporaryExpr *temporary);
   std::optional<uint64_t> getMaterializedTemporaryDeclarationOrdinal(

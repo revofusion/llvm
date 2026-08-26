@@ -70,12 +70,12 @@ bool collectRootOverrideEvidence(
 CIRGenVirtualMethodIdentityAttrs clang::CIRGen::
     buildCIRGenVirtualMethodIdentityAttrs(CIRGenModule &cgm,
                                           mlir::MLIRContext &mlirContext,
-                                          llvm::StringRef mangledName,
-                                          const CXXMethodDecl *methodDecl) {
+                                          GlobalDecl dispatchDecl) {
   CIRGenVirtualMethodIdentityAttrs attrs;
-  attrs.method = mlir::FlatSymbolRefAttr::get(&mlirContext, mangledName);
-  if (!methodDecl)
-    return attrs;
+  const auto *methodDecl =
+      cast<CXXMethodDecl>(dispatchDecl.getDecl());
+  attrs.method = mlir::FlatSymbolRefAttr::get(
+      &mlirContext, cgm.getMangledName(dispatchDecl));
   std::string methodUSR = usrForDecl(methodDecl);
   if (methodUSR.empty())
     return attrs;

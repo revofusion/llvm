@@ -168,8 +168,10 @@ AnonymousCastState *recover_anonymous_cast(void *value) {
 // CHECK: cir.cast ptr_to_bool{{.*}}ast_cast_expr = {
 // CHECK-SAME: cast_kind = "PointerToBoolean"
 // CHECK-SAME: result_record_presence = "no_record"
+// CHECK-SAME: source_record_align_bytes = 8
 // CHECK-SAME: source_record_presence = "record"
 // CHECK-SAME: source_record_schema = [[MATCHER_INTERFACE_SCHEMA]]
+// CHECK-SAME: source_record_size_bytes = 8
 // CHECK-SAME: source_record_usr = "[[MATCHER_INTERFACE_USR]]"
 
 // A field-owned anonymous RecordDecl has no source spelling from which a

@@ -28,6 +28,14 @@ X *castAtoX(A *a) {
 // CIR:   cir.store %[[ARG0]], %[[A_ADDR]] : !cir.ptr<!rec_A>, !cir.ptr<!cir.ptr<!rec_A>>
 // CIR:   %[[A:.*]] = cir.load{{.*}} %[[A_ADDR]] : !cir.ptr<!cir.ptr<!rec_A>>, !cir.ptr<!rec_A>
 // CIR:   %[[X:.*]] = cir.derived_class_addr %[[A]] : !cir.ptr<!rec_A> [0] -> !cir.ptr<!rec_X>
+// CIR-SAME: ast_base_is_virtual = false
+// CIR-SAME: ast_base_offset_bytes = 0
+// CIR-SAME: ast_base_record_align_bytes = 4
+// CIR-SAME: ast_base_record_size_bytes = 4
+// CIR-SAME: ast_base_record_usr = "c:@S@A"
+// CIR-SAME: ast_derived_record_align_bytes = 4
+// CIR-SAME: ast_derived_record_size_bytes = 12
+// CIR-SAME: ast_derived_record_usr = "c:@S@X"
 
 // Note: Because the offset is 0, a null check is not needed.
 
@@ -50,6 +58,14 @@ X *castBtoX(B *b) {
 // CIR:   cir.store %[[ARG0]], %[[B_ADDR]] : !cir.ptr<!rec_B>, !cir.ptr<!cir.ptr<!rec_B>>
 // CIR:   %[[B:.*]] = cir.load{{.*}} %[[B_ADDR]] : !cir.ptr<!cir.ptr<!rec_B>>, !cir.ptr<!rec_B>
 // CIR:   %[[X:.*]] = cir.derived_class_addr %[[B]] : !cir.ptr<!rec_B> [4] -> !cir.ptr<!rec_X>
+// CIR-SAME: ast_base_is_virtual = false
+// CIR-SAME: ast_base_offset_bytes = 4
+// CIR-SAME: ast_base_record_align_bytes = 4
+// CIR-SAME: ast_base_record_size_bytes = 4
+// CIR-SAME: ast_base_record_usr = "c:@S@B"
+// CIR-SAME: ast_derived_record_align_bytes = 4
+// CIR-SAME: ast_derived_record_size_bytes = 12
+// CIR-SAME: ast_derived_record_usr = "c:@S@X"
 
 // LLVM: define {{.*}} ptr @_Z8castBtoXP1B(ptr {{.*}} %[[ARG0:.*]])
 // LLVM:   %[[B_ADDR:.*]] = alloca ptr, i64 1, align 8
@@ -83,6 +99,14 @@ X &castBReftoXRef(B &b) {
 // CIR:   cir.store %[[ARG0]], %[[B_ADDR]] : !cir.ptr<!rec_B>, !cir.ptr<!cir.ptr<!rec_B>>
 // CIR:   %[[B:.*]] = cir.load{{.*}} %[[B_ADDR]] : !cir.ptr<!cir.ptr<!rec_B>>, !cir.ptr<!rec_B>
 // CIR:   %[[X:.*]] = cir.derived_class_addr %[[B]] : !cir.ptr<!rec_B> nonnull [4] -> !cir.ptr<!rec_X>
+// CIR-SAME: ast_base_is_virtual = false
+// CIR-SAME: ast_base_offset_bytes = 4
+// CIR-SAME: ast_base_record_align_bytes = 4
+// CIR-SAME: ast_base_record_size_bytes = 4
+// CIR-SAME: ast_base_record_usr = "c:@S@B"
+// CIR-SAME: ast_derived_record_align_bytes = 4
+// CIR-SAME: ast_derived_record_size_bytes = 12
+// CIR-SAME: ast_derived_record_usr = "c:@S@X"
 
 // LLVM: define {{.*}} ptr @_Z14castBReftoXRefR1B(ptr {{.*}} %[[ARG0:.*]])
 // LLVM:   %[[B_ADDR:.*]] = alloca ptr

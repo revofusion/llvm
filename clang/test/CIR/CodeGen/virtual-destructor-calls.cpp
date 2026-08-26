@@ -1,5 +1,6 @@
 // RUN: %clang_cc1 -triple aarch64-none-linux-android21 -std=c++20 -mconstructor-aliases -O0 -fclangir -emit-cir %s -o %t.cir
 // RUN: FileCheck --check-prefix=CIR --input-file=%t.cir %s
+// RUN: %clang_cc1 -triple aarch64-none-linux-android21 -std=c++20 -mconstructor-aliases -O0 -fclangir -fclangir-aeneas-metadata -emit-cir %s -o - | FileCheck --check-prefix=META %s
 // RUN: %clang_cc1 -triple aarch64-none-linux-android21 -std=c++20 -mconstructor-aliases -O0 -fclangir -emit-llvm %s -o %t-cir.ll
 // RUN: FileCheck --check-prefix=LLVM --input-file=%t-cir.ll %s
 // RUN: %clang_cc1 -triple aarch64-none-linux-android21 -std=c++20 -mconstructor-aliases -O0 -emit-llvm %s -o %t.ll
@@ -69,6 +70,22 @@ B::~B() { }
 // OGCG: define{{.*}} @_ZN1BD0Ev
 // OGCG:   call void @_ZN1BD1Ev(ptr{{.*}} %[[THIS:.*]])
 // OGCG:   call void @_ZdlPvm(ptr{{.*}} %[[THIS]], i64{{.*}} 16)
+// The deleting ABI entry point owns one Clang dispatch identity. Its symbol,
+// producer declaration USR, and virtual-call metadata must all name that same
+// entry point rather than independently remangling the destructor declaration.
+// META: cir.func{{.*}} @_ZN1BD0Ev
+// META-SAME: abi_dtor_variant = "deleting"
+// META-SAME: ast_decl_linkage_name = "_ZN1BD0Ev"
+// META-SAME: ast_decl_usr = "[[B_DTOR_USR:[^"]+]]"
+
+void delete_virtual_b(B *value) {
+  delete value;
+}
+
+// META-LABEL: cir.func{{.*}} @_Z16delete_virtual_bP1B
+// META: cir.vtable.get_virtual_fn_addr
+// META-SAME: method = @_ZN1BD0Ev
+// META-SAME: method_usr = "[[B_DTOR_USR]]"
 
 struct C : B {
   ~C();

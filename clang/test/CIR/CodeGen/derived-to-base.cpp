@@ -31,12 +31,16 @@ void f() {
 // CIR:   %[[D_BASE:.*]] = cir.base_class_addr %[[D]] : !cir.ptr<!rec_Derived> nonnull [0] -> !cir.ptr<!rec_Base>
 // CIR-SAME: ast_base_is_virtual = false
 // CIR-SAME: ast_base_offset_bytes = 0
+// CIR-SAME: ast_base_record_align_bytes = 4
+// CIR-SAME: ast_base_record_size_bytes = 4
 // CIR-SAME: ast_base_record_usr = "c:@S@Base"
 // CIR-SAME: ast_cast_expr = {cast_kind = "UncheckedDerivedToBase", is_explicit = false, is_part_of_explicit_cast = false
 // CIR-SAME: result_record_schema = !rec_Base
 // CIR-SAME: result_record_usr = "c:@S@Base"
 // CIR-SAME: source_record_schema = !rec_Derived
 // CIR-SAME: source_record_usr = "c:@S@Derived"
+// CIR-SAME: ast_derived_record_align_bytes = 8
+// CIR-SAME: ast_derived_record_size_bytes = 16
 // CIR-SAME: ast_derived_record_usr = "c:@S@Derived"
 // CIR:   cir.call @_ZN4Base1fEv(%[[D_BASE]]) : (!cir.ptr<!rec_Base> {{.*}}) -> ()
 

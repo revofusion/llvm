@@ -403,8 +403,7 @@ struct CIRGenVirtualMethodIdentityAttrs {
 CIRGenVirtualMethodIdentityAttrs
 buildCIRGenVirtualMethodIdentityAttrs(CIRGenModule &cgm,
                                       mlir::MLIRContext &mlirContext,
-                                      llvm::StringRef mangledName,
-                                      const CXXMethodDecl *methodDecl);
+                                      GlobalDecl dispatchDecl);
 
 } // namespace clang::CIRGen
 

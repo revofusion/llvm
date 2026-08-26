@@ -1144,7 +1144,21 @@ void USRGenerator::VisitTemplateArgument(const TemplateArgument &Arg) {
     break;
 
   case TemplateArgument::Declaration:
-    Visit(Arg.getAsDecl());
+    if (const auto *Object =
+            dyn_cast<TemplateParamObjectDecl>(Arg.getAsDecl())) {
+      // Class-valued non-type template arguments are represented in
+      // specialization argument lists by an unnamed TemplateParamObjectDecl.
+      // Visiting that declaration would invalidate the whole USR because it
+      // has no declaration name. Its type and APValue are the canonical,
+      // compiler-owned identity of the argument.
+      Out << 'S';
+      VisitType(Object->getType());
+      ODRHash Hash{};
+      Hash.AddStructuralValue(Object->getValue());
+      Out << Hash.CalculateHash();
+    } else {
+      Visit(Arg.getAsDecl());
+    }
     break;
 
   case TemplateArgument::NullPtr:

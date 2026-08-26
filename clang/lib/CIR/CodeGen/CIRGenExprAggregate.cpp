@@ -579,7 +579,12 @@ public:
           eval.endEvaluation();
         },
         loc);
-    cgf.cgm.setConditionalExprMetadata(conditional.getOperation(), e);
+    cgf.cgm.setConditionalExprMetadata(
+        conditional.getOperation(), e,
+        dest.isIgnored() ? mlir::Value{} : dest.getPointer(),
+        dest.isIgnored()
+            ? llvm::StringRef{}
+            : cgf.getAggregateConditionalDestinationInstanceToken());
 
     if (destructNonTrivialCStruct)
       cgf.cgm.errorNYI(

@@ -1,6 +1,9 @@
 // RUN: echo "_Z19selected_conversionI3BigEbRKT_" > %t.conversion.roots
 // RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fclangir-emit-selected-decls=%t.conversion.roots -skip-function-bodies %s -o %t.conversion.cir
 // RUN: FileCheck --check-prefix=CONVERSION --input-file=%t.conversion.cir %s
+// RUN: echo "_Z24selected_user_conversionRK7Adapter" > %t.user-conversion.roots
+// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fclangir-emit-selected-decls=%t.user-conversion.roots -skip-function-bodies %s -o %t.user-conversion.cir
+// RUN: FileCheck --check-prefix=USER-CONVERSION --input-file=%t.user-conversion.cir %s
 // RUN: echo "_Z27selected_structured_cleanupv" > %t.automatic.roots
 // RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fclangir-emit-selected-decls=%t.automatic.roots -skip-function-bodies %s -o %t.automatic.cir
 // RUN: FileCheck --check-prefix=AUTOMATIC --input-file=%t.automatic.cir %s
@@ -35,6 +38,26 @@ SelectedConversion force_selected_conversion = &selected_conversion<Big>;
 // CONVERSION-SAME: ast_temporary_object_identities
 // CONVERSION-SAME: declaration_ordinal = 2305843009213693952 : i64
 // CONVERSION-SAME: producer_kind = "materialized_conversion"
+
+struct Converted {
+  ~Converted();
+};
+
+struct Adapter {
+  operator Converted() const;
+};
+
+const Converted &selected_user_conversion(const Adapter &adapter) {
+  return adapter;
+}
+
+// USER-CONVERSION-LABEL: cir.func{{.*}} @_Z24selected_user_conversionRK7Adapter
+// USER-CONVERSION: cir.alloca "ref.tmp
+// USER-CONVERSION-SAME: ast_temporary_object_identities
+// USER-CONVERSION-SAME: constructor_symbol = "_ZNK7Adaptercv9ConvertedEv"
+// USER-CONVERSION-SAME: constructor_usr = "c:@S@Adapter@F@operator Converted#1"
+// USER-CONVERSION-SAME: producer_kind = "materialized_conversion"
+// USER-CONVERSION-SAME: requires_observed_constructor_call = false
 
 struct Item {
   Item();
