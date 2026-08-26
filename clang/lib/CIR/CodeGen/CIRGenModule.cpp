@@ -5745,37 +5745,45 @@ void CIRGenModule::emitSelectedMethods(
     };
     struct EvaluatedCalleeCollector
         : EvaluatedExprVisitor<EvaluatedCalleeCollector> {
-      llvm::SmallVector<const FunctionDecl *, 8> &callees;
+      llvm::SmallVector<const FunctionDecl *, 8> &called;
+      llvm::SmallVector<const FunctionDecl *, 8> &referenced;
       EvaluatedCalleeCollector(
           const ASTContext &context,
-          llvm::SmallVector<const FunctionDecl *, 8> &callees)
-          : EvaluatedExprVisitor(context), callees(callees) {}
+          llvm::SmallVector<const FunctionDecl *, 8> &called,
+          llvm::SmallVector<const FunctionDecl *, 8> &referenced)
+          : EvaluatedExprVisitor(context), called(called),
+            referenced(referenced) {}
       bool shouldVisitDiscardedStmt() const { return false; }
       void VisitCallExpr(CallExpr *call) {
         if (call->isUnevaluatedBuiltinCall(Context))
           return;
         if (const FunctionDecl *callee = call->getDirectCallee())
-          callees.push_back(callee);
+          called.push_back(callee);
         EvaluatedExprVisitor<EvaluatedCalleeCollector>::VisitCallExpr(call);
       }
-      void VisitDeclRefExpr(DeclRefExpr *reference) {
-        if (const auto *callee =
-                dyn_cast_or_null<FunctionDecl>(reference->getDecl()))
-          callees.push_back(callee);
-      }
-      void VisitCXXBindTemporaryExpr(CXXBindTemporaryExpr *temporary) {
-        if (const auto *destructor = temporary->getTemporary()->getDestructor())
-          callees.push_back(destructor);
-        EvaluatedExprVisitor<EvaluatedCalleeCollector>::
-            VisitCXXBindTemporaryExpr(temporary);
+      void VisitUnaryOperator(UnaryOperator *address) {
+        if (address->getOpcode() == UO_AddrOf) {
+          const Expr *operand = address->getSubExpr()->IgnoreParenImpCasts();
+          if (const auto *declRef = dyn_cast<DeclRefExpr>(operand)) {
+            if (const auto *callee =
+                    dyn_cast<FunctionDecl>(declRef->getDecl()))
+              referenced.push_back(callee);
+          } else if (const auto *member = dyn_cast<MemberExpr>(operand)) {
+            if (const auto *callee =
+                    dyn_cast<FunctionDecl>(member->getMemberDecl()))
+              referenced.push_back(callee);
+          }
+        }
+        EvaluatedExprVisitor<EvaluatedCalleeCollector>::VisitStmt(address);
       }
     };
     llvm::SmallVector<const FunctionDecl *, 8> lambdas;
     llvm::SmallVector<Decl *, 8> declarations;
-    llvm::SmallVector<const FunctionDecl *, 8> callees;
+    llvm::SmallVector<const FunctionDecl *, 8> called;
+    llvm::SmallVector<const FunctionDecl *, 8> referenced;
     BodyDeclCollector collector(lambdas, declarations);
     collector.TraverseStmt(const_cast<Stmt *>(definition->getBody()));
-    EvaluatedCalleeCollector calleeCollector(astContext, callees);
+    EvaluatedCalleeCollector calleeCollector(astContext, called, referenced);
     calleeCollector.Visit(const_cast<Stmt *>(definition->getBody()));
     for (const FunctionDecl *lambda : lambdas) {
       enqueueFunction(lambda);
@@ -5790,29 +5798,21 @@ void CIRGenModule::emitSelectedMethods(
         enqueueClassTemplate(classTemplate);
       if (auto *nested = dyn_cast<DeclContext>(decl))
         enqueueContext(nested);
-      if (const auto *variable = dyn_cast<VarDecl>(decl);
-          variable && variable->hasLocalStorage() &&
-          variable->getType()->isRecordType()) {
-        const CXXRecordDecl *record =
-            variable->getType()->getAsCXXRecordDecl();
-        if (record && record->hasDefinition() &&
-            !record->hasTrivialDestructor())
-          callees.push_back(record->getDestructor());
-      }
     }
-    for (const FunctionDecl *callee : callees) {
-      // A direct call, function address, or automatic cleanup is a typed
-      // executable edge even when the target is a non-template member of a
-      // class-template specialization. Materialize every emit-capable target;
-      // restricting this to FunctionTemplateDecl-owned specializations drops
-      // BindState::Destroy/Invoker::RunOnce-style address dependencies.
-      GlobalDecl calleeGD;
-      if (const auto *constructor = dyn_cast<CXXConstructorDecl>(callee))
-        calleeGD = GlobalDecl(constructor, Ctor_Complete);
-      else if (const auto *destructor = dyn_cast<CXXDestructorDecl>(callee))
-        calleeGD = GlobalDecl(destructor, Dtor_Complete);
-      else
-        calleeGD = GlobalDecl(callee);
+    for (const FunctionDecl *callee : called)
+      if (callee->getPrimaryTemplate() &&
+          !isa<CXXConstructorDecl, CXXDestructorDecl>(callee))
+        referenced.push_back(callee);
+    for (const FunctionDecl *callee : referenced) {
+      if (!callee)
+        continue;
+      // An explicit function address is a typed executable edge even when the
+      // target is a non-template member of a class-template specialization.
+      // Ordinary direct calls remain producer-owned lowering edges; only the
+      // pre-existing discarded function-template supplement is materialized
+      // here. Cleanup destructors are emitted only when directly selected or
+      // requested by ordinary CIR lowering, never by this eager scanner.
+      GlobalDecl calleeGD(callee);
       if (!hasEmitCapableSelectedDeclDefinition(calleeGD))
         continue;
       GlobalDecl canonical = calleeGD.getCanonicalDecl();
@@ -6802,32 +6802,15 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
           ? identityFunctionDecl->getTemplateInstantiationPattern()
           : nullptr;
   if (!templateInstantiationPattern) {
-    if (const auto *method = dyn_cast_or_null<CXXMethodDecl>(
-            identityFunctionDecl)) {
+    if (const auto *method =
+            dyn_cast_or_null<CXXMethodDecl>(identityFunctionDecl)) {
+      // This relation is already materialized on the concrete declaration and
+      // is safe to query during code generation. Do not ask Clang to recover a
+      // corresponding method from the primary/partial record here: implicit
+      // member declarations can still be under construction, and that lookup
+      // may mutate or recurse through the template declaration graph.
       templateInstantiationPattern =
           method->getInstantiatedFromMemberFunction();
-      if (!templateInstantiationPattern) {
-        if (const auto *specialization =
-                dyn_cast<ClassTemplateSpecializationDecl>(
-                    method->getParent())) {
-          auto specializedFrom =
-              specialization->getSpecializedTemplateOrPartial();
-          if (specialization->getSpecializationKind() !=
-              TSK_ExplicitSpecialization) {
-            if (const auto *primary =
-                    specializedFrom.dyn_cast<ClassTemplateDecl *>()) {
-              templateInstantiationPattern =
-                  method->getCorrespondingMethodDeclaredInClass(
-                      primary->getTemplatedDecl());
-            } else if (const auto *partial =
-                           specializedFrom.dyn_cast<
-                               ClassTemplatePartialSpecializationDecl *>()) {
-              templateInstantiationPattern =
-                  method->getCorrespondingMethodDeclaredInClass(partial);
-            }
-          }
-        }
-      }
     }
   }
   const auto *identityMethod =
