@@ -66,6 +66,18 @@ bool specialized_matcher_present(
   return matcher;
 }
 
+// The cast is emitted while the pointee is incomplete, then the same
+// translation unit provides its definition. Release-time endpoint refresh must
+// roster the now-complete schema layout, not merely refresh its USR and ABI
+// scalars on the operation.
+struct LateStream;
+bool late_stream_present(LateStream *stream) {
+  return stream;
+}
+struct LateStream {
+  long position;
+};
+
 struct AnonymousCastOwner {
   struct {
     int value;
@@ -89,6 +101,7 @@ AnonymousCastState *recover_anonymous_cast(void *value) {
 // CHECK-DAG: "MatcherInterface<StringValue>" = "[[MATCHER_INTERFACE_USR:[^"]+]]"
 // CHECK-DAG: [[ANON_SCHEMA:!rec_[A-Za-z0-9_]+]] = !cir.struct<"[[ANON_NAME:anon\.[0-9]+]]"
 // CHECK-DAG: [[ANON_NAME]] = "[[ANON_USR:[^"]+]]"
+// CHECK-DAG: LateStream = #cir.record_layout<arg_passing_kind = can_pass_in_regs, has_trivial_dtor = true, record_align = 8>
 
 // A zero-offset base-to-derived cast can lower the structural source endpoint
 // to byte storage later, but the direct AST endpoints remain a mutually bound
@@ -173,6 +186,16 @@ AnonymousCastState *recover_anonymous_cast(void *value) {
 // CHECK-SAME: source_record_schema = [[MATCHER_INTERFACE_SCHEMA]]
 // CHECK-SAME: source_record_size_bytes = 8
 // CHECK-SAME: source_record_usr = "[[MATCHER_INTERFACE_USR]]"
+
+// CHECK-LABEL: cir.func{{.*}}@_Z19late_stream_presentP10LateStream
+// CHECK: cir.cast ptr_to_bool{{.*}}ast_cast_expr = {
+// CHECK-SAME: cast_kind = "PointerToBoolean"
+// CHECK-SAME: result_record_presence = "no_record"
+// CHECK-SAME: source_record_align_bytes = 8
+// CHECK-SAME: source_record_presence = "record"
+// CHECK-SAME: source_record_schema = !rec_LateStream
+// CHECK-SAME: source_record_size_bytes = 8
+// CHECK-SAME: source_record_usr = "c:@S@LateStream"
 
 // A field-owned anonymous RecordDecl has no source spelling from which a
 // consumer can rebuild its declaration. Both erase and recover casts must

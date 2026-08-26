@@ -74,79 +74,6 @@ void CIRGenerator::ForgetSema() { sema = nullptr; }
 
 namespace {
 
-class CastEndpointRecordCollector
-    : public RecursiveASTVisitor<CastEndpointRecordCollector> {
-  llvm::DenseSet<const Type *> seen;
-
-  void collect(QualType type, SourceLocation loc) {
-    while (!type.isNull()) {
-      type = type.getCanonicalType();
-      if (type->isPointerType() || type->isReferenceType()) {
-        type = type->getPointeeType();
-        continue;
-      }
-      if (const auto *array = type->getAsArrayTypeUnsafe()) {
-        type = array->getElementType();
-        continue;
-      }
-      break;
-    }
-    if (!type.isNull() && seen.insert(type.getTypePtr()).second)
-      endpoints.emplace_back(type, loc);
-  }
-
-public:
-  llvm::SmallVector<std::pair<QualType, SourceLocation>, 8> endpoints;
-
-  bool shouldVisitImplicitCode() const { return true; }
-  bool shouldVisitTemplateInstantiations() const { return true; }
-
-  bool VisitCastExpr(CastExpr *cast) {
-    if (!cast)
-      return true;
-    collect(cast->getSubExpr()->getType(), cast->getExprLoc());
-    collect(cast->getType(), cast->getExprLoc());
-    return true;
-  }
-};
-
-void prepareCastEndpointRecordSchemas(Sema *sema, Decl *decl) {
-  if (!sema || !decl)
-    return;
-  CastEndpointRecordCollector collector;
-  collector.TraverseDecl(decl);
-  for (const auto &[type, loc] : collector.endpoints) {
-    auto *specialization =
-        dyn_cast_or_null<ClassTemplateSpecializationDecl>(
-            type->getAsCXXRecordDecl());
-    if (!specialization)
-      continue;
-    // The RecordType can retain an earlier declaration after Sema has assigned
-    // the specialization to a later definition. Make the owning definition,
-    // rather than the declaration embedded in the type, authoritative.
-    specialization = specialization->getDefinitionOrSelf();
-    if (specialization->isCompleteDefinition())
-      continue;
-    const TemplateSpecializationKind kind =
-        specialization->getSpecializationKind();
-    if (kind != TSK_Undeclared && kind != TSK_ImplicitInstantiation)
-      continue;
-    ClassTemplateDecl *primary = specialization->getSpecializedTemplate();
-    if (!primary || !primary->getTemplatedDecl()->getDefinition())
-      continue;
-    // CIR cast endpoint schemas are direct producer facts. Complete only an
-    // implicit specialization whose definition is structurally available;
-    // genuinely opaque records remain valid incomplete endpoints.
-    const QualType endpointType = type;
-    const SourceLocation endpointLoc = loc;
-    sema->runWithSufficientStackSpace(endpointLoc, [sema, endpointType,
-                                                    endpointLoc] {
-      sema->RequireCompleteType(endpointLoc, endpointType,
-                                diag::err_incomplete_type);
-    });
-  }
-}
-
 class SelectedBodyVariableUseRestorer
     : public RecursiveASTVisitor<SelectedBodyVariableUseRestorer> {
   ASTContext &context;
@@ -294,9 +221,8 @@ void CIRGenerator::prepareSelectedMethods(
     }
 
     // Sema can attach an instantiated body to a later redeclaration. Carry the
-    // exact concrete definition into both selected endpoint preparation and
-    // CIR emission instead of traversing the declaration that originally
-    // authenticated the work item.
+    // exact concrete definition into CIR emission instead of traversing the
+    // declaration that originally authenticated the work item.
     if (const FunctionDecl *definition = function->getDefinition()) {
       gd = gd.getWithDecl(definition);
       function = const_cast<FunctionDecl *>(definition);
@@ -306,9 +232,6 @@ void CIRGenerator::prepareSelectedMethods(
     // body remains the authoritative source of variable uses, so restore those
     // exact facts before CIRGen enforces them.
     restoreSelectedBodyVariableUses(*astContext, function);
-
-    if (firstMaterialization)
-      prepareCastEndpointRecordSchemas(sema, function);
   }
 }
 
@@ -330,12 +253,6 @@ bool CIRGenerator::HandleTopLevelDecl(DeclGroupRef group) {
 
 void CIRGenerator::HandleTranslationUnit(ASTContext &astContext) {
   if (!diags.hasErrorOccurred() && cgm) {
-    // Requiring a cast endpoint to be complete is a Sema instantiation action.
-    // Delay ordinary-mode completion until explicit specializations have been
-    // assigned their final owners at the end of the translation unit.
-    if (sema && codeGenOpts.ClangIRSelectedDeclsFile.empty())
-      prepareCastEndpointRecordSchemas(sema,
-                                       astContext.getTranslationUnitDecl());
     prepareSelectedLocalClassMembers(astContext.getTranslationUnitDecl());
     // Exact source-root symbols can be recognized while declarations stream
     // in. A stateful-preprocessing symbol mismatch, however, is safe only after
@@ -494,12 +411,11 @@ void CIRGenerator::HandleVTable(CXXRecordDecl *rd) {
   cgm->emitVTable(rd);
 }
 
-bool CIRGenerator::shouldSkipFunctionBody(Decl *d) {
-  if (codeGenOpts.ClangIRSelectedDeclsFile.empty())
-    return false;
-  const auto *fd = d ? d->getAsFunction() : nullptr;
-  if (fd && (fd->getDeclContext()->isDependentContext() ||
-             fd->getTemplatedKind() != FunctionDecl::TK_NonTemplate))
-    return false;
-  return !fd || !cgm->shouldParseSelectedDeclBody(fd);
+bool CIRGenerator::shouldSkipFunctionBody(Decl *) {
+  // The selected-declaration manifest is produced from a complete semantic
+  // AST. Parsing a function body can instantiate variable templates and static
+  // data members which are themselves exact roots even when the enclosing
+  // function is not selected. Keep emission selective, but retain the same AST
+  // declaration universe as the authority pass.
+  return false;
 }

@@ -5,8 +5,8 @@
 template <typename T>
 struct LateEndpoint;
 
-// Convert this specialization while its endpoint is still provisional. Its
-// selected body must be the only operation that completes the schema.
+// Convert this specialization while its endpoint is still provisional. The
+// later explicit instantiation completes it while parser/Sema scope is valid.
 LateEndpoint<int> *provisional_endpoint;
 
 template <typename T>
@@ -26,10 +26,13 @@ struct LateEndpoint {
   int field;
 };
 
+template struct LateEndpoint<int>;
+
 void unrelated() {}
 
-// The body-only cast endpoint must complete the provisional specialization and
-// bind that exact schema to the same producer USR carried by the cast.
+// The selected body must consume the already-complete endpoint definition and
+// bind that exact schema to the same producer USR carried by the cast. CIRGen
+// must not request late Sema completion from HandleTranslationUnit.
 // CHECK: !rec_LateEndpoint3Cint3E = !cir.struct<"LateEndpoint<int>" {!s32i}>
 // CHECK: module {{.*}}cir.record_decl_identities = {"LateEndpoint<int>" = "[[ENDPOINT_USR:[^"]+]]"}
 // CHECK-SAME: cir.selected_decl_root_definitions = {"usr:c:@F@selected_cast<#I>#*v#" = "_Z13selected_castIiEPvS0_"}

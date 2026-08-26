@@ -85,6 +85,7 @@ void delete_virtual_b(B *value) {
 // META-LABEL: cir.func{{.*}} @_Z16delete_virtual_bP1B
 // META: cir.vtable.get_virtual_fn_addr
 // META-SAME: method = @_ZN1BD0Ev
+// META-SAME: method_abi_variant = "deleting"
 // META-SAME: method_usr = "[[B_DTOR_USR]]"
 
 struct C : B {

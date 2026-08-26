@@ -80,6 +80,32 @@ CIRGenVirtualMethodIdentityAttrs clang::CIRGen::
   if (methodUSR.empty())
     return attrs;
   attrs.methodUSR = mlir::StringAttr::get(&mlirContext, methodUSR);
+  if (isa<CXXDestructorDecl>(methodDecl)) {
+    llvm::StringRef variant;
+    switch (dispatchDecl.getDtorType()) {
+    case Dtor_Deleting:
+      variant = "deleting";
+      break;
+    case Dtor_Complete:
+      variant = "complete";
+      break;
+    case Dtor_Base:
+      variant = "base";
+      break;
+    case Dtor_Comdat:
+      variant = "comdat";
+      break;
+    case Dtor_Unified:
+      variant = "unified";
+      break;
+    case Dtor_VectorDeleting:
+      variant = "vector_deleting";
+      break;
+    }
+    if (!variant.empty())
+      attrs.methodABIVariant =
+          mlir::StringAttr::get(&mlirContext, variant);
+  }
   if (!methodDecl->isVirtual())
     return attrs;
 

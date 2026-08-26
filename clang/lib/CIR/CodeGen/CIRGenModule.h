@@ -144,6 +144,9 @@ private:
   llvm::StringSet<> selectedDeclRoots;
   llvm::StringSet<> selectedDeclRootUSRs;
   llvm::StringMap<std::string> selectedDeclRootUSRBySymbol;
+  /// Exact Clang instantiation-pattern USR for a concrete variable root whose
+  /// specialization may not be materialized by the producer parse.
+  llvm::StringMap<std::string> selectedDeclRootPatternUSRBySymbol;
   /// Exact expansion spans captured by the authority-producing AST pass,
   /// mapped to every exact variable ABI symbol selected at that span. Concrete
   /// variable-template specializations share the pattern's source range.
@@ -180,8 +183,6 @@ private:
   clang::GlobalDecl getEmitCapableSelectedDecl(clang::GlobalDecl gd) const;
   bool isSelectedStaticDataMemberDeclaration(const clang::VarDecl *variable);
   bool isSelectedVariableTemplatePattern(const clang::VarDecl *variable) const;
-  bool isSelectedConstantVariableTemplatePattern(
-      const clang::VarDecl *variable) const;
 
   llvm::SmallVector<clang::GlobalDecl, 16>
   takeSelectedDeclDependencyFrontier() {

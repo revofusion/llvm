@@ -395,6 +395,7 @@ CIRGenCXXABI *CreateCIRGenItaniumCXXABI(CIRGenModule &cgm);
 struct CIRGenVirtualMethodIdentityAttrs {
   mlir::FlatSymbolRefAttr method;
   mlir::StringAttr methodUSR;
+  mlir::StringAttr methodABIVariant;
   mlir::StringAttr rootMethodUSR;
   mlir::StringAttr declaringClassUSR;
   mlir::ArrayAttr rootAlternatives;

@@ -756,11 +756,11 @@ void CIRGenModule::emitGlobal(clang::GlobalDecl gd) {
     const auto *vd = cast<VarDecl>(global);
     if (isSelectedVariableTemplatePattern(vd)) {
       // A selected dependent variable-template pattern is not linker-owned
-      // storage, but a non-dependent constant initializer is still an exact,
-      // typed AST definition fact. Preserve that fact as an
-      // available_externally CIR definition.
-      if (isSelectedConstantVariableTemplatePattern(vd))
-        emitGlobalDefinition(gd);
+      // storage. Preserve its exact typed AST definition as an
+      // available_externally global; an instantiation-dependent initializer
+      // is represented explicitly as undef rather than assigned a fabricated
+      // concrete value.
+      emitGlobalDefinition(gd);
       return;
     }
     assert(vd->isFileVarDecl() && "Cannot emit local var decl as global.");
@@ -1646,11 +1646,10 @@ void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
   // since this is the job for its original source.
   const bool isSelectedDeclarationOnlyMember =
       isSelectedStaticDataMemberDeclaration(vd);
-  const bool isSelectedConstantVariableTemplatePattern =
-      this->isSelectedConstantVariableTemplatePattern(vd);
+  const bool isSelectedVariableTemplatePattern =
+      this->isSelectedVariableTemplatePattern(vd);
   const bool isDefinitionAvailableExternally =
-      isSelectedDeclarationOnlyMember ||
-      isSelectedConstantVariableTemplatePattern ||
+      isSelectedDeclarationOnlyMember || isSelectedVariableTemplatePattern ||
       astContext.GetGVALinkageForVariable(vd) == GVA_AvailableExternally;
 
   // It is useless to emit the definition for an available_externally variable
@@ -1678,6 +1677,7 @@ void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
     return initializingDecl->evaluateValue() != nullptr;
   };
   if (isDefinitionAvailableExternally &&
+      !isSelectedVariableTemplatePattern &&
       (!vd->hasConstantInitialization() ||
        // TODO: Update this when we have interface to check constexpr
        // destructor.
@@ -1713,8 +1713,13 @@ void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
       (vd->getType()->isCUDADeviceBuiltinSurfaceType() ||
        vd->getType()->isCUDADeviceBuiltinTextureType());
 
-  if (getLangOpts().CUDA &&
-      (isCUDASharedVar || isCUDAShadowVar || isCUDADeviceShadowVar)) {
+  if (isSelectedVariableTemplatePattern && initExpr &&
+      (initExpr->isTypeDependent() || initExpr->isValueDependent() ||
+       initExpr->isInstantiationDependent())) {
+    init = cir::UndefAttr::get(convertType(vd->getType()));
+  } else if (getLangOpts().CUDA &&
+             (isCUDASharedVar || isCUDAShadowVar ||
+              isCUDADeviceShadowVar)) {
     init = cir::PoisonAttr::get(convertType(vd->getType()));
   } else if (vd->hasAttr<LoaderUninitializedAttr>()) {
     errorNYI(vd->getSourceRange(),
@@ -1789,8 +1794,7 @@ void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
 
   // Set CIR's linkage type as appropriate.
   cir::GlobalLinkageKind linkage =
-      (isSelectedDeclarationOnlyMember ||
-       isSelectedConstantVariableTemplatePattern)
+      (isSelectedDeclarationOnlyMember || isSelectedVariableTemplatePattern)
           ? cir::GlobalLinkageKind::AvailableExternallyLinkage
           : getCIRLinkageVarDefinition(vd);
 
@@ -1822,6 +1826,11 @@ void CIRGenModule::emitGlobalVarDefinition(const clang::VarDecl *vd,
 
   // Set initializer and finalize emission
   CIRGenModule::setInitializer(gv, init);
+  if (isSelectedVariableTemplatePattern && initExpr &&
+      (initExpr->isTypeDependent() || initExpr->isValueDependent() ||
+       initExpr->isInstantiationDependent()))
+    gv->setAttr("ast_variable_template_dependent_initializer",
+                builder.getUnitAttr());
   if (const auto *memberPointer =
           vd->getType().getCanonicalType()->getAs<MemberPointerType>();
       memberPointer && memberPointer->isMemberFunctionPointer()) {
@@ -3081,6 +3090,18 @@ void CIRGenModule::refreshExactRecordOperationIdentities() {
         const RecordDecl *definition = exact->second->getDefinition();
         if (!definition)
           return;
+        // This endpoint may have been converted only as an incomplete pointee
+        // when the cast was emitted. Complete it through the ordinary type
+        // owner now so computeRecordLayout also rosters cir.record_layouts;
+        // operation-local size/alignment attributes are not a replacement for
+        // the module's authenticated schema layout.
+        auto finalSchema = dyn_cast<cir::RecordType>(
+            getTypes().convertRecordDeclType(definition));
+        if (!finalSchema)
+          return;
+        schema = finalSchema;
+        concreteCast.set((prefix + "_record_schema").str(),
+                         mlir::TypeAttr::get(schema));
         const ASTRecordLayout &layout =
             getASTContext().getASTRecordLayout(definition);
         concreteCast.set(
@@ -3487,6 +3508,8 @@ void CIRGenModule::setConditionalExprMetadata(
   if (!op || !e || op->hasAttr("ast_conditional_expr"))
     return;
   mlir::NamedAttrList identity;
+  identity.set("aggregate_destination_presence",
+               builder.getBoolAttr(static_cast<bool>(aggregateDestination)));
   identity.set("result_type", buildCastEndpointSourceType(e->getType()));
   std::optional<ExactRecordEndpoint> exact = getExactRecordEndpoint(e->getType());
   if (exact) {
@@ -3590,12 +3613,19 @@ void CIRGenModule::setConditionalExprMetadata(
     auto ownsAggregateDestination = [&](mlir::Value candidate) {
       llvm::SmallPtrSet<mlir::Operation *, 4> visited;
       while (candidate && candidate != aggregateDestination) {
-        auto cast = mlir::dyn_cast_or_null<cir::CastOp>(
-            candidate.getDefiningOp());
-        if (!cast || !cast.isAllocaPreservingCast() ||
-            !visited.insert(cast.getOperation()).second)
+        mlir::Operation *producer = candidate.getDefiningOp();
+        if (!producer || !visited.insert(producer).second)
           return false;
-        candidate = cast.getSrc();
+        if (auto cast = mlir::dyn_cast<cir::CastOp>(producer);
+            cast && cast.isAllocaPreservingCast()) {
+          candidate = cast.getSrc();
+          continue;
+        }
+        if (auto member = mlir::dyn_cast<cir::GetMemberOp>(producer)) {
+          candidate = member.getAddr();
+          continue;
+        }
+        return false;
       }
       return candidate == aggregateDestination;
     };
@@ -3620,9 +3650,16 @@ void CIRGenModule::setConditionalExprMetadata(
       for (auto [write, destination] : exactWrites) {
         if (!markArmDestination(destination))
           return false;
-        write->setAttr(
-            "ast_conditional_destination_identity",
-            builder.getStringAttr(aggregateDestinationInstanceToken));
+        llvm::SmallVector<mlir::Attribute> writeIdentities;
+        if (auto existing = write->getAttrOfType<mlir::ArrayAttr>(
+                "ast_conditional_destination_identities"))
+          writeIdentities.append(existing.begin(), existing.end());
+        mlir::StringAttr token =
+            builder.getStringAttr(aggregateDestinationInstanceToken);
+        if (!llvm::is_contained(writeIdentities, token))
+          writeIdentities.push_back(token);
+        write->setAttr("ast_conditional_destination_identities",
+                       builder.getArrayAttr(writeIdentities));
       }
       return true;
     };
@@ -4677,7 +4714,9 @@ bool CIRGenModule::hasEmitCapableSelectedDeclDefinition(GlobalDecl gd) const {
     return false;
 
   if (isSelectedVariableTemplatePattern(variable))
-    return isSelectedConstantVariableTemplatePattern(variable);
+    return variable->getInit() != nullptr ||
+           variable->isThisDeclarationADefinition() !=
+               VarDecl::DeclarationOnly;
   if (variable->isStaticLocal())
     return false;
   if (variable->getDefinition())
@@ -4746,26 +4785,26 @@ bool CIRGenModule::isSelectedStaticDataMemberDeclaration(
 
 bool CIRGenModule::isSelectedVariableTemplatePattern(
     const VarDecl *variable) const {
-  // A partial specialization declaration is a dependent template pattern and
-  // does not own linker storage. Selected CIR can nevertheless preserve it
-  // when its initializer is an exact non-dependent constant; emission marks
-  // that definition available_externally. Concrete specializations remain
-  // ordinary VarTemplateSpecializationDecls.
-  return selectedDeclRootMode &&
-         isa_and_nonnull<VarTemplatePartialSpecializationDecl>(variable);
+  // A selected dependent variable pattern does not own concrete linker
+  // storage. Preserve its exact typed definition as available_externally; the
+  // selected-root requested-to-actual map authenticates the producer pattern
+  // used for a specialization that this parse did not instantiate.
+  if (!selectedDeclRootMode || !variable)
+    return false;
+  if (isa<VarTemplatePartialSpecializationDecl>(variable) ||
+      variable->getDescribedVarTemplate())
+    return true;
+  // A static data member definition of a dependent record is likewise the
+  // exact instantiation pattern. Its initializer can be a non-dependent
+  // scalar (a TypeId sentinel), or absent because static storage is
+  // zero-initialized (a thread-local state pointer).
+  return variable->isStaticDataMember() &&
+         variable->getDeclContext()->isDependentContext() &&
+         (variable->hasInit() ||
+          variable->isThisDeclarationADefinition() !=
+              VarDecl::DeclarationOnly);
 }
 
-bool CIRGenModule::isSelectedConstantVariableTemplatePattern(
-    const VarDecl *variable) const {
-  if (!isSelectedVariableTemplatePattern(variable))
-    return false;
-  const Expr *initializer = variable->getInit();
-  if (!initializer || initializer->isTypeDependent() ||
-      initializer->isValueDependent() ||
-      initializer->isInstantiationDependent())
-    return false;
-  return variable->evaluateValue() != nullptr;
-}
 
 void CIRGenModule::addSelectedDeclDependency(GlobalDecl gd) {
   if (!selectedDeclRootMode || !hasEmitCapableSelectedDeclDefinition(gd))
@@ -4903,6 +4942,32 @@ void CIRGenModule::loadSelectedDeclRoots() {
     } else if (line.consume_front("parse-usr:")) {
       if (!line.empty())
         selectedDeclParseUSRs.insert(line);
+    } else if (line.starts_with("pattern-usr:")) {
+      llvm::StringRef selector = line;
+      llvm::StringRef payload = line.drop_front(sizeof("pattern-usr:") - 1);
+      auto [symbolLengthText, identities] = payload.split(':');
+      uint64_t symbolLength = 0;
+      bool valid = !symbolLengthText.empty() &&
+                   !symbolLengthText.getAsInteger(10, symbolLength) &&
+                   symbolLengthText == std::to_string(symbolLength) &&
+                   symbolLength < identities.size();
+      llvm::StringRef symbol;
+      llvm::StringRef usr;
+      if (valid) {
+        symbol = identities.take_front(symbolLength);
+        usr = identities.drop_front(symbolLength);
+        valid = !symbol.empty() && !usr.empty();
+      }
+      if (valid) {
+        selectedDeclRoots.insert(symbol);
+        selectedDeclRootPatternUSRBySymbol.try_emplace(symbol, usr.str());
+      } else {
+        unsigned diagID = diags.getCustomDiagID(
+            DiagnosticsEngine::Error,
+            "invalid exact variable pattern identity selector '%0' in "
+            "-fclangir-emit-selected-decls file");
+        diags.Report(diagID) << selector;
+      }
     } else if (line.starts_with("symbol-usr:")) {
       llvm::StringRef selector = line;
       llvm::StringRef payload = line.drop_front(sizeof("symbol-usr:") - 1);
@@ -5028,8 +5093,17 @@ void CIRGenModule::prepareSelectedSourceRootCandidates(
       if (const auto *nested = dyn_cast<DeclContext>(decl);
           nested && visitedContexts.insert(nested).second)
         contexts.push_back(nested);
+      if (const auto *classTemplate = dyn_cast<ClassTemplateDecl>(decl)) {
+        const auto *templated = classTemplate->getTemplatedDecl();
+        if (visitedContexts.insert(templated).second)
+          contexts.push_back(templated);
+      }
 
-      const auto *variable = dyn_cast<VarDecl>(decl);
+      const VarDecl *variable = dyn_cast<VarDecl>(decl);
+      if (!variable) {
+        if (const auto *varTemplate = dyn_cast<VarTemplateDecl>(decl))
+          variable = varTemplate->getTemplatedDecl();
+      }
       if (!variable ||
           (!variable->isFileVarDecl() && !variable->isStaticDataMember()) ||
           (variable->isThisDeclarationADefinition() ==
@@ -5042,6 +5116,46 @@ void CIRGenModule::prepareSelectedSourceRootCandidates(
       if (key && selectedDeclRootSymbolsBySourceSpan.contains(*key))
         ++selectedSourceRootVariableCandidatesBySpan[*key];
     }
+  }
+  // Lexically out-of-line template patterns are not uniformly reachable
+  // through DeclContext iteration. Visit the typed declaration graph, but do
+  // not let concrete instantiations compete with their authority pattern for
+  // the same spelling span.
+  struct SourceRootVariableCollector
+      : RecursiveASTVisitor<SourceRootVariableCollector> {
+    ASTContext &astContext;
+    llvm::DenseSet<const VarDecl *> &visitedVariables;
+    llvm::StringMap<llvm::StringSet<>> &symbolsBySpan;
+    llvm::StringMap<unsigned> &candidatesBySpan;
+    SourceRootVariableCollector(
+        ASTContext &astContext,
+        llvm::DenseSet<const VarDecl *> &visitedVariables,
+        llvm::StringMap<llvm::StringSet<>> &symbolsBySpan,
+        llvm::StringMap<unsigned> &candidatesBySpan)
+        : astContext(astContext), visitedVariables(visitedVariables),
+          symbolsBySpan(symbolsBySpan), candidatesBySpan(candidatesBySpan) {}
+
+    bool VisitVarDecl(VarDecl *variable) {
+      const VarDecl *pattern = variable->getTemplateInstantiationPattern();
+      if ((pattern && pattern != variable) ||
+          (!variable->isFileVarDecl() &&
+           !variable->isStaticDataMember()) ||
+          (variable->isThisDeclarationADefinition() ==
+               VarDecl::DeclarationOnly &&
+           !astContext.isMSStaticDataMemberInlineDefinition(variable)) ||
+          !visitedVariables.insert(variable->getCanonicalDecl()).second)
+        return true;
+      auto key = selectedSourceSpanKey(astContext.getSourceManager(), variable);
+      if (key && symbolsBySpan.contains(*key))
+        ++candidatesBySpan[*key];
+      return true;
+    }
+  };
+  if (const auto *decl = dyn_cast<Decl>(context)) {
+    SourceRootVariableCollector collector{
+        astContext, visitedVariables, selectedDeclRootSymbolsBySourceSpan,
+        selectedSourceRootVariableCandidatesBySpan};
+    collector.TraverseDecl(const_cast<Decl *>(decl));
   }
   selectedSourceRootCandidatesPrepared = true;
 }
@@ -5120,10 +5234,19 @@ bool CIRGenModule::isSelectedDeclRoot(GlobalDecl gd) {
     return !selectedLambdaRootSelector(gd).empty() ||
            selectedDeclRoots.contains(getMangledName(gd));
   GlobalDecl canonicalGD = gd.getCanonicalDecl();
+  llvm::SmallString<256> declarationUSR;
+  if (!clang::index::generateUSRForDecl(gd.getDecl(), declarationUSR))
+    for (const auto &entry : selectedDeclRootPatternUSRBySymbol)
+      if (entry.getValue() == declarationUSR)
+        return true;
   llvm::SmallString<256> usr;
   if (!clang::index::generateUSRForDecl(canonicalGD.getDecl(), usr) &&
       selectedDeclRootUSRs.contains(usr))
     return true;
+  if (!usr.empty())
+    for (const auto &entry : selectedDeclRootPatternUSRBySymbol)
+      if (entry.getValue() == usr)
+        return true;
   if (!usr.empty())
     for (const auto &entry : selectedDeclRootUSRBySymbol)
       if (entry.getValue() == usr)
@@ -5151,8 +5274,24 @@ void CIRGenModule::noteSelectedDeclRootDefinition(GlobalDecl gd,
   llvm::SmallString<256> usr;
   const bool hasUSR =
       !clang::index::generateUSRForDecl(canonicalGD.getDecl(), usr);
+  llvm::SmallString<256> declarationUSR;
+  const bool hasDeclarationUSR =
+      !clang::index::generateUSRForDecl(gd.getDecl(), declarationUSR);
   llvm::StringRef sourceSelectedSymbol = selectedSourceRootSymbol(gd);
   cir::FuncOp function;
+  llvm::StringRef patternSelectedSymbol;
+  if (hasUSR || hasDeclarationUSR) {
+    for (const auto &entry : selectedDeclRootPatternUSRBySymbol) {
+      if ((!hasUSR || entry.getValue() != usr) &&
+          (!hasDeclarationUSR || entry.getValue() != declarationUSR))
+        continue;
+      if (!patternSelectedSymbol.empty()) {
+        patternSelectedSymbol = {};
+        break;
+      }
+      patternSelectedSymbol = entry.getKey();
+    }
+  }
   if (isa<FunctionDecl>(gd.getDecl())) {
     function = mlir::dyn_cast<cir::FuncOp>(definition);
     if (!function || function.getBody().empty())
@@ -5199,6 +5338,18 @@ void CIRGenModule::noteSelectedDeclRootDefinition(GlobalDecl gd,
     }
     if (!contextualSelector.empty() && !contextualAmbiguity) {
       emittedSelectedDeclRootDefinitionsBySelector[contextualSelector].insert(
+          actualSymbol.getValue());
+    }
+  }
+  if (!patternSelectedSymbol.empty()) {
+    emittedSelectedDeclRootDefinitionsBySelector[patternSelectedSymbol].insert(
+        actualSymbol.getValue());
+    auto selectedUSR = selectedDeclRootUSRBySymbol.find(patternSelectedSymbol);
+    if (selectedUSR != selectedDeclRootUSRBySymbol.end()) {
+      std::string selector = "usr:";
+      selector.append(selectedUSR->getValue().data(),
+                      selectedUSR->getValue().size());
+      emittedSelectedDeclRootDefinitionsBySelector[selector].insert(
           actualSymbol.getValue());
     }
   }
@@ -5940,7 +6091,9 @@ void CIRGenModule::emitSelectedVariables(const DeclContext *context) {
   };
   auto enqueueVariable = [&](const VarDecl *variable) {
     if (isSelectedVariableTemplatePattern(variable) &&
-        !isSelectedConstantVariableTemplatePattern(variable))
+        !variable->getInit() &&
+        variable->isThisDeclarationADefinition() ==
+            VarDecl::DeclarationOnly)
       return;
     if (!variable->isFileVarDecl() && !variable->isStaticDataMember())
       return;
@@ -5955,6 +6108,21 @@ void CIRGenModule::emitSelectedVariables(const DeclContext *context) {
     if (visitedVariables.insert(gd.getCanonicalDecl()).second)
       variables.push_back(gd);
   };
+  struct SelectedVariableCollector
+      : RecursiveASTVisitor<SelectedVariableCollector> {
+    llvm::function_ref<void(const VarDecl *)> enqueue;
+    explicit SelectedVariableCollector(
+        llvm::function_ref<void(const VarDecl *)> enqueue)
+        : enqueue(enqueue) {}
+    bool VisitVarDecl(VarDecl *variable) {
+      enqueue(variable);
+      return true;
+    }
+  };
+  if (const auto *decl = dyn_cast<Decl>(context)) {
+    SelectedVariableCollector collector{enqueueVariable};
+    collector.TraverseDecl(const_cast<Decl *>(decl));
+  }
   auto enqueueClassTemplate = [&](const ClassTemplateDecl *decl) {
     if (visitedClassTemplates.insert(decl).second)
       classTemplates.push_back(decl);
@@ -5976,10 +6144,14 @@ void CIRGenModule::emitSelectedVariables(const DeclContext *context) {
       for (Decl *decl : decls) {
         if (auto *variable = dyn_cast<VarDecl>(decl))
           enqueueVariable(variable);
-        if (auto *classTemplate = dyn_cast<ClassTemplateDecl>(decl))
+        if (auto *classTemplate = dyn_cast<ClassTemplateDecl>(decl)) {
           enqueueClassTemplate(classTemplate);
-        if (auto *varTemplate = dyn_cast<VarTemplateDecl>(decl))
+          enqueueContext(classTemplate->getTemplatedDecl());
+        }
+        if (auto *varTemplate = dyn_cast<VarTemplateDecl>(decl)) {
           enqueueVarTemplate(varTemplate);
+          enqueueVariable(varTemplate->getTemplatedDecl());
+        }
         if (auto *nested = dyn_cast<DeclContext>(decl))
           enqueueContext(nested);
       }
@@ -6017,19 +6189,29 @@ void CIRGenModule::emitSelectedVariables(const DeclContext *context) {
       }
     }
 
+    llvm::DenseSet<const VarDecl *> concreteSelectedPatterns;
+    for (GlobalDecl candidate : variables) {
+      const auto *variable = cast<VarDecl>(candidate.getDecl());
+      const VarDecl *pattern = variable->getTemplateInstantiationPattern();
+      if (pattern && pattern != variable && isSelectedDeclRoot(candidate))
+        concreteSelectedPatterns.insert(pattern->getCanonicalDecl());
+    }
     bool madeProgress = false;
     if (variableCursor != variables.size()) {
       llvm::SmallVector<GlobalDecl, 32> frontier(
           variables.begin() + variableCursor, variables.end());
       variableCursor = variables.size();
       for (GlobalDecl gd : frontier) {
+        const auto *variable = cast<VarDecl>(gd.getDecl());
+        if (isSelectedVariableTemplatePattern(variable) &&
+            concreteSelectedPatterns.contains(variable->getCanonicalDecl()))
+          continue;
         auto global = mlir::dyn_cast_or_null<cir::CIRGlobalValueInterface>(
             getGlobalValue(getMangledName(gd)));
         if (global && global.isDefinition()) {
           noteSelectedDeclRootDefinition(gd);
           continue;
         }
-        const auto *variable = cast<VarDecl>(gd.getDecl());
         if (variable->isThisDeclarationADefinition() ==
             VarDecl::TentativeDefinition) {
           emitTentativeDefinition(variable);

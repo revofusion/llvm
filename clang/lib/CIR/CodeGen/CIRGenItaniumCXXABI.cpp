@@ -1963,6 +1963,9 @@ CIRGenCallee CIRGenItaniumCXXABI::getVirtualFunctionPointer(
       vtableSlotPtr->setAttr("method", identityAttrs.method);
       if (identityAttrs.methodUSR)
         vtableSlotPtr->setAttr("method_usr", identityAttrs.methodUSR);
+      if (identityAttrs.methodABIVariant)
+        vtableSlotPtr->setAttr("method_abi_variant",
+                               identityAttrs.methodABIVariant);
       if (identityAttrs.rootMethodUSR)
         vtableSlotPtr->setAttr("root_method_usr",
                                identityAttrs.rootMethodUSR);
