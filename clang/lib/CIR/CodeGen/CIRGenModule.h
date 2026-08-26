@@ -145,10 +145,13 @@ private:
   llvm::StringSet<> selectedDeclRootUSRs;
   llvm::StringMap<std::string> selectedDeclRootUSRBySymbol;
   /// Exact expansion spans captured by the authority-producing AST pass,
-  /// mapped to the ABI symbol that pass selected. This preserves identity when
-  /// stateful preprocessing (for example __COUNTER__) gives the selective CIR
-  /// parse a different source spelling.
-  llvm::StringMap<std::string> selectedDeclRootSymbolBySourceSpan;
+  /// mapped to every exact variable ABI symbol selected at that span. Concrete
+  /// variable-template specializations share the pattern's source range.
+  /// Keeping the full set preserves each producer identity while still
+  /// allowing a unique span to bridge stateful preprocessing differences.
+  llvm::StringMap<llvm::StringSet<>> selectedDeclRootSymbolsBySourceSpan;
+  bool selectedSourceRootCandidatesPrepared = false;
+  llvm::StringMap<unsigned> selectedSourceRootVariableCandidatesBySpan;
   struct SelectedLambdaRoot {
     std::string declarationUSR;
     std::string contextUSR;
@@ -195,8 +198,8 @@ private:
   void loadSelectedDeclRoots();
   bool isSelectedDeclRoot(clang::GlobalDecl gd);
   llvm::StringRef selectedLambdaRootSelector(clang::GlobalDecl gd) const;
-  llvm::StringRef
-  selectedSourceRootSymbol(clang::GlobalDecl gd) const;
+  llvm::StringRef selectedSourceRootSymbol(clang::GlobalDecl gd);
+  void prepareSelectedSourceRootCandidates(const clang::DeclContext *context);
   void noteSelectedDeclRootDefinition(clang::GlobalDecl gd,
                                       mlir::Operation *definition = nullptr);
   void diagnoseUnemittedSelectedDeclRoots();
@@ -344,6 +347,9 @@ public:
     if (!identityMangleContext)
       identityMangleContext.reset(astContext.createMangleContext());
     return *identityMangleContext;
+  }
+  void prepareSelectedSourceRoots(const clang::DeclContext *context) {
+    prepareSelectedSourceRootCandidates(context);
   }
   bool shouldEmitSelectedDeclRoot(clang::GlobalDecl gd) {
     return !selectedDeclRootMode || isSelectedDeclRoot(gd);

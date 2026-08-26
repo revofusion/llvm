@@ -2120,10 +2120,10 @@ void CIRGenFunction::setMaterializedTemporaryIdentity(
   if (collector.bindings.empty() &&
       storageExpr->getType().isDestructedType() ==
           QualType::DK_cxx_destructor &&
-      !setMaterializedConversionTemporaryObjectIdentity(temporary, address)) {
+      !setMaterializedTemporaryObjectIdentity(temporary, address)) {
     cgm.errorNYI(temporary->getSourceRange(),
                  "materialized temporary cleanup has no exact "
-                 "CXXBindTemporaryExpr or conversion-constructor producer");
+                 "CXXBindTemporaryExpr or direct construction producer");
     return;
   }
   for (const CXXBindTemporaryExpr *binding : collector.bindings)

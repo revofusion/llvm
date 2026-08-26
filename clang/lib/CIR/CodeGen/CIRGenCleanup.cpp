@@ -319,6 +319,37 @@ void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
                    mlir::TypeAttr::get(recordSchema));
     }
   }
+  const FunctionDecl *callResultProducer = nullptr;
+  if (!constructor) {
+    if (const auto *call = dyn_cast<CallExpr>(subExpr)) {
+      const FunctionDecl *directCallee = call->getDirectCallee();
+      if (directCallee &&
+          getContext().hasSameUnqualifiedType(directCallee->getReturnType(),
+                                              binding->getType()))
+        callResultProducer = directCallee;
+    }
+  }
+  if (callResultProducer) {
+    const auto *conversion =
+        dyn_cast<CXXConversionDecl>(callResultProducer);
+    identity.set("producer_kind",
+                 builder.getStringAttr(conversion
+                                           ? "materialized_conversion"
+                                           : "materialized_call_result"));
+    identity.set(
+        "construction_producer_symbol",
+        builder.getStringAttr(cgm.getMangledName(GlobalDecl(callResultProducer))));
+    llvm::SmallString<256> producerUSR;
+    if (clang::index::generateUSRForDecl(
+            callResultProducer->getCanonicalDecl(), producerUSR)) {
+      cgm.errorNYI(
+          binding->getSourceRange(),
+          "temporary call-result producer has no exact canonical USR");
+      return;
+    }
+    identity.set("construction_producer_usr",
+                 builder.getStringAttr(producerUSR));
+  }
   if (constructor) {
     requiresObservedConstructorCall = !constructor->isTrivial();
     identity.set("constructor_symbol",
@@ -386,7 +417,7 @@ void CIRGenFunction::setCXXBindTemporaryObjectIdentity(
     identityOwner->setAttr("cir.ast_temporary_object_identities",
                            builder.getArrayAttr(identities));
 }
-bool CIRGenFunction::setMaterializedConversionTemporaryObjectIdentity(
+bool CIRGenFunction::setMaterializedTemporaryObjectIdentity(
     const MaterializeTemporaryExpr *temporary, Address address) {
   if (!temporary)
     return false;
@@ -394,20 +425,19 @@ bool CIRGenFunction::setMaterializedConversionTemporaryObjectIdentity(
   const auto *construct = dyn_cast_or_null<CXXConstructExpr>(producer);
   const CXXConstructorDecl *constructor =
       construct ? construct->getConstructor() : nullptr;
-  const CXXConversionDecl *conversion = nullptr;
-  if (!constructor) {
-    const auto *call = dyn_cast_or_null<CXXMemberCallExpr>(producer);
-    conversion =
-        call ? dyn_cast_or_null<CXXConversionDecl>(call->getMethodDecl())
-             : nullptr;
-    if (!conversion ||
-        !getContext().hasSameUnqualifiedType(conversion->getConversionType(),
-                                             temporary->getType()))
-      return false;
-  }
+  const auto *call = constructor ? nullptr : dyn_cast_or_null<CallExpr>(producer);
+  const FunctionDecl *callResultProducer =
+      call ? call->getDirectCallee() : nullptr;
+  if (!constructor &&
+      (!callResultProducer ||
+       !getContext().hasSameUnqualifiedType(
+           callResultProducer->getReturnType(), temporary->getType())))
+    return false;
   const FunctionDecl *constructionProducer =
       constructor ? static_cast<const FunctionDecl *>(constructor)
-                  : static_cast<const FunctionDecl *>(conversion);
+                  : callResultProducer;
+  const auto *conversion =
+      dyn_cast_or_null<CXXConversionDecl>(callResultProducer);
   const CXXRecordDecl *record = temporary->getType()->getAsCXXRecordDecl();
   if (record && record->getDefinition())
     record = record->getDefinition();
@@ -426,7 +456,7 @@ bool CIRGenFunction::setMaterializedConversionTemporaryObjectIdentity(
   if (!identityOwner || (!function && !global) || begin.isInvalid() ||
       end.isInvalid()) {
     cgm.errorNYI(temporary->getSourceRange(),
-                 "materialized conversion cleanup lacks exact storage, "
+                 "materialized call-result cleanup lacks exact storage, "
                  "symbolic owner, or source provenance");
     return true;
   }
@@ -440,15 +470,19 @@ bool CIRGenFunction::setMaterializedConversionTemporaryObjectIdentity(
                builder.getStringAttr(function ? "function" : "global"));
   if (function)
     identity.set("function", owner);
-  identity.set("producer_kind",
-               builder.getStringAttr("materialized_conversion"));
+  identity.set(
+      "producer_kind",
+      builder.getStringAttr(constructor ? "materialized_constructor"
+                                        : conversion
+                                              ? "materialized_conversion"
+                                              : "materialized_call_result"));
   identity.set("begin_raw", builder.getI64IntegerAttr(begin.getRawEncoding()));
   identity.set("end_raw", builder.getI64IntegerAttr(end.getRawEncoding()));
   std::optional<uint64_t> declarationOrdinal =
       getMaterializedTemporaryDeclarationOrdinal(temporary);
   if (!declarationOrdinal) {
     cgm.errorNYI(temporary->getSourceRange(),
-                 "materialized conversion cleanup has no FunctionDecl "
+                 "materialized call-result cleanup has no FunctionDecl "
                  "preorder identity");
     return true;
   }
@@ -458,15 +492,16 @@ bool CIRGenFunction::setMaterializedConversionTemporaryObjectIdentity(
   //
   // Keep the tag inside OCaml's non-negative 63-bit integer range: framed
   // artifacts parse this producer-owned identity as an OCaml int.
-  constexpr uint64_t materializedConversionOrdinalDomain = uint64_t{1} << 61;
-  if (*declarationOrdinal >= materializedConversionOrdinalDomain) {
-    cgm.errorNYI(temporary->getSourceRange(),
-                 "materialized conversion cleanup declaration ordinal exceeds "
-                 "its producer identity domain");
+  constexpr uint64_t materializedCallResultOrdinalDomain = uint64_t{1} << 61;
+  if (*declarationOrdinal >= materializedCallResultOrdinalDomain) {
+    cgm.errorNYI(
+        temporary->getSourceRange(),
+        "materialized call-result cleanup declaration ordinal exceeds its "
+        "producer identity domain");
     return true;
   }
   identity.set("declaration_ordinal",
-               builder.getI64IntegerAttr(materializedConversionOrdinalDomain |
+               builder.getI64IntegerAttr(materializedCallResultOrdinalDomain |
                                          *declarationOrdinal));
   mlir::StringAttr instanceToken;
   if (alloca) {
@@ -487,7 +522,7 @@ bool CIRGenFunction::setMaterializedConversionTemporaryObjectIdentity(
   if (clang::index::generateUSRForDecl(destructor->getCanonicalDecl(),
                                        destructorUSR)) {
     cgm.errorNYI(temporary->getSourceRange(),
-                 "materialized conversion destructor has no exact canonical "
+                 "materialized call-result destructor has no exact canonical "
                  "USR");
     return true;
   }
@@ -495,19 +530,23 @@ bool CIRGenFunction::setMaterializedConversionTemporaryObjectIdentity(
   const GlobalDecl constructionProducerGlobal =
       constructor ? GlobalDecl(constructor, Ctor_Complete)
                   : GlobalDecl(constructionProducer);
+  const char *symbolKey =
+      constructor ? "constructor_symbol" : "construction_producer_symbol";
+  const char *usrKey =
+      constructor ? "constructor_usr" : "construction_producer_usr";
   identity.set(
-      "constructor_symbol",
+      symbolKey,
       builder.getStringAttr(cgm.getMangledName(constructionProducerGlobal)));
-  llvm::SmallString<256> constructorUSR;
+  llvm::SmallString<256> producerUSR;
   if (clang::index::generateUSRForDecl(
-          constructionProducer->getCanonicalDecl(), constructorUSR)) {
+          constructionProducer->getCanonicalDecl(), producerUSR)) {
     cgm.errorNYI(
         temporary->getSourceRange(),
-        "materialized conversion construction producer has no exact canonical "
+        "materialized call-result construction producer has no exact canonical "
         "USR");
     return true;
   }
-  identity.set("constructor_usr", builder.getStringAttr(constructorUSR));
+  identity.set(usrKey, builder.getStringAttr(producerUSR));
   // A conversion-function call constructs its record result, not its adapter
   // receiver. The exact conversion declaration remains the construction
   // producer identity, but there is no constructor receiver call for replay

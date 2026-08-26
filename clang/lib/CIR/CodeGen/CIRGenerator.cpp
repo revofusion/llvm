@@ -337,6 +337,11 @@ void CIRGenerator::HandleTranslationUnit(ASTContext &astContext) {
       prepareCastEndpointRecordSchemas(sema,
                                        astContext.getTranslationUnitDecl());
     prepareSelectedLocalClassMembers(astContext.getTranslationUnitDecl());
+    // Exact source-root symbols can be recognized while declarations stream
+    // in. A stateful-preprocessing symbol mismatch, however, is safe only after
+    // the completed AST proves that its expansion span owns one global
+    // variable candidate.
+    cgm->prepareSelectedSourceRoots(astContext.getTranslationUnitDecl());
     // Materialize declarations discovered by ordinary AST callbacks before
     // selected-root closure scans specialization and destructor families.
     cgm->emitDeferred();

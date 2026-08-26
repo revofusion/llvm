@@ -3,7 +3,10 @@
 // RUN: FileCheck --check-prefix=CONVERSION --input-file=%t.conversion.cir %s
 // RUN: echo "_Z24selected_user_conversionRK7Adapter" > %t.user-conversion.roots
 // RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fclangir-emit-selected-decls=%t.user-conversion.roots -skip-function-bodies %s -o %t.user-conversion.cir
-// RUN: FileCheck --check-prefix=USER-CONVERSION --input-file=%t.user-conversion.cir %s
+// RUN: FileCheck --check-prefix=USER-CONVERSION --implicit-check-not=constructor_symbol --input-file=%t.user-conversion.cir %s
+// RUN: echo "_Z20selected_call_resultRK7Adapter" > %t.call-result.roots
+// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fclangir-emit-selected-decls=%t.call-result.roots -skip-function-bodies %s -o %t.call-result.cir
+// RUN: FileCheck --check-prefix=CALL-RESULT --implicit-check-not=constructor_symbol --input-file=%t.call-result.cir %s
 // RUN: echo "_Z27selected_structured_cleanupv" > %t.automatic.roots
 // RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fclangir-emit-selected-decls=%t.automatic.roots -skip-function-bodies %s -o %t.automatic.cir
 // RUN: FileCheck --check-prefix=AUTOMATIC --input-file=%t.automatic.cir %s
@@ -37,7 +40,7 @@ SelectedConversion force_selected_conversion = &selected_conversion<Big>;
 // CONVERSION: cir.alloca "ref.tmp
 // CONVERSION-SAME: ast_temporary_object_identities
 // CONVERSION-SAME: declaration_ordinal = 2305843009213693952 : i64
-// CONVERSION-SAME: producer_kind = "materialized_conversion"
+// CONVERSION-SAME: producer_kind = "materialized_constructor"
 
 struct Converted {
   ~Converted();
@@ -45,6 +48,7 @@ struct Converted {
 
 struct Adapter {
   operator Converted() const;
+  Converted make() const;
 };
 
 const Converted &selected_user_conversion(const Adapter &adapter) {
@@ -54,10 +58,21 @@ const Converted &selected_user_conversion(const Adapter &adapter) {
 // USER-CONVERSION-LABEL: cir.func{{.*}} @_Z24selected_user_conversionRK7Adapter
 // USER-CONVERSION: cir.alloca "ref.tmp
 // USER-CONVERSION-SAME: ast_temporary_object_identities
-// USER-CONVERSION-SAME: constructor_symbol = "_ZNK7Adaptercv9ConvertedEv"
-// USER-CONVERSION-SAME: constructor_usr = "c:@S@Adapter@F@operator Converted#1"
+// USER-CONVERSION-SAME: construction_producer_symbol = "_ZNK7Adaptercv9ConvertedEv"
+// USER-CONVERSION-SAME: construction_producer_usr = "c:@S@Adapter@F@operator Converted#1"
 // USER-CONVERSION-SAME: producer_kind = "materialized_conversion"
 // USER-CONVERSION-SAME: requires_observed_constructor_call = false
+
+bool selected_call_result(const Adapter &adapter) {
+  return (adapter.make(), true);
+}
+
+// CALL-RESULT-LABEL: cir.func{{.*}} @_Z20selected_call_resultRK7Adapter
+// CALL-RESULT: cir.alloca{{.*}}ast_temporary_object_identities
+// CALL-RESULT-SAME: construction_producer_symbol = "_ZNK7Adapter4makeEv"
+// CALL-RESULT-SAME: construction_producer_usr = "c:@S@Adapter@F@make#1"
+// CALL-RESULT-SAME: producer_kind = "materialized_call_result"
+// CALL-RESULT-SAME: requires_observed_constructor_call = false
 
 struct Item {
   Item();

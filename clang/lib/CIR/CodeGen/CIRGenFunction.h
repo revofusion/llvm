@@ -2046,7 +2046,7 @@ public:
   void setCXXBindTemporaryObjectIdentity(const CXXBindTemporaryExpr *binding,
                                          const CXXTemporary *temporary,
                                          Address address);
-  bool setMaterializedConversionTemporaryObjectIdentity(
+  bool setMaterializedTemporaryObjectIdentity(
       const MaterializeTemporaryExpr *temporary, Address address);
   std::optional<mlir::DictionaryAttr>
   setCXXAutomaticObjectIdentity(const VarDecl *variable, Address address);

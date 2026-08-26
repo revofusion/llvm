@@ -42,6 +42,7 @@
 #include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -3586,34 +3587,51 @@ void CIRGenModule::setConditionalExprMetadata(
     };
 
 
-    auto markArm = [&](mlir::Region &region) -> bool {
-      if (region.empty() || std::next(region.begin()) != region.end() ||
-          region.front().empty())
-        return false;
-      mlir::Operation *terminator = &region.front().back();
-      mlir::Operation *final = terminator->getPrevNode();
-      if (!mlir::isa<cir::YieldOp>(terminator) || !final)
-        return false;
-      mlir::Value armDestination;
-      if (auto store = mlir::dyn_cast<cir::StoreOp>(final)) {
-        armDestination = store.getAddr();
-      } else if (auto call = mlir::dyn_cast<cir::CallOp>(final);
-                 call && !call.getArgOperands().empty()) {
-        armDestination = call.getArgOperands().front();
+    auto ownsAggregateDestination = [&](mlir::Value candidate) {
+      llvm::SmallPtrSet<mlir::Operation *, 4> visited;
+      while (candidate && candidate != aggregateDestination) {
+        auto cast = mlir::dyn_cast_or_null<cir::CastOp>(
+            candidate.getDefiningOp());
+        if (!cast || !cast.isAllocaPreservingCast() ||
+            !visited.insert(cast.getOperation()).second)
+          return false;
+        candidate = cast.getSrc();
       }
-      if (!armDestination || !markArmDestination(armDestination))
+      return candidate == aggregateDestination;
+    };
+    auto markArm = [&](mlir::Region &region) -> bool {
+      llvm::SmallVector<std::pair<mlir::Operation *, mlir::Value>> exactWrites;
+      region.walk([&](mlir::Operation *candidate) {
+        mlir::Value candidateDestination;
+        if (auto store = mlir::dyn_cast<cir::StoreOp>(candidate)) {
+          candidateDestination = store.getAddr();
+        } else if (auto copy = mlir::dyn_cast<cir::CopyOp>(candidate)) {
+          candidateDestination = copy.getDst();
+        } else if (auto call = mlir::dyn_cast<cir::CallOp>(candidate);
+                   call && call->hasAttr("ast_constructor_call") &&
+                   !call.getArgOperands().empty()) {
+          candidateDestination = call.getArgOperands().front();
+        }
+        if (ownsAggregateDestination(candidateDestination))
+          exactWrites.emplace_back(candidate, candidateDestination);
+      });
+      if (exactWrites.empty())
         return false;
-      final->setAttr("ast_conditional_destination_identity",
-                     builder.getStringAttr(
-                         aggregateDestinationInstanceToken));
+      for (auto [write, destination] : exactWrites) {
+        if (!markArmDestination(destination))
+          return false;
+        write->setAttr(
+            "ast_conditional_destination_identity",
+            builder.getStringAttr(aggregateDestinationInstanceToken));
+      }
       return true;
     };
     auto conditional = mlir::dyn_cast<cir::IfOp>(op);
     if (!conditional || !markArm(conditional.getThenRegion()) ||
         !markArm(conditional.getElseRegion())) {
       errorNYI(op->getLoc(),
-               "aggregate conditional destination does not own two exact "
-               "linear CIR arms");
+               "aggregate conditional destination does not own an exact "
+               "authenticated CIR write in each arm");
       return;
     }
   }
@@ -4869,9 +4887,7 @@ void CIRGenModule::loadSelectedDeclRoots() {
             static_cast<unsigned>(startColumn),
             static_cast<unsigned>(endLine),
             static_cast<unsigned>(endColumn));
-        auto [entry, inserted] =
-            selectedDeclRootSymbolBySourceSpan.try_emplace(key, symbol.str());
-        valid = inserted || entry->getValue() == symbol;
+        selectedDeclRootSymbolsBySourceSpan[key].insert(symbol);
         selectedDeclRoots.insert(symbol);
       }
       if (!valid) {
@@ -4997,15 +5013,71 @@ llvm::StringRef CIRGenModule::selectedLambdaRootSelector(GlobalDecl gd) const {
   return match;
 }
 
-llvm::StringRef
-CIRGenModule::selectedSourceRootSymbol(GlobalDecl gd) const {
+void CIRGenModule::prepareSelectedSourceRootCandidates(
+    const DeclContext *context) {
+  if (!selectedDeclRootMode || selectedSourceRootCandidatesPrepared)
+    return;
+
+  llvm::SmallVector<const DeclContext *, 32> contexts;
+  llvm::DenseSet<const DeclContext *> visitedContexts;
+  llvm::DenseSet<const VarDecl *> visitedVariables;
+  contexts.push_back(context);
+  visitedContexts.insert(context);
+  for (size_t cursor = 0; cursor != contexts.size(); ++cursor) {
+    for (const Decl *decl : contexts[cursor]->decls()) {
+      if (const auto *nested = dyn_cast<DeclContext>(decl);
+          nested && visitedContexts.insert(nested).second)
+        contexts.push_back(nested);
+
+      const auto *variable = dyn_cast<VarDecl>(decl);
+      if (!variable ||
+          (!variable->isFileVarDecl() && !variable->isStaticDataMember()) ||
+          (variable->isThisDeclarationADefinition() ==
+               VarDecl::DeclarationOnly &&
+           !astContext.isMSStaticDataMemberInlineDefinition(variable)) ||
+          !visitedVariables.insert(variable->getCanonicalDecl()).second)
+        continue;
+      auto key =
+          selectedSourceSpanKey(astContext.getSourceManager(), variable);
+      if (key && selectedDeclRootSymbolsBySourceSpan.contains(*key))
+        ++selectedSourceRootVariableCandidatesBySpan[*key];
+    }
+  }
+  selectedSourceRootCandidatesPrepared = true;
+}
+
+llvm::StringRef CIRGenModule::selectedSourceRootSymbol(GlobalDecl gd) {
+  // Source-root selectors are emitted only for global VarDecl roots. Macro
+  // invocations routinely give sibling functions the same expansion span;
+  // allowing those declarations to consume a variable selector would turn one
+  // exact root into several unrelated definitions.
+  if (!isa<VarDecl>(gd.getDecl()))
+    return {};
   auto key = selectedSourceSpanKey(astContext.getSourceManager(), gd.getDecl());
   if (!key)
     return {};
-  auto selected = selectedDeclRootSymbolBySourceSpan.find(*key);
-  if (selected == selectedDeclRootSymbolBySourceSpan.end())
+  auto selected = selectedDeclRootSymbolsBySourceSpan.find(*key);
+  if (selected == selectedDeclRootSymbolsBySourceSpan.end())
     return {};
-  return selected->getValue();
+
+  llvm::StringRef actualSymbol = getMangledName(gd);
+  auto exact = selected->getValue().find(actualSymbol);
+  if (exact != selected->getValue().end())
+    return exact->getKey();
+
+  // A single authority symbol may differ after stateful preprocessing while
+  // the exact variable expansion span remains stable. Delay that bridge until
+  // the completed AST proves that exactly one global VarDecl owns the span.
+  // This prevents a macro invocation's selected gtest registration variable
+  // from selecting every sibling VarDecl at the same expansion location.
+  if (!selectedSourceRootCandidatesPrepared ||
+      selected->getValue().size() != 1)
+    return {};
+  auto candidates = selectedSourceRootVariableCandidatesBySpan.find(*key);
+  if (candidates == selectedSourceRootVariableCandidatesBySpan.end() ||
+      candidates->getValue() != 1)
+    return {};
+  return selected->getValue().begin()->getKey();
 }
 
 static bool functionCarriesExactDeclUSR(cir::FuncOp function,
