@@ -6635,8 +6635,7 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
   }
   if (const auto *method =
           dyn_cast_or_null<CXXMethodDecl>(identityFunctionDecl);
-      method && !isThunk && !isa<CXXConstructorDecl>(method) &&
-      !isa<CXXDestructorDecl>(method)) {
+      method && !isThunk) {
     auto exact = buildCIRGenVirtualMethodIdentityAttrs(
         *this, getMLIRContext(), globalDecl);
     mlir::NamedAttrList identity;

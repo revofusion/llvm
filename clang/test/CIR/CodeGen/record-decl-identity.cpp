@@ -1,5 +1,6 @@
 // RUN: %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir %s -o %t.cir
 // RUN: FileCheck --input-file=%t.cir %s --check-prefix=CIR
+// RUN: FileCheck --input-file=%t.cir %s --check-prefix=OWNER-DISTINCT
 
 // The producer must keep the direct Clang USR when one is available. For a
 // local record with no USR, it must prefer stable complete source provenance
@@ -67,16 +68,24 @@ void instantiate_repeated_macro_record_identities() {
 
 // CIR-NOT: structural:
 // CIR: cir.empty_record_schemas = {{[^}]*}}"local_record_identity()::ScopedEvent436::EventFinalizer"{{[^}]*}}"local_record_identity()::ScopedEvent436::EventFinalizer.0"{{[^}]*}}
+// CIR: LambdaEventFinalizer = "[[LAMBDA_PREFIX:[^"]+]]#fnowner:[[LAMBDA_FIRST_OWNER:[0-9a-f]+]]#decl.[[LAMBDA_DECL:[0-9a-f]+]]"
+// CIR-SAME: LambdaEventFinalizer.0 = "{{[^"]+}}#fnowner:[[LAMBDA_SECOND_OWNER:[0-9a-f]+]]#decl.[[LAMBDA_DECL]]"
+// CIR-SAME: MacroEventFinalizerOne = "{{[^"]+}}#fnowner:[[MACRO_FIRST_OWNER:[0-9a-f]+]]#decl.[[MACRO_ONE_DECL:[0-9a-f]+]]"
+// CIR-SAME: MacroEventFinalizerOne.0 = "{{[^"]+}}#fnowner:[[MACRO_SECOND_OWNER:[0-9a-f]+]]#decl.[[MACRO_ONE_DECL]]"
+// CIR-SAME: MacroEventFinalizerTwo = "{{[^"]+}}#fnowner:[[MACRO_FIRST_OWNER]]#decl.[[MACRO_TWO_DECL:[0-9a-f]+]]"
+// CIR-SAME: MacroEventFinalizerTwo.0 = "{{[^"]+}}#fnowner:[[MACRO_SECOND_OWNER]]#decl.[[MACRO_TWO_DECL]]"
 // CIR-DAG: ScopedEvent436 = "c:@F@local_record_identity<#I>#@S@ScopedEvent436#fnowner:[[SCOPED_INT_OWNER:[0-9a-f]+]][[SCOPED_DECL_SUFFIX:#decl[.][0-9a-f]+]]"
 // CIR-DAG: ScopedEvent436.0 = "c:@F@local_record_identity<#L>#@S@ScopedEvent436#fnowner:[[SCOPED_LONG_OWNER:[0-9a-f]+]][[SCOPED_DECL_SUFFIX]]"
-// CIR-NOT: ScopedEvent436.0 = "{{[^"]*}}#fnowner:[[SCOPED_INT_OWNER]]
 // CIR-DAG: "local_record_identity()::ScopedEvent436::EventFinalizer" = "c:@F@local_record_identity<#I>#@S@ScopedEvent436@S@EventFinalizer#fnowner:[[FINALIZER_INT_OWNER:[0-9a-f]+]][[FINALIZER_DECL_SUFFIX:#decl[.][0-9a-f]+]]"
 // CIR-DAG: "local_record_identity()::ScopedEvent436::EventFinalizer.0" = "c:@F@local_record_identity<#L>#@S@ScopedEvent436@S@EventFinalizer#fnowner:[[FINALIZER_LONG_OWNER:[0-9a-f]+]][[FINALIZER_DECL_SUFFIX]]"
-// CIR-DAG: {{[^,}]*LambdaEventFinalizer[^=]*}} = "[[LAMBDA_SOURCE_ID:cxx-source-record:v1:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+:struct:[0-9]+:[^"]*]]"
-// CIR-DAG: {{[^,}]*LambdaEventFinalizer[^=]*}} = "[[LAMBDA_SOURCE_ID]]"
-// CIR-DAG: {{[^,}]*MacroEventFinalizerOne[^=]*}} = "[[MACRO_ONE_SOURCE_ID:cxx-source-record:v2:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+:struct:[0-9]+:[^"]*]]"
-// CIR-DAG: {{[^,}]*MacroEventFinalizerOne[^=]*}} = "[[MACRO_ONE_SOURCE_ID]]"
-// CIR-DAG: {{[^,}]*MacroEventFinalizerTwo[^=]*}} = "[[MACRO_TWO_SOURCE_ID:cxx-source-record:v2:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+:[0-9]+:[^:]+:[0-9]+:[0-9]+:[0-9]+:struct:[0-9]+:[^"]*]]"
-// CIR-DAG: {{[^,}]*MacroEventFinalizerTwo[^=]*}} = "[[MACRO_TWO_SOURCE_ID]]"
 // CIR-NOT: cxx-rtti-name:
 // CIR-NOT: structural:
+
+// A second scan makes owner inequality observable without splitting the
+// same-line record-declaration map's positive DAG group.
+// OWNER-DISTINCT: LambdaEventFinalizer = "{{[^"]+}}#fnowner:[[LAMBDA_OWNER:[0-9a-f]+]]#decl.{{[0-9a-f]+}}"
+// OWNER-DISTINCT-NOT: LambdaEventFinalizer.0 = "{{[^"]+}}#fnowner:[[LAMBDA_OWNER]]#decl.
+// OWNER-DISTINCT: LambdaEventFinalizer.0 =
+// OWNER-DISTINCT: ScopedEvent436 = "{{[^"]+}}#fnowner:[[SCOPED_OWNER:[0-9a-f]+]]#decl.{{[0-9a-f]+}}"
+// OWNER-DISTINCT-NOT: ScopedEvent436.0 = "{{[^"]+}}#fnowner:[[SCOPED_OWNER]]#decl.
+// OWNER-DISTINCT: ScopedEvent436.0 =

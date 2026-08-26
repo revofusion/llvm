@@ -3,6 +3,9 @@
 // RUN: printf '_ZN14MemberTemplateIiE5valueEv\n' > %t.member-roots
 // RUN: %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-cir -fclangir-emit-selected-decls=%t.member-roots -skip-function-bodies %s -o %t-member.cir
 // RUN: FileCheck --input-file=%t-member.cir %s -check-prefix=MEMBER
+// RUN: printf '_Z15make_angle_testv\n_Z11fuzzOverlapv\n_ZN17callable_identity18useDecoderTemplateEv\n_Z17useNestedMetadatav\n' > %t.callable-roots
+// RUN: %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-cir -fclangir-emit-selected-decls=%t.callable-roots -skip-function-bodies %s -o %t-callable.cir
+// RUN: FileCheck --input-file=%t-callable.cir %s -check-prefix=CALLABLE-SELECTED
 // RUN: %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -Wno-unused-value -fclangir -emit-llvm %s -o %t-cir.ll
 // RUN: FileCheck --input-file=%t-cir.ll %s -check-prefix=LLVM
 // RUN: %clang_cc1 -std=c++20 -triple x86_64-unknown-linux-gnu -Wno-unused-value -emit-llvm %s -o %t.ll
@@ -175,3 +178,84 @@ ImplicitCtorIdentity<int> make_implicit_ctor_identity() {
 // the same exact producer specialization identity as a written member.
 // CIR-DAG: cir.func{{.*}} @_ZN20ImplicitCtorIdentityIiEC2Ev({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "_ZN20ImplicitCtorIdentityIiEC2Ev"
 // CIR-DAG: cir.func{{.*}} @_ZN20ImplicitCtorIdentityIiEC1Ev({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "_ZN20ImplicitCtorIdentityIiEC1Ev"
+
+// ANGLE's test base instantiates an implicit constructor from a concrete
+// class-template specialization.  C1 and C2 share one source declaration, so
+// each FuncOp must carry both its exact ABI variant and the canonical declaring
+// RecordDecl identity.
+struct PlatformParameters {
+  int value = 0;
+};
+
+template <typename Parameters>
+struct ANGLETest {
+  Parameters parameters;
+  virtual int read() const { return parameters.value; }
+};
+
+ANGLETest<PlatformParameters> make_angle_test() {
+  return ANGLETest<PlatformParameters>();
+}
+
+// CIR-DAG: cir.func{{.*}} @_ZN9ANGLETestI18PlatformParametersEC2Ev({{.*}}abi_ctor_variant = "base"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[ANGLE_CLASS:[^"]+]]"{{.*}}method_symbol = @_ZN9ANGLETestI18PlatformParametersEC2Ev
+// CIR-DAG: cir.func{{.*}} @_ZN9ANGLETestI18PlatformParametersEC1Ev({{.*}}abi_ctor_variant = "complete"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[ANGLE_CLASS]]"{{.*}}method_symbol = @_ZN9ANGLETestI18PlatformParametersEC1Ev
+
+// The same exact identities must survive selected-root emission and its ABI
+// dependency closure rather than existing only in full-TU CIR.
+// CALLABLE-SELECTED-DAG: cir.func{{.*}} @_ZN9ANGLETestI18PlatformParametersEC2Ev({{.*}}abi_ctor_variant = "base"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[SELECTED_ANGLE_CLASS:[^"]+]]"{{.*}}method_symbol = @_ZN9ANGLETestI18PlatformParametersEC2Ev
+// CALLABLE-SELECTED-DAG: cir.func{{.*}} @_ZN9ANGLETestI18PlatformParametersEC1Ev({{.*}}abi_ctor_variant = "complete"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[SELECTED_ANGLE_CLASS]]"{{.*}}method_symbol = @_ZN9ANGLETestI18PlatformParametersEC1Ev
+
+// Fuzztest's OverlapOf implementation creates concrete specializations of a
+// generic lambda call operator.  The function-template tuple and the closure
+// RecordDecl are independent exact producer facts; both are required.
+int fuzzOverlap() {
+  auto generic = []<typename T>(T value) { return static_cast<int>(value); };
+  return generic(1) + generic(2L);
+}
+
+// CIR-DAG: cir.func{{.*}} @[[FUZZ_INT:[^ (]*fuzzOverlap[^ (]*clIiE[^ (]*]]({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "[[FUZZ_INT]]"{{.*}}template_arguments_odr_hash = {{[0-9]+}} : i64{{.*}}template_pattern_usr = "[[FUZZ_PATTERN:[^"]+]]"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[FUZZ_CLASS:[^"]+]]"{{.*}}method_symbol = @[[FUZZ_INT]]
+// CIR-DAG: cir.func{{.*}} @[[FUZZ_LONG:[^ (]*fuzzOverlap[^ (]*clIlE[^ (]*]]({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "[[FUZZ_LONG]]"{{.*}}template_arguments_odr_hash = {{[0-9]+}} : i64{{.*}}template_pattern_usr = "[[FUZZ_PATTERN]]"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[FUZZ_CLASS]]"{{.*}}method_symbol = @[[FUZZ_LONG]]
+
+// CALLABLE-SELECTED-DAG: cir.func{{.*}} @[[SELECTED_FUZZ_INT:[^ (]*fuzzOverlap[^ (]*clIiE[^ (]*]]({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "[[SELECTED_FUZZ_INT]]"{{.*}}template_arguments_odr_hash = {{[0-9]+}} : i64{{.*}}template_pattern_usr = "[[SELECTED_FUZZ_PATTERN:[^"]+]]"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[SELECTED_FUZZ_CLASS:[^"]+]]"{{.*}}method_symbol = @[[SELECTED_FUZZ_INT]]
+// CALLABLE-SELECTED-DAG: cir.func{{.*}} @[[SELECTED_FUZZ_LONG:[^ (]*fuzzOverlap[^ (]*clIlE[^ (]*]]({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "[[SELECTED_FUZZ_LONG]]"{{.*}}template_arguments_odr_hash = {{[0-9]+}} : i64{{.*}}template_pattern_usr = "[[SELECTED_FUZZ_PATTERN]]"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[SELECTED_FUZZ_CLASS]]"{{.*}}method_symbol = @[[SELECTED_FUZZ_LONG]]
+
+namespace callable_identity {
+namespace {
+template <typename Decoder>
+struct DecoderTemplateTest {
+  int CreateConfig() { return sizeof(Decoder); }
+};
+} // namespace
+
+int useDecoderTemplate() {
+  return DecoderTemplateTest<int>().CreateConfig();
+}
+
+// An anonymous-namespace class-template member specialization is authenticated
+// by its exact internal-linkage symbol, canonical method USR, template pattern,
+// and concrete declaring RecordDecl.  No qualified-name reconstruction is
+// sufficient for this shape.
+// CIR-DAG: cir.func{{.*}} @[[DECODER:[^ (]*DecoderTemplateTestIiE12CreateConfigEv]]({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "[[DECODER]]"{{.*}}template_pattern_usr = "[[DECODER_PATTERN:[^"]+]]"{{.*}}usr = "[[DECODER_USR:[^"]+]]"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[DECODER_CLASS:[^"]+]]"{{.*}}method_symbol = @[[DECODER]]{{.*}}method_usr = "[[DECODER_USR]]"
+
+// CALLABLE-SELECTED-DAG: cir.func{{.*}} @[[SELECTED_DECODER:[^ (]*DecoderTemplateTestIiE12CreateConfigEv]]({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "[[SELECTED_DECODER]]"{{.*}}template_pattern_usr = "[[SELECTED_DECODER_PATTERN:[^"]+]]"{{.*}}usr = "[[SELECTED_DECODER_USR:[^"]+]]"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[SELECTED_DECODER_CLASS:[^"]+]]"{{.*}}method_symbol = @[[SELECTED_DECODER]]{{.*}}method_usr = "[[SELECTED_DECODER_USR]]"
+} // namespace callable_identity
+
+template <typename UI>
+struct SidePanelWebUIViewT {
+  struct SidePanelWebUIViewT_MetaData {
+    static int BuildMetaData() { return sizeof(UI); }
+  };
+};
+
+int useNestedMetadata() {
+  return SidePanelWebUIViewT<PlatformParameters>::
+      SidePanelWebUIViewT_MetaData::BuildMetaData();
+}
+
+// A method of a nested record instantiated below a class template is not
+// itself owned directly by ClassTemplateSpecializationDecl.  Clang's exact
+// instantiated-member relation plus the nested declaring RecordDecl must
+// survive into CIR.
+// CIR-DAG: cir.func{{.*}} @[[METADATA:[^ (]*SidePanelWebUIViewTI18PlatformParametersE28SidePanelWebUIViewT_MetaData13BuildMetaDataEv]]({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "[[METADATA]]"{{.*}}template_pattern_usr = "[[METADATA_PATTERN:[^"]+]]"{{.*}}usr = "[[METADATA_USR:[^"]+]]"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[METADATA_CLASS:[^"]+]]"{{.*}}method_symbol = @[[METADATA]]{{.*}}method_usr = "[[METADATA_USR]]"
+
+// CALLABLE-SELECTED-DAG: cir.func{{.*}} @[[SELECTED_METADATA:[^ (]*SidePanelWebUIViewTI18PlatformParametersE28SidePanelWebUIViewT_MetaData13BuildMetaDataEv]]({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "[[SELECTED_METADATA]]"{{.*}}template_pattern_usr = "[[SELECTED_METADATA_PATTERN:[^"]+]]"{{.*}}usr = "[[SELECTED_METADATA_USR:[^"]+]]"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[SELECTED_METADATA_CLASS:[^"]+]]"{{.*}}method_symbol = @[[SELECTED_METADATA]]{{.*}}method_usr = "[[SELECTED_METADATA_USR]]"

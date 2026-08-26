@@ -8,6 +8,14 @@
 // RUN: printf '_ZN11DtorDerivedC1Ei\n_ZN11DtorDerivedD1Ev\n' > %t.structor-overlap.roots
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++17 -fclangir -emit-cir -fclangir-emit-selected-decls=%t.structor-overlap.roots -skip-function-bodies %s -o %t.structor-overlap.cir
 // RUN: FileCheck %s --check-prefix=STRUCTOR-OVERLAP --input-file=%t.structor-overlap.cir
+// The retained Chromium failures referenced non-virtual D1 entry points for
+// named classes in anonymous namespaces.  Select only the body that creates
+// those objects; D1/D2 are its exact Itanium ABI companion closure, while D0
+// and the unrelated anonymous class remain absent.
+// RUN: printf 'anonymousDtorSelected\n' > %t.anonymous-dtor.roots
+// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++17 -fclangir -emit-cir -fclangir-emit-selected-decls=%t.anonymous-dtor.roots -skip-function-bodies %s -o %t.anonymous-dtor.cir
+// RUN: FileCheck %s --check-prefix=ANONYMOUS-DTOR --implicit-check-not=@_ZN7network12_GLOBAL__N_124TestCookieChangeListenerD0Ev --implicit-check-not=@_ZN7network12_GLOBAL__N_117UnrelatedListenerD --input-file=%t.anonymous-dtor.cir
+
 
 struct Inner {
   ~Inner();
@@ -87,6 +95,32 @@ void selectedVtt() {
   FurtherDerived value;
 }
 
+
+namespace network {
+namespace {
+struct TestCookieChangeListener {
+  ~TestCookieChangeListener() { value = 0; }
+  int value = 1;
+};
+
+struct EchoFakeWithFilter {
+  ~EchoFakeWithFilter() { value = 0; }
+  int value = 1;
+};
+
+struct UnrelatedListener {
+  ~UnrelatedListener() { value = 0; }
+  int value = 1;
+};
+} // namespace
+
+extern "C" int anonymousDtorSelected() {
+  TestCookieChangeListener first;
+  EchoFakeWithFilter second;
+  return first.value + second.value;
+}
+} // namespace network
+
 void unrelated() {}
 
 template <bool B, class T = void>
@@ -151,3 +185,13 @@ void selected() {
 // separately selected destructor root cannot re-enter the constructor body.
 // STRUCTOR-OVERLAP-COUNT-1: cir.func{{.*}}@_ZN11DtorDerivedC1Ei{{.*}} {
 // STRUCTOR-OVERLAP-COUNT-1: cir.func{{.*}}@_ZN11DtorDerivedD1Ev{{.*}} {
+
+// One exact root references two anonymous-namespace destructors.  The producer
+// emits the complete and base entry points once for each concrete
+// CXXDestructorDecl; the non-virtual deleting variants and unreferenced class
+// are outside the selected ABI dependency closure.
+// ANONYMOUS-DTOR: cir.selected_decl_root_definitions = {anonymousDtorSelected = "anonymousDtorSelected"}
+// ANONYMOUS-DTOR-COUNT-1: cir.func{{.*}}@_ZN7network12_GLOBAL__N_118EchoFakeWithFilterD2Ev{{.*}}abi_dtor_variant = "base"{{.*}}ast_decl_usr = "[[ECHO_DTOR_USR:[^"]+]]"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[ECHO_CLASS:[^"]+]]"{{.*}}method_symbol = @_ZN7network12_GLOBAL__N_118EchoFakeWithFilterD2Ev{{.*}}method_usr = "[[ECHO_DTOR_USR]]"{{.*}} {
+// ANONYMOUS-DTOR-COUNT-1: cir.func{{.*}}@_ZN7network12_GLOBAL__N_118EchoFakeWithFilterD1Ev{{.*}}abi_dtor_variant = "complete"{{.*}}ast_decl_usr = "[[ECHO_DTOR_USR]]"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[ECHO_CLASS]]"{{.*}}method_symbol = @_ZN7network12_GLOBAL__N_118EchoFakeWithFilterD1Ev{{.*}}method_usr = "[[ECHO_DTOR_USR]]"{{.*}} {
+// ANONYMOUS-DTOR-COUNT-1: cir.func{{.*}}@_ZN7network12_GLOBAL__N_124TestCookieChangeListenerD2Ev{{.*}}abi_dtor_variant = "base"{{.*}}ast_decl_usr = "[[COOKIE_DTOR_USR:[^"]+]]"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[COOKIE_CLASS:[^"]+]]"{{.*}}method_symbol = @_ZN7network12_GLOBAL__N_124TestCookieChangeListenerD2Ev{{.*}}method_usr = "[[COOKIE_DTOR_USR]]"{{.*}} {
+// ANONYMOUS-DTOR-COUNT-1: cir.func{{.*}}@_ZN7network12_GLOBAL__N_124TestCookieChangeListenerD1Ev{{.*}}abi_dtor_variant = "complete"{{.*}}ast_decl_usr = "[[COOKIE_DTOR_USR]]"{{.*}}ast_method_callable_identity = {{.*}}method_declaring_class_usr = "[[COOKIE_CLASS]]"{{.*}}method_symbol = @_ZN7network12_GLOBAL__N_124TestCookieChangeListenerD1Ev{{.*}}method_usr = "[[COOKIE_DTOR_USR]]"{{.*}} {
