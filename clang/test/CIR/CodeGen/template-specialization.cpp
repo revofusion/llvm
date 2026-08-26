@@ -160,3 +160,18 @@ CtorIdentity<int> make_ctor_identity() {
 // Each constructor ABI entry point carries its own exact producer symbol.
 // CIR-DAG: cir.func{{.*}} @_ZN12CtorIdentityIiEC2Ei({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "_ZN12CtorIdentityIiEC2Ei"
 // CIR-DAG: cir.func{{.*}} @_ZN12CtorIdentityIiEC1Ei({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "_ZN12CtorIdentityIiEC1Ei"
+
+template <typename T>
+struct ImplicitCtorIdentity {
+  T value = {};
+  virtual T read() const { return value; }
+};
+
+ImplicitCtorIdentity<int> make_implicit_ctor_identity() {
+  return ImplicitCtorIdentity<int>();
+}
+
+// An implicit special member of a concrete class-template specialization has
+// the same exact producer specialization identity as a written member.
+// CIR-DAG: cir.func{{.*}} @_ZN20ImplicitCtorIdentityIiEC2Ev({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "_ZN20ImplicitCtorIdentityIiEC2Ev"
+// CIR-DAG: cir.func{{.*}} @_ZN20ImplicitCtorIdentityIiEC1Ev({{.*}}ast_decl_specialization_identity = {{.*}}mangled_name = "_ZN20ImplicitCtorIdentityIiEC1Ev"

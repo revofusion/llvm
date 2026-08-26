@@ -1,6 +1,9 @@
 // RUN: printf 'symbol-usr:59:_ZN4dawn31alignof_if_defined_else_defaultIT_XT0_EDTatS1_EEEc:@N@dawn@VP>2#T#Nl@alignof_if_defined_else_default>#t0.0##\n' > %t.selected
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++20 -fclangir -emit-cir -fclangir-emit-selected-decls=%t.selected -skip-function-bodies %s -o %t.cir
 // RUN: FileCheck %s --input-file=%t.cir --check-prefix=DEPENDENT
+// RUN: printf 'source-root:17:1:20:18:%s|_ZN4dawn31alignof_if_defined_else_defaultIT_XT0_EDTatS1_EEE\n' > %t.source-selected
+// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++20 -fclangir -emit-cir -fclangir-emit-selected-decls=%t.source-selected -skip-function-bodies %s -o %t.source-selected.cir
+// RUN: FileCheck %s --input-file=%t.source-selected.cir --check-prefix=DEPENDENT
 // RUN: printf '_ZN5cppgc8internal16IsAnyMemberTypeVINS0_11BasicMemberIT_T0_T1_T2_T3_EEEE\n' > %t.constant
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++20 -fclangir -emit-cir -fclangir-emit-selected-decls=%t.constant -skip-function-bodies %s -o %t.constant.cir
 // RUN: FileCheck %s --input-file=%t.constant.cir --check-prefix=CONSTANT

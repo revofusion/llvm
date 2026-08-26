@@ -5086,6 +5086,22 @@ void CIRGenModule::prepareSelectedSourceRootCandidates(
   llvm::SmallVector<const DeclContext *, 32> contexts;
   llvm::DenseSet<const DeclContext *> visitedContexts;
   llvm::DenseSet<const VarDecl *> visitedVariables;
+  auto considerVariable = [&](const VarDecl *variable) {
+    if (!variable)
+      return;
+    if (const VarDecl *definition = variable->getDefinition())
+      variable = definition;
+    if ((!variable->isFileVarDecl() && !variable->isStaticDataMember()) ||
+        (variable->isThisDeclarationADefinition() ==
+             VarDecl::DeclarationOnly &&
+         !astContext.isMSStaticDataMemberInlineDefinition(variable)) ||
+        !visitedVariables.insert(variable->getCanonicalDecl()).second)
+      return;
+    auto key = selectedSourceSpanKey(astContext.getSourceManager(), variable);
+    if (key && selectedDeclRootSymbolsBySourceSpan.contains(*key))
+      ++selectedSourceRootVariableCandidatesBySpan[*key];
+  };
+
   contexts.push_back(context);
   visitedContexts.insert(context);
   for (size_t cursor = 0; cursor != contexts.size(); ++cursor) {
@@ -5098,64 +5114,16 @@ void CIRGenModule::prepareSelectedSourceRootCandidates(
         if (visitedContexts.insert(templated).second)
           contexts.push_back(templated);
       }
-
-      const VarDecl *variable = dyn_cast<VarDecl>(decl);
-      if (!variable) {
-        if (const auto *varTemplate = dyn_cast<VarTemplateDecl>(decl))
-          variable = varTemplate->getTemplatedDecl();
+      if (const auto *varTemplate = dyn_cast<VarTemplateDecl>(decl)) {
+        considerVariable(varTemplate->getTemplatedDecl());
+        llvm::SmallVector<VarTemplatePartialSpecializationDecl *, 8> partials;
+        varTemplate->getPartialSpecializations(partials);
+        for (const VarTemplatePartialSpecializationDecl *partial : partials)
+          considerVariable(partial);
+      } else {
+        considerVariable(dyn_cast<VarDecl>(decl));
       }
-      if (!variable ||
-          (!variable->isFileVarDecl() && !variable->isStaticDataMember()) ||
-          (variable->isThisDeclarationADefinition() ==
-               VarDecl::DeclarationOnly &&
-           !astContext.isMSStaticDataMemberInlineDefinition(variable)) ||
-          !visitedVariables.insert(variable->getCanonicalDecl()).second)
-        continue;
-      auto key =
-          selectedSourceSpanKey(astContext.getSourceManager(), variable);
-      if (key && selectedDeclRootSymbolsBySourceSpan.contains(*key))
-        ++selectedSourceRootVariableCandidatesBySpan[*key];
     }
-  }
-  // Lexically out-of-line template patterns are not uniformly reachable
-  // through DeclContext iteration. Visit the typed declaration graph, but do
-  // not let concrete instantiations compete with their authority pattern for
-  // the same spelling span.
-  struct SourceRootVariableCollector
-      : RecursiveASTVisitor<SourceRootVariableCollector> {
-    ASTContext &astContext;
-    llvm::DenseSet<const VarDecl *> &visitedVariables;
-    llvm::StringMap<llvm::StringSet<>> &symbolsBySpan;
-    llvm::StringMap<unsigned> &candidatesBySpan;
-    SourceRootVariableCollector(
-        ASTContext &astContext,
-        llvm::DenseSet<const VarDecl *> &visitedVariables,
-        llvm::StringMap<llvm::StringSet<>> &symbolsBySpan,
-        llvm::StringMap<unsigned> &candidatesBySpan)
-        : astContext(astContext), visitedVariables(visitedVariables),
-          symbolsBySpan(symbolsBySpan), candidatesBySpan(candidatesBySpan) {}
-
-    bool VisitVarDecl(VarDecl *variable) {
-      const VarDecl *pattern = variable->getTemplateInstantiationPattern();
-      if ((pattern && pattern != variable) ||
-          (!variable->isFileVarDecl() &&
-           !variable->isStaticDataMember()) ||
-          (variable->isThisDeclarationADefinition() ==
-               VarDecl::DeclarationOnly &&
-           !astContext.isMSStaticDataMemberInlineDefinition(variable)) ||
-          !visitedVariables.insert(variable->getCanonicalDecl()).second)
-        return true;
-      auto key = selectedSourceSpanKey(astContext.getSourceManager(), variable);
-      if (key && symbolsBySpan.contains(*key))
-        ++candidatesBySpan[*key];
-      return true;
-    }
-  };
-  if (const auto *decl = dyn_cast<Decl>(context)) {
-    SourceRootVariableCollector collector{
-        astContext, visitedVariables, selectedDeclRootSymbolsBySourceSpan,
-        selectedSourceRootVariableCandidatesBySpan};
-    collector.TraverseDecl(const_cast<Decl *>(decl));
   }
   selectedSourceRootCandidatesPrepared = true;
 }
@@ -5790,6 +5758,17 @@ void CIRGenModule::emitSelectedMethods(
           callees.push_back(callee);
         EvaluatedExprVisitor<EvaluatedCalleeCollector>::VisitCallExpr(call);
       }
+      void VisitDeclRefExpr(DeclRefExpr *reference) {
+        if (const auto *callee =
+                dyn_cast_or_null<FunctionDecl>(reference->getDecl()))
+          callees.push_back(callee);
+      }
+      void VisitCXXBindTemporaryExpr(CXXBindTemporaryExpr *temporary) {
+        if (const auto *destructor = temporary->getTemporary()->getDestructor())
+          callees.push_back(destructor);
+        EvaluatedExprVisitor<EvaluatedCalleeCollector>::
+            VisitCXXBindTemporaryExpr(temporary);
+      }
     };
     llvm::SmallVector<const FunctionDecl *, 8> lambdas;
     llvm::SmallVector<Decl *, 8> declarations;
@@ -5811,16 +5790,31 @@ void CIRGenModule::emitSelectedMethods(
         enqueueClassTemplate(classTemplate);
       if (auto *nested = dyn_cast<DeclContext>(decl))
         enqueueContext(nested);
+      if (const auto *variable = dyn_cast<VarDecl>(decl);
+          variable && variable->hasLocalStorage() &&
+          variable->getType()->isRecordType()) {
+        const CXXRecordDecl *record =
+            variable->getType()->getAsCXXRecordDecl();
+        if (record && record->hasDefinition() &&
+            !record->hasTrivialDestructor())
+          callees.push_back(record->getDestructor());
+      }
     }
     for (const FunctionDecl *callee : callees) {
-      // Ordinary callees are materialized by their call lowering. This
-      // producer-side supplement is specifically for an exact concrete
-      // function-template specialization whose pattern body was discarded.
-      // Structor calls additionally require an ABI variant chosen by CIRGen.
-      if (!callee->getPrimaryTemplate() ||
-          isa<CXXConstructorDecl, CXXDestructorDecl>(callee))
+      // A direct call, function address, or automatic cleanup is a typed
+      // executable edge even when the target is a non-template member of a
+      // class-template specialization. Materialize every emit-capable target;
+      // restricting this to FunctionTemplateDecl-owned specializations drops
+      // BindState::Destroy/Invoker::RunOnce-style address dependencies.
+      GlobalDecl calleeGD;
+      if (const auto *constructor = dyn_cast<CXXConstructorDecl>(callee))
+        calleeGD = GlobalDecl(constructor, Ctor_Complete);
+      else if (const auto *destructor = dyn_cast<CXXDestructorDecl>(callee))
+        calleeGD = GlobalDecl(destructor, Dtor_Complete);
+      else
+        calleeGD = GlobalDecl(callee);
+      if (!hasEmitCapableSelectedDeclDefinition(calleeGD))
         continue;
-      GlobalDecl calleeGD(callee);
       GlobalDecl canonical = calleeGD.getCanonicalDecl();
       if (visitedDirectCallees.insert(canonical).second)
         directCallees.push_back(calleeGD);
@@ -6090,6 +6084,8 @@ void CIRGenModule::emitSelectedVariables(const DeclContext *context) {
       contexts.push_back(declContext);
   };
   auto enqueueVariable = [&](const VarDecl *variable) {
+    if (const VarDecl *definition = variable->getDefinition())
+      variable = definition;
     if (isSelectedVariableTemplatePattern(variable) &&
         !variable->getInit() &&
         variable->isThisDeclarationADefinition() ==
@@ -6108,21 +6104,6 @@ void CIRGenModule::emitSelectedVariables(const DeclContext *context) {
     if (visitedVariables.insert(gd.getCanonicalDecl()).second)
       variables.push_back(gd);
   };
-  struct SelectedVariableCollector
-      : RecursiveASTVisitor<SelectedVariableCollector> {
-    llvm::function_ref<void(const VarDecl *)> enqueue;
-    explicit SelectedVariableCollector(
-        llvm::function_ref<void(const VarDecl *)> enqueue)
-        : enqueue(enqueue) {}
-    bool VisitVarDecl(VarDecl *variable) {
-      enqueue(variable);
-      return true;
-    }
-  };
-  if (const auto *decl = dyn_cast<Decl>(context)) {
-    SelectedVariableCollector collector{enqueueVariable};
-    collector.TraverseDecl(const_cast<Decl *>(decl));
-  }
   auto enqueueClassTemplate = [&](const ClassTemplateDecl *decl) {
     if (visitedClassTemplates.insert(decl).second)
       classTemplates.push_back(decl);
@@ -6173,6 +6154,14 @@ void CIRGenModule::emitSelectedVariables(const DeclContext *context) {
       }
     }
     for (const VarTemplateDecl *varTemplate : varTemplates) {
+      llvm::SmallVector<VarTemplatePartialSpecializationDecl *, 8> partials;
+      varTemplate->getPartialSpecializations(partials);
+      for (VarTemplatePartialSpecializationDecl *partial : partials) {
+        if (!visitedVarSpecializations.insert(partial).second)
+          continue;
+        foundSpecialization = true;
+        enqueueVariable(partial);
+      }
       llvm::SmallVector<VarTemplateSpecializationDecl *, 16> specializations;
       for (VarTemplateSpecializationDecl *specialization :
            varTemplate->specializations())
@@ -6803,15 +6792,57 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
   }
 
   // Preserve a concrete template specialization's exact producer symbol,
-  // declaration USR, and template-pattern USR. Consumers may use the USR pair
-  // only when both producer and consumer prove it unique.
+  // declaration USR, and template-pattern USR when Clang has materialized the
+  // pattern. An implicit member can be emitted before the primary template's
+  // corresponding implicit declaration exists; its concrete class-template
+  // parent still proves that this FuncOp is a specialization, and the exact
+  // record input tuple supplies the typed class specialization identity.
   const FunctionDecl *templateInstantiationPattern =
       identityFunctionDecl
           ? identityFunctionDecl->getTemplateInstantiationPattern()
           : nullptr;
+  if (!templateInstantiationPattern) {
+    if (const auto *method = dyn_cast_or_null<CXXMethodDecl>(
+            identityFunctionDecl)) {
+      templateInstantiationPattern =
+          method->getInstantiatedFromMemberFunction();
+      if (!templateInstantiationPattern) {
+        if (const auto *specialization =
+                dyn_cast<ClassTemplateSpecializationDecl>(
+                    method->getParent())) {
+          auto specializedFrom =
+              specialization->getSpecializedTemplateOrPartial();
+          if (specialization->getSpecializationKind() !=
+              TSK_ExplicitSpecialization) {
+            if (const auto *primary =
+                    specializedFrom.dyn_cast<ClassTemplateDecl *>()) {
+              templateInstantiationPattern =
+                  method->getCorrespondingMethodDeclaredInClass(
+                      primary->getTemplatedDecl());
+            } else if (const auto *partial =
+                           specializedFrom.dyn_cast<
+                               ClassTemplatePartialSpecializationDecl *>()) {
+              templateInstantiationPattern =
+                  method->getCorrespondingMethodDeclaredInClass(partial);
+            }
+          }
+        }
+      }
+    }
+  }
+  const auto *identityMethod =
+      dyn_cast_or_null<CXXMethodDecl>(identityFunctionDecl);
+  const auto *identityClassSpecialization =
+      identityMethod
+          ? dyn_cast<ClassTemplateSpecializationDecl>(
+                identityMethod->getParent())
+          : nullptr;
   const bool isConcreteClassTemplateMemberInstantiation =
-      templateInstantiationPattern &&
-      templateInstantiationPattern != identityFunctionDecl;
+      (templateInstantiationPattern &&
+       templateInstantiationPattern != identityFunctionDecl) ||
+      (identityClassSpecialization &&
+       identityClassSpecialization->getSpecializationKind() !=
+           TSK_ExplicitSpecialization);
   if (identityFunctionDecl &&
       (identityFunctionDecl->isFunctionTemplateSpecialization() ||
        isConcreteClassTemplateMemberInstantiation)) {
