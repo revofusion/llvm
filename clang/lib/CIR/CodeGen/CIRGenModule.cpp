@@ -5201,6 +5201,13 @@ bool CIRGenModule::isSelectedDeclRoot(GlobalDecl gd) {
       method && method->getParent() && method->getParent()->isLambda())
     return !selectedLambdaRootSelector(gd).empty() ||
            selectedDeclRoots.contains(getMangledName(gd));
+  // Function emission is an ABI-body boundary. Every function manifest entry
+  // carries its exact producer symbol, so a variable/template USR or shared
+  // declaration context must never promote a method while the roster is
+  // scanned. Stateful source-span bridging is intentionally VarDecl-only
+  // above; non-lambda functions are selected by exact mangled identity.
+  if (isa<FunctionDecl>(decl))
+    return selectedDeclRoots.contains(getMangledName(gd));
   GlobalDecl canonicalGD = gd.getCanonicalDecl();
   llvm::SmallString<256> declarationUSR;
   if (!clang::index::generateUSRForDecl(gd.getDecl(), declarationUSR))
@@ -5565,9 +5572,11 @@ bool CIRGenModule::shouldEmitSelectedMethod(const FunctionDecl *fd) {
     return true;
   if (!fd)
     return false;
-  auto selected = [&](GlobalDecl gd) {
-    return isSelectedDeclRoot(gd) || isSelectedDeclDependency(gd);
-  };
+  // The method roster discovers exact manifest roots only. References found
+  // during ordinary root lowering enter the dedicated dependency frontier and
+  // are prepared/emitted there; allowing them to re-enter this broad
+  // DeclContext scan can materialize dependent pattern methods.
+  auto selected = [&](GlobalDecl gd) { return isSelectedDeclRoot(gd); };
   if (const auto *ctor = dyn_cast<CXXConstructorDecl>(fd))
     return selected(GlobalDecl(ctor, Ctor_Complete)) ||
            selected(GlobalDecl(ctor, Ctor_Base));
@@ -5645,8 +5654,6 @@ void CIRGenModule::emitSelectedMethods(
   llvm::SmallVector<GlobalDecl, 16> parseOnlyMethods;
   llvm::DenseSet<GlobalDecl> visitedParseOnlyMethods;
   llvm::DenseSet<const FunctionDecl *> scannedFunctionBodies;
-  llvm::SmallVector<GlobalDecl, 16> directCallees;
-  llvm::DenseSet<GlobalDecl> visitedDirectCallees;
 
   auto enqueueContext = [&](const DeclContext *declContext) {
     if (visitedContexts.insert(declContext).second)
@@ -5743,48 +5750,10 @@ void CIRGenModule::emitSelectedMethods(
         return true;
       }
     };
-    struct EvaluatedCalleeCollector
-        : EvaluatedExprVisitor<EvaluatedCalleeCollector> {
-      llvm::SmallVector<const FunctionDecl *, 8> &called;
-      llvm::SmallVector<const FunctionDecl *, 8> &referenced;
-      EvaluatedCalleeCollector(
-          const ASTContext &context,
-          llvm::SmallVector<const FunctionDecl *, 8> &called,
-          llvm::SmallVector<const FunctionDecl *, 8> &referenced)
-          : EvaluatedExprVisitor(context), called(called),
-            referenced(referenced) {}
-      bool shouldVisitDiscardedStmt() const { return false; }
-      void VisitCallExpr(CallExpr *call) {
-        if (call->isUnevaluatedBuiltinCall(Context))
-          return;
-        if (const FunctionDecl *callee = call->getDirectCallee())
-          called.push_back(callee);
-        EvaluatedExprVisitor<EvaluatedCalleeCollector>::VisitCallExpr(call);
-      }
-      void VisitUnaryOperator(UnaryOperator *address) {
-        if (address->getOpcode() == UO_AddrOf) {
-          const Expr *operand = address->getSubExpr()->IgnoreParenImpCasts();
-          if (const auto *declRef = dyn_cast<DeclRefExpr>(operand)) {
-            if (const auto *callee =
-                    dyn_cast<FunctionDecl>(declRef->getDecl()))
-              referenced.push_back(callee);
-          } else if (const auto *member = dyn_cast<MemberExpr>(operand)) {
-            if (const auto *callee =
-                    dyn_cast<FunctionDecl>(member->getMemberDecl()))
-              referenced.push_back(callee);
-          }
-        }
-        EvaluatedExprVisitor<EvaluatedCalleeCollector>::VisitStmt(address);
-      }
-    };
     llvm::SmallVector<const FunctionDecl *, 8> lambdas;
     llvm::SmallVector<Decl *, 8> declarations;
-    llvm::SmallVector<const FunctionDecl *, 8> called;
-    llvm::SmallVector<const FunctionDecl *, 8> referenced;
     BodyDeclCollector collector(lambdas, declarations);
     collector.TraverseStmt(const_cast<Stmt *>(definition->getBody()));
-    EvaluatedCalleeCollector calleeCollector(astContext, called, referenced);
-    calleeCollector.Visit(const_cast<Stmt *>(definition->getBody()));
     for (const FunctionDecl *lambda : lambdas) {
       enqueueFunction(lambda);
       if (const FunctionTemplateDecl *functionTemplate =
@@ -5798,26 +5767,6 @@ void CIRGenModule::emitSelectedMethods(
         enqueueClassTemplate(classTemplate);
       if (auto *nested = dyn_cast<DeclContext>(decl))
         enqueueContext(nested);
-    }
-    for (const FunctionDecl *callee : called)
-      if (callee->getPrimaryTemplate() &&
-          !isa<CXXConstructorDecl, CXXDestructorDecl>(callee))
-        referenced.push_back(callee);
-    for (const FunctionDecl *callee : referenced) {
-      if (!callee)
-        continue;
-      // An explicit function address is a typed executable edge even when the
-      // target is a non-template member of a class-template specialization.
-      // Ordinary direct calls remain producer-owned lowering edges; only the
-      // pre-existing discarded function-template supplement is materialized
-      // here. Cleanup destructors are emitted only when directly selected or
-      // requested by ordinary CIR lowering, never by this eager scanner.
-      GlobalDecl calleeGD(callee);
-      if (!hasEmitCapableSelectedDeclDefinition(calleeGD))
-        continue;
-      GlobalDecl canonical = calleeGD.getCanonicalDecl();
-      if (visitedDirectCallees.insert(canonical).second)
-        directCallees.push_back(calleeGD);
     }
   };
 
@@ -6041,25 +5990,6 @@ void CIRGenModule::emitSelectedMethods(
       break;
   }
 
-  // A selected template body can retain an exact concrete direct callee even
-  // when -skip-function-bodies discarded the callee's template pattern body.
-  // Materialize that typed FunctionDecl through the ordinary declaration path
-  // now. Call lowering may already have created its declaration while the
-  // caller was active; createCIRFunction deliberately inserts such a
-  // declaration before the caller, and later definition emission upgrades the
-  // operation in place. Move the exact operation to this completed frontier so
-  // the selected caller and its call precede the discovered callee without
-  // creating a second FuncOp.
-  for (GlobalDecl callee : directCallees) {
-    const CIRGenFunctionInfo &info =
-        getTypes().arrangeGlobalDeclaration(callee);
-    cir::FuncOp function =
-        getAddrOfFunction(callee, getTypes().getFunctionType(info));
-    mlir::Block *moduleBody = theModule.getBody();
-    if (function && function->getBlock() == moduleBody &&
-        function.getOperation() != &moduleBody->back())
-      function->moveAfter(&moduleBody->back());
-  }
 }
 
 void CIRGenModule::emitSelectedVariables(const DeclContext *context) {
