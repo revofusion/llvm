@@ -15,17 +15,100 @@
 #include "CIRGenTypes.h"
 #include "CIRGenValue.h"
 
+#include "clang/AST/DeclTemplate.h"
 #include "clang/AST/EvaluatedExprVisitor.h"
 #include "clang/AST/ExprCXX.h"
+#include "clang/AST/ODRHash.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/Type.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 using namespace clang::CIRGen;
+
+namespace {
+
+enum class CanonicalConstructorUSRKind {
+  Direct,
+  StructuralTemplateSpecialization,
+  Unavailable,
+};
+
+CanonicalConstructorUSRKind generateCanonicalConstructorUSR(
+    const CXXConstructorDecl *constructor, llvm::SmallVectorImpl<char> &usr,
+    const CXXConstructorDecl **instantiatedPattern = nullptr) {
+  if (instantiatedPattern)
+    *instantiatedPattern = nullptr;
+  const CXXConstructorDecl *canonical = constructor->getCanonicalDecl();
+  if (!clang::index::generateUSRForDecl(canonical, usr) && !usr.empty())
+    return CanonicalConstructorUSRKind::Direct;
+
+  // A class-valued NTTP is represented in the specialization argument list by
+  // a TemplateParamObjectDecl. USRGeneration deliberately rejects that
+  // unnamed declaration, even though its APValue is the exact canonical
+  // specialization argument. Anchor the constructor at its instantiated
+  // member pattern USR and encode that typed APValue through the same ODR hash
+  // operation used for StructuralValue template arguments.
+  usr.clear();
+  const auto *specialization =
+      dyn_cast<ClassTemplateSpecializationDecl>(canonical->getParent());
+  const auto *pattern = dyn_cast_or_null<CXXConstructorDecl>(
+      canonical->getInstantiatedFromMemberFunction());
+  if (!specialization || !pattern)
+    return CanonicalConstructorUSRKind::Unavailable;
+
+  llvm::SmallString<256> patternUSR;
+  if (clang::index::generateUSRForDecl(pattern->getCanonicalDecl(),
+                                       patternUSR) ||
+      patternUSR.empty())
+    return CanonicalConstructorUSRKind::Unavailable;
+  if (instantiatedPattern)
+    *instantiatedPattern = pattern->getCanonicalDecl();
+
+  ODRHash specializationHash;
+  bool hasStructuralArgument = false;
+  for (const TemplateArgument &argument :
+       specialization->getTemplateArgs().asArray()) {
+    if (argument.getKind() == TemplateArgument::Pack) {
+      // ODRHash::AddTemplateArgument would hash a nested
+      // TemplateParamObjectDecl only by its empty declaration name. Do not
+      // mint an identity that can alias a sibling specialization.
+      for (const TemplateArgument &element : argument.pack_elements())
+        if (element.getKind() == TemplateArgument::Declaration &&
+            isa<TemplateParamObjectDecl>(element.getAsDecl()))
+          return CanonicalConstructorUSRKind::Unavailable;
+      specializationHash.AddTemplateArgument(argument);
+      continue;
+    }
+
+    if (argument.getKind() != TemplateArgument::Declaration) {
+      specializationHash.AddTemplateArgument(argument);
+      continue;
+    }
+
+    const auto *object =
+        dyn_cast<TemplateParamObjectDecl>(argument.getAsDecl());
+    if (!object) {
+      specializationHash.AddTemplateArgument(argument);
+      continue;
+    }
+    hasStructuralArgument = true;
+    specializationHash.AddQualType(object->getType());
+    specializationHash.AddStructuralValue(object->getValue());
+  }
+  if (!hasStructuralArgument)
+    return CanonicalConstructorUSRKind::Unavailable;
+
+  llvm::raw_svector_ostream out(usr);
+  out << patternUSR << "@SNTTP@" << specializationHash.CalculateHash();
+  return CanonicalConstructorUSRKind::StructuralTemplateSpecialization;
+}
+
+} // namespace
 
 /// Return the smallest possible amount of storage that might be allocated
 /// starting from the beginning of an object of a particular class.
@@ -1582,23 +1665,87 @@ void CIRGenFunction::emitCXXConstructorCall(
       cgm.getCXXABI().addImplicitConstructorArgs(*this, d, type, forVirtualBase,
                                                  delegating, args);
 
-  // Emit the call.
+  // Resolve the declaration identity before emitting the call. A failed
+  // producer identity must not leave an unauthenticated call in the CIR.
   auto calleePtr = cgm.getAddrOfCXXStructor(GlobalDecl(d, type));
-  const CIRGenFunctionInfo &info = cgm.getTypes().arrangeCXXConstructorCall(
-      args, d, type, extraArgs.prefix, extraArgs.suffix, passPrototypeArgs);
-  CIRGenCallee callee = CIRGenCallee::forDirect(calleePtr, GlobalDecl(d, type));
-  cir::CIRCallOpInterface c;
-  emitCall(info, callee, ReturnValueSlot(), args, &c, getLoc(loc));
-  // The ABI callee names the emitted constructor variant (for example C2 on
-  // Itanium), while cleanup identities deliberately name the canonical
-  // complete-object variant. Preserve their exact producer-owned join on the
-  // call itself so consumers never have to infer ABI variants from spelling.
   llvm::SmallString<256> constructorUSR;
-  if (clang::index::generateUSRForDecl(d->getCanonicalDecl(), constructorUSR)) {
+  const CXXConstructorDecl *instantiatedPattern = nullptr;
+  CanonicalConstructorUSRKind constructorUSRKind =
+      generateCanonicalConstructorUSR(d, constructorUSR, &instantiatedPattern);
+  if (constructorUSRKind == CanonicalConstructorUSRKind::Unavailable) {
     cgm.errorNYI(d->getSourceRange(),
                  "constructor call has no exact canonical declaration USR");
     return;
   }
+
+  if (constructorUSRKind ==
+      CanonicalConstructorUSRKind::StructuralTemplateSpecialization) {
+    mlir::StringAttr usrAttr = builder.getStringAttr(constructorUSR);
+    auto stampVariant = [&](cir::FuncOp function) {
+      mlir::StringAttr existing =
+          function->getAttrOfType<mlir::StringAttr>("ast_decl_usr");
+      if (existing && existing.getValue() != usrAttr.getValue())
+        return false;
+      function->setAttr("ast_decl_usr", usrAttr);
+      return true;
+    };
+
+    // CIR may define the base entry point and retain the complete entry point
+    // as its public alias. Stamp both ABI declarations from the same canonical
+    // CXXConstructorDecl so later alias replacement preserves the exact join.
+    cir::FuncOp complete =
+        cgm.getAddrOfCXXStructor(GlobalDecl(d, Ctor_Complete));
+    bool variantsAgree =
+        stampVariant(calleePtr) && stampVariant(complete);
+    if (!cgm.getTarget().getCXXABI().isMicrosoft()) {
+      cir::FuncOp base =
+          cgm.getAddrOfCXXStructor(GlobalDecl(d, Ctor_Base));
+      variantsAgree = variantsAgree && stampVariant(base);
+
+      // getAddrOfCXXStructor inserts a declaration requested from an active
+      // caller before that caller. Keep the base variant at the completed
+      // dependency frontier; later definition emission upgrades this FuncOp
+      // in place rather than creating a second authority operation.
+      mlir::Block *moduleBody = cgm.getModule().getBody();
+      if (base && base->getBlock() == moduleBody &&
+          base.getOperation() != &moduleBody->back())
+        base->moveAfter(&moduleBody->back());
+    }
+    if (!variantsAgree) {
+      cgm.errorNYI(
+          d->getSourceRange(),
+          "constructor ABI variants disagree on canonical declaration USR");
+      return;
+    }
+  }
+
+  const CIRGenFunctionInfo &info = cgm.getTypes().arrangeCXXConstructorCall(
+      args, d, type, extraArgs.prefix, extraArgs.suffix, passPrototypeArgs);
+  CIRGenCallee callee;
+  if (constructorUSRKind ==
+      CanonicalConstructorUSRKind::StructuralTemplateSpecialization) {
+    assert(instantiatedPattern &&
+           "structural constructor identity requires its member pattern");
+    // The generic call emitter derives ast_callee_usr from its abstract
+    // declaration. USRGeneration cannot encode this specialization, so let it
+    // consume the canonical member pattern and replace that intermediate USR
+    // below with the pattern-plus-typed-APValue identity.
+    CIRGenCalleeInfo calleeInfo(
+        d->getType()->getAs<FunctionProtoType>(),
+        GlobalDecl(instantiatedPattern, type));
+    callee = CIRGenCallee::forDirect(calleePtr, calleeInfo);
+  } else {
+    callee = CIRGenCallee::forDirect(calleePtr, GlobalDecl(d, type));
+  }
+  cir::CIRCallOpInterface c;
+  emitCall(info, callee, ReturnValueSlot(), args, &c, getLoc(loc));
+  if (constructorUSRKind ==
+      CanonicalConstructorUSRKind::StructuralTemplateSpecialization)
+    c->setAttr("ast_callee_usr", builder.getStringAttr(constructorUSR));
+  // The ABI callee names the emitted constructor variant (for example C2 on
+  // Itanium), while cleanup identities deliberately name the canonical
+  // complete-object variant. Preserve their exact producer-owned join on the
+  // call itself so consumers never have to infer ABI variants from spelling.
   llvm::StringRef variant;
   switch (type) {
   case Ctor_Complete:

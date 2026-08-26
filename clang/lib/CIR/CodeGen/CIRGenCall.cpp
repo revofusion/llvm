@@ -15,6 +15,8 @@
 #include "CIRGenCXXABI.h"
 #include "CIRGenFunction.h"
 #include "CIRGenFunctionInfo.h"
+#include "clang/AST/APValue.h"
+#include "clang/AST/ExprCXX.h"
 #include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Attributes.h"
@@ -1174,6 +1176,211 @@ CIRGenTypes::arrangeFreeFunctionType(CanQual<FunctionNoProtoType> fnpt) {
                                 fnpt->getExtInfo(), RequiredArgs(0));
 }
 
+namespace {
+
+/// Exact declaration evidence carried by the instantiated callee expression.
+///
+/// In particular, a substituted non-type template argument is authoritative:
+/// Sema has already selected its declaration.  An OverloadExpr is not
+/// authoritative even when it currently contains one declaration, because
+/// dependent lookup (including ADL) has not completed yet.
+class ExactAstCalleeCandidates {
+  SmallVector<const FunctionDecl *, 4> selected;
+  SmallVector<const FunctionDecl *, 4> unresolved;
+
+  static void appendUnique(SmallVectorImpl<const FunctionDecl *> &decls,
+                           const FunctionDecl *decl) {
+    decl = decl->getCanonicalDecl();
+    if (!llvm::is_contained(decls, decl))
+      decls.push_back(decl);
+  }
+
+  void collectDecl(const Decl *decl, bool isSelected) {
+    if (const auto *usingDecl = dyn_cast_or_null<UsingShadowDecl>(decl))
+      decl = usingDecl->getTargetDecl();
+    if (const auto *functionTemplate =
+            dyn_cast_or_null<FunctionTemplateDecl>(decl))
+      decl = functionTemplate->getTemplatedDecl();
+    if (const auto *function = dyn_cast_or_null<FunctionDecl>(decl))
+      appendUnique(isSelected ? selected : unresolved, function);
+  }
+
+  void collectTemplateArgument(const TemplateArgument &argument) {
+    switch (argument.getKind()) {
+    case TemplateArgument::Declaration:
+      collectDecl(argument.getAsDecl(), /*isSelected=*/true);
+      return;
+    case TemplateArgument::Expression:
+      collectExpr(argument.getAsExpr());
+      return;
+    case TemplateArgument::StructuralValue: {
+      const APValue &value = argument.getAsStructuralValue();
+      if (value.isMemberPointer())
+        collectDecl(value.getMemberPointerDecl(), /*isSelected=*/true);
+      return;
+    }
+    case TemplateArgument::Pack:
+      // This is the instantiated pack, not the source pack pattern.  Preserve
+      // every concrete declaration so a multi-element callable pack cannot be
+      // collapsed to whichever element happened to be visited first.
+      for (const TemplateArgument &element : argument.pack_elements())
+        collectTemplateArgument(element);
+      return;
+    case TemplateArgument::Null:
+    case TemplateArgument::Type:
+    case TemplateArgument::NullPtr:
+    case TemplateArgument::Integral:
+    case TemplateArgument::Template:
+    case TemplateArgument::TemplateExpansion:
+      return;
+    }
+  }
+
+  void collectExpr(const Expr *expr) {
+    if (!expr)
+      return;
+    expr = expr->IgnoreParens();
+
+    if (const auto *substitution =
+            dyn_cast<SubstNonTypeTemplateParmExpr>(expr)) {
+      collectExpr(substitution->getReplacement());
+      return;
+    }
+    if (const auto *packSubstitution =
+            dyn_cast<SubstNonTypeTemplateParmPackExpr>(expr)) {
+      collectTemplateArgument(packSubstitution->getArgumentPack());
+      return;
+    }
+    if (const auto *packExpansion = dyn_cast<PackExpansionExpr>(expr)) {
+      collectExpr(packExpansion->getPattern());
+      return;
+    }
+    if (const auto *declRef = dyn_cast<DeclRefExpr>(expr)) {
+      collectDecl(declRef->getDecl(), /*isSelected=*/true);
+      return;
+    }
+    if (const auto *member = dyn_cast<MemberExpr>(expr)) {
+      collectDecl(member->getMemberDecl(), /*isSelected=*/true);
+      return;
+    }
+    if (const auto *overload = dyn_cast<OverloadExpr>(expr)) {
+      for (const NamedDecl *candidate : overload->decls())
+        collectDecl(candidate, /*isSelected=*/false);
+      return;
+    }
+    if (const auto *cast = dyn_cast<CastExpr>(expr)) {
+      collectExpr(cast->getSubExpr());
+      return;
+    }
+    if (const auto *unary = dyn_cast<UnaryOperator>(expr)) {
+      if (unary->getOpcode() == UO_AddrOf ||
+          unary->getOpcode() == UO_Deref)
+        collectExpr(unary->getSubExpr());
+      return;
+    }
+    if (const auto *memberPointer = dyn_cast<BinaryOperator>(expr)) {
+      if (memberPointer->getOpcode() == BO_PtrMemD ||
+          memberPointer->getOpcode() == BO_PtrMemI)
+        collectExpr(memberPointer->getRHS());
+      return;
+    }
+    if (const auto *cleanups = dyn_cast<ExprWithCleanups>(expr)) {
+      collectExpr(cleanups->getSubExpr());
+      return;
+    }
+    if (const auto *constant = dyn_cast<ConstantExpr>(expr)) {
+      collectExpr(constant->getSubExpr());
+      return;
+    }
+  }
+
+public:
+  explicit ExactAstCalleeCandidates(const CallExpr *callExpr) {
+    if (callExpr)
+      collectExpr(callExpr->getCallee());
+  }
+
+  const FunctionDecl *getSelected() const {
+    if (unresolved.empty() && selected.size() == 1)
+      return selected.front();
+    return nullptr;
+  }
+
+  bool hasAmbiguousEvidence() const {
+    return selected.size() > 1 || !unresolved.empty();
+  }
+
+  SmallVector<const FunctionDecl *, 8> allCandidates() const {
+    SmallVector<const FunctionDecl *, 8> candidates;
+    candidates.append(selected);
+    for (const FunctionDecl *decl : unresolved)
+      if (!llvm::is_contained(candidates, decl))
+        candidates.push_back(decl);
+    return candidates;
+  }
+};
+
+static bool appendCalleeUSR(const FunctionDecl *decl, std::string &usr) {
+  llvm::SmallString<256> buffer;
+  if (clang::index::generateUSRForDecl(decl, buffer))
+    return false;
+  usr = buffer.str().str();
+  return true;
+}
+
+static const FunctionDecl *
+resolveExactAstCalleeDecl(CIRGenModule &cgm, const CIRGenCallee &callee,
+                         const CallExpr *callExpr) {
+  if (const auto *decl = dyn_cast_or_null<FunctionDecl>(
+          callee.getAbstractInfo().getCalleeDecl().getDecl()))
+    return decl->getCanonicalDecl();
+
+  if (callExpr)
+    if (const FunctionDecl *direct = callExpr->getDirectCallee())
+      return direct->getCanonicalDecl();
+
+  ExactAstCalleeCandidates candidates(callExpr);
+  if (const FunctionDecl *selected = candidates.getSelected())
+    return selected;
+  if (!candidates.hasAmbiguousEvidence())
+    return nullptr;
+
+  SmallVector<std::string, 8> candidateUSRs;
+  for (const FunctionDecl *candidate : candidates.allCandidates()) {
+    std::string usr;
+    if (appendCalleeUSR(candidate, usr))
+      candidateUSRs.push_back(std::move(usr));
+    else
+      candidateUSRs.push_back("<USR unavailable for " +
+                              candidate->getQualifiedNameAsString() + ">");
+  }
+
+  std::string message;
+  if (candidateUSRs.size() > 1) {
+    message =
+        "ambiguous exact AST callee identity: instantiated lookup retains ";
+  } else {
+    message =
+        "cannot prove exact AST callee identity: instantiated lookup retains ";
+  }
+  message += std::to_string(candidateUSRs.size());
+  message += " candidate";
+  if (candidateUSRs.size() != 1)
+    message += "s";
+  message += " [";
+  for (size_t index = 0; index < candidateUSRs.size(); ++index) {
+    if (index)
+      message += ", ";
+    message += candidateUSRs[index];
+  }
+  message += "]";
+  cgm.error(callExpr ? callExpr->getExprLoc() : SourceLocation(), message);
+  return nullptr;
+}
+
+} // namespace
+
+
 RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
                                 const CIRGenCallee &callee,
                                 ReturnValueSlot returnValue,
@@ -1299,11 +1506,17 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
   // the call edge so downstream consumers never have to choose among the
   // declarations by symbol spelling.
   if (cgm.shouldEmitAeneasMetadata()) {
-    if (const Decl *calleeDecl =
-            callee.getAbstractInfo().getCalleeDecl().getDecl()) {
-      llvm::SmallString<256> astCalleeUSR;
-      if (!clang::index::generateUSRForDecl(calleeDecl, astCalleeUSR))
+    if (const FunctionDecl *calleeDecl =
+            resolveExactAstCalleeDecl(cgm, callee, callExpr)) {
+      std::string astCalleeUSR;
+      if (!appendCalleeUSR(calleeDecl, astCalleeUSR)) {
+        cgm.error(
+            callExpr ? callExpr->getExprLoc() : SourceLocation(),
+            "cannot generate exact AST callee USR for " +
+                calleeDecl->getQualifiedNameAsString());
+      } else {
         attrs.set("ast_callee_usr", builder.getStringAttr(astCalleeUSR));
+      }
     }
   }
 

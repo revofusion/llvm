@@ -171,6 +171,7 @@ private:
   void addSelectedDeclDependency(clang::GlobalDecl gd);
   clang::GlobalDecl getEmitCapableSelectedDecl(clang::GlobalDecl gd) const;
   bool isSelectedStaticDataMemberDeclaration(const clang::VarDecl *variable);
+  bool isSelectedVariableTemplatePattern(const clang::VarDecl *variable) const;
 
   llvm::SmallVector<clang::GlobalDecl, 16>
   takeSelectedDeclDependencyFrontier() {

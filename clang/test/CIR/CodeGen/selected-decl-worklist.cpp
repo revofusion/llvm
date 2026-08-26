@@ -35,14 +35,20 @@
 // RUN: printf 'parse-usr:c:@F@observedCheck<#I#I#$@S@ObservedFunctor>#I#I#S0_#\nparse-usr:c:@FT@>3#T#T#TobservedCheck#t0.0#t0.1#t0.2#I#\nusr:c:@F@observedCheck<#I#I#$@S@ObservedFunctor>#I#I#S0_#\nparse-usr:c:@S@ObservedFunctorTraits>#$@S@ObservedFunctor@F@Invoke<#S0_#p1I>#&&S0_#&&I#S\nparse-usr:c:@ST>1#T@ObservedFunctorTraits@FT@>2#T#pTInvoke#&&t1.0#P&&t1.1#I#S\nusr:c:@S@ObservedFunctorTraits>#$@S@ObservedFunctor@F@Invoke<#S0_#p1I>#&&S0_#&&I#S\n' > %t.observed-roots
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++20 -fclangir -emit-cir -fclangir-emit-selected-decls=%t.observed-roots -skip-function-bodies %s -o %t.observed.cir
 // RUN: FileCheck %s --check-prefix=OBSERVED --implicit-check-not='ast_decl_usr = "c:@FT@>3#T#T#TobservedCheck#t0.0#t0.1#t0.2#I#"' --implicit-check-not='ast_decl_usr = "c:@ST>1#T@ObservedFunctorTraits@FT@>2#T#pTInvoke#&&t1.0#P&&t1.1#I#S"' --implicit-check-not='ast_decl_usr = "c:@S@ObservedFunctorTraits>#$@S@ObservedFunctor@F@Invoke<#S0_#p1L>#&&S0_#&&L#S"' --input-file=%t.observed.cir
+// A concrete member-template specialization must expand its forwarding pack
+// before CIRGen enters the selected body. The pattern is parse-only: only the
+// exact int specialization is an authenticated definition root.
+// RUN: printf 'parse-usr:c:@ST>1#T@ObservedFunctorTraits@FT@>2#T#pTInvoke#&&t1.0#P&&t1.1#I#S\nusr:c:@S@ObservedFunctorTraits>#$@S@ObservedFunctor@F@Invoke<#S0_#p1I>#&&S0_#&&I#S\n' > %t.pack-roots
+// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++20 -fclangir -fclangir-aeneas-metadata -emit-cir -fclangir-emit-selected-decls=%t.pack-roots -skip-function-bodies %s -o %t.pack.cir
+// RUN: FileCheck %s --check-prefix=PACK --implicit-check-not='ast_decl_usr = "c:@ST>1#T@ObservedFunctorTraits@FT@>2#T#pTInvoke#&&t1.0#P&&t1.1#I#S"' --implicit-check-not='ast_decl_usr = "c:@S@ObservedFunctorTraits>#$@S@ObservedFunctor@F@Invoke<#S0_#p1L>#&&S0_#&&L#S"' --input-file=%t.pack.cir
 // A symbol-selected and a USR-selected function-template specialization each
 // materialize only their exact same-spelling FunctionDecl and body closure.
 // RUN: printf '_Z6rootedIiEiT_\nparse-usr:c:@F@observeInt#\n' > %t.template-symbol-roots
-// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++20 -fclangir -emit-cir -fclangir-emit-selected-decls=%t.template-symbol-roots -skip-function-bodies %s -o %t.template-symbol.cir
-// RUN: FileCheck %s --check-prefix=TEMPLATE-SYMBOL --implicit-check-not=@_Z6rootedIlEiT_ --implicit-check-not=@_Z4leafIlEiT_ --input-file=%t.template-symbol.cir
+// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++20 -fclangir -fclangir-aeneas-metadata -emit-cir -fclangir-emit-selected-decls=%t.template-symbol-roots -skip-function-bodies %s -o %t.template-symbol.cir
+// RUN: FileCheck %s --check-prefix=TEMPLATE-SYMBOL --implicit-check-not=@_Z6rootedIlEiT_ --implicit-check-not=@_Z4leafIlEiT_ --implicit-check-not='ast_decl_usr = "c:@F@rooted<#L>#L#"' --implicit-check-not='ast_decl_usr = "c:@F@leaf<#L>#L#"' --input-file=%t.template-symbol.cir
 // RUN: printf 'usr:c:@F@rooted<#L>#L#\nparse-usr:c:@F@observeLong#\n' > %t.template-usr-roots
-// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++20 -fclangir -emit-cir -fclangir-emit-selected-decls=%t.template-usr-roots -skip-function-bodies %s -o %t.template-usr.cir
-// RUN: FileCheck %s --check-prefix=TEMPLATE-USR --implicit-check-not=@_Z6rootedIiEiT_ --implicit-check-not=@_Z4leafIiEiT_ --input-file=%t.template-usr.cir
+// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -std=c++20 -fclangir -fclangir-aeneas-metadata -emit-cir -fclangir-emit-selected-decls=%t.template-usr-roots -skip-function-bodies %s -o %t.template-usr.cir
+// RUN: FileCheck %s --check-prefix=TEMPLATE-USR --implicit-check-not=@_Z6rootedIiEiT_ --implicit-check-not=@_Z4leafIiEiT_ --implicit-check-not='ast_decl_usr = "c:@F@rooted<#I>#I#"' --implicit-check-not='ast_decl_usr = "c:@F@leaf<#I>#I#"' --input-file=%t.template-usr.cir
 // A libc++-shaped inline ABI namespace can hide a template dependency behind
 // an ordinary exact root. The dependency is not selected by spelling: it must
 // enter the exact declaration worklist while the root body is emitted.
@@ -222,8 +228,9 @@ int lambdaCarrier() {
 // USR: cir.selected_decl_root_definitions = {"usr:c:@F@selected" = "selected"}
 // SYMBOL-USR: cir.selected_decl_root_definitions = {stale = "selected"}
 // CTOR-COLLISION: cir.selected_decl_root_definitions = {_ZN4LeafC1EOS_ = "_ZN4LeafC1EOS_", _ZN4LeafC2EOS_ = "_ZN4LeafC2EOS_"}
-// DISC-DAG: cir.func{{.*}} @_ZN7DiscBoxIlEC2IRZ13lambdaCarriervE3$_1EEOT_{{.*}} {
-// DISC-DAG: cir.func{{.*}} @_ZN8DiscSinkIZ13lambdaCarriervE3$_1ED2Ev{{.*}} {
+// DISC: cir.selected_decl_root_definitions = {_ZN7DiscBoxIlEC2IRZ13lambdaCarriervE3$_1EEOT_ = "_ZN7DiscBoxIlEC2IRZ13lambdaCarriervE3$_1EEOT_", _ZN8DiscSinkIZ13lambdaCarriervE3$_1ED2Ev = "_ZN8DiscSinkIZ13lambdaCarriervE3$_1ED2Ev"}
+// DISC-COUNT-1: cir.func{{.*}} @_ZN7DiscBoxIlEC2IRZ13lambdaCarriervE3$_1EEOT_{{.*}}ast_decl_linkage_name = "_ZN7DiscBoxIlEC2IRZ13lambdaCarriervE3$_1EEOT_"{{.*}} {
+// DISC-COUNT-1: cir.func{{.*}} @_ZN8DiscSinkIZ13lambdaCarriervE3$_1ED2Ev{{.*}}ast_decl_linkage_name = "_ZN8DiscSinkIZ13lambdaCarriervE3$_1ED2Ev"{{.*}} {
 // SYMBOL-USR-DAG: cir.func{{.*}} @selected{{.*}} {
 // CHECK-DAG: cir.func{{.*}} @selected{{.*}} {
 // CHECK-DAG: cir.func{{.*}} @_ZN6HolderI4LeafEC2EOS1_{{.*}} {
@@ -241,11 +248,37 @@ int lambdaCarrier() {
 // The selected specialization's selector binds its exact body, and its body
 // materializes the matching leaf specialization as a transitive dependency.
 // TEMPLATE-SYMBOL: cir.selected_decl_root_definitions = {_Z6rootedIiEiT_ = "_Z6rootedIiEiT_"}
-// TEMPLATE-SYMBOL-DAG: cir.func{{.*}} @_Z6rootedIiEiT_{{.*}} {
-// TEMPLATE-SYMBOL-DAG: cir.func{{.*}} @_Z4leafIiEiT_{{.*}} {
+// TEMPLATE-SYMBOL-LABEL: cir.func{{.*}} @_Z6rootedIiEiT_(
+// TEMPLATE-SYMBOL-SAME: ast_decl_linkage_name = "_Z6rootedIiEiT_"
+// TEMPLATE-SYMBOL-SAME: ast_decl_specialization_identity = {mangled_name = "_Z6rootedIiEiT_", poi = "{{[^"]+}}", template_pattern_usr = "c:@FT@>1#Trooted#t0.0#I#", usr = "c:@F@rooted<#I>#I#"}
+// TEMPLATE-SYMBOL-SAME: ast_decl_usr = "c:@F@rooted<#I>#I#"
+// TEMPLATE-SYMBOL: cir.call @_Z4leafIiEiT_({{.*}}ast_callee_usr = "c:@F@leaf<#I>#I#"
+// TEMPLATE-SYMBOL-LABEL: cir.func{{.*}} @_Z4leafIiEiT_(
+// TEMPLATE-SYMBOL-SAME: ast_decl_linkage_name = "_Z4leafIiEiT_"
+// TEMPLATE-SYMBOL-SAME: ast_decl_specialization_identity = {mangled_name = "_Z4leafIiEiT_", poi = "{{[^"]+}}", template_pattern_usr = "c:@FT@>1#Tleaf#t0.0#I#", usr = "c:@F@leaf<#I>#I#"}
+// TEMPLATE-SYMBOL-SAME: ast_decl_usr = "c:@F@leaf<#I>#I#"
 // TEMPLATE-USR: cir.selected_decl_root_definitions = {"usr:c:@F@rooted<#L>#L#" = "_Z6rootedIlEiT_"}
-// TEMPLATE-USR-DAG: cir.func{{.*}} @_Z6rootedIlEiT_{{.*}} {
-// TEMPLATE-USR-DAG: cir.func{{.*}} @_Z4leafIlEiT_{{.*}} {
+// TEMPLATE-USR-LABEL: cir.func{{.*}} @_Z6rootedIlEiT_(
+// TEMPLATE-USR-SAME: ast_decl_linkage_name = "_Z6rootedIlEiT_"
+// TEMPLATE-USR-SAME: ast_decl_specialization_identity = {mangled_name = "_Z6rootedIlEiT_", poi = "{{[^"]+}}", template_pattern_usr = "c:@FT@>1#Trooted#t0.0#I#", usr = "c:@F@rooted<#L>#L#"}
+// TEMPLATE-USR-SAME: ast_decl_usr = "c:@F@rooted<#L>#L#"
+// TEMPLATE-USR: cir.call @_Z4leafIlEiT_({{.*}}ast_callee_usr = "c:@F@leaf<#L>#L#"
+// TEMPLATE-USR-LABEL: cir.func{{.*}} @_Z4leafIlEiT_(
+// TEMPLATE-USR-SAME: ast_decl_linkage_name = "_Z4leafIlEiT_"
+// TEMPLATE-USR-SAME: ast_decl_specialization_identity = {mangled_name = "_Z4leafIlEiT_", poi = "{{[^"]+}}", template_pattern_usr = "c:@FT@>1#Tleaf#t0.0#I#", usr = "c:@F@leaf<#L>#L#"}
+// TEMPLATE-USR-SAME: ast_decl_usr = "c:@F@leaf<#L>#L#"
+
+// The selected root definition is the concrete FunctionDecl that owns the
+// expanded int pack. Its exact specialization tuple and its resolved call edge
+// must agree; neither the template pattern nor the long specialization may be
+// emitted as a same-spelling substitute.
+// PACK: cir.selected_decl_root_definitions = {"usr:c:@S@ObservedFunctorTraits>#$@S@ObservedFunctor@F@Invoke<#S0_#p1I>#&&S0_#&&I#S" = "_ZN21ObservedFunctorTraitsI15ObservedFunctorE6InvokeIS0_JiEEEiOT_DpOT0_"}
+// PACK-LABEL: cir.func no_inline comdat linkonce_odr @
+// PACK-SAME: [[PACK_INVOKE:_ZN21ObservedFunctorTraitsI15ObservedFunctorE6InvokeIS0_JiEEEiOT_DpOT0_]](
+// PACK-SAME: ast_decl_linkage_name = "[[PACK_INVOKE]]"
+// PACK-SAME: ast_decl_specialization_identity = {mangled_name = "[[PACK_INVOKE]]", poi = "{{[^"]+}}", template_pattern_usr = "c:@ST>1#T@ObservedFunctorTraits@FT@>2#T#pTInvoke#&&t1.0#P&&t1.1#I#S", usr = "c:@S@ObservedFunctorTraits>#$@S@ObservedFunctor@F@Invoke<#S0_#p1I>#&&S0_#&&I#S"}
+// PACK-SAME: ast_decl_usr = "c:@S@ObservedFunctorTraits>#$@S@ObservedFunctor@F@Invoke<#S0_#p1I>#&&S0_#&&I#S"
+// PACK: cir.call @_ZNK15ObservedFunctorclEi({{.*}}ast_callee_usr = "c:@S@ObservedFunctor@F@operator()#I#1"
 
 // The exact C-linkage selector owns one authenticated definition even inside
 // an inline ABI namespace. Emitting that body discovers the concrete int

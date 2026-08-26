@@ -751,6 +751,8 @@ void CIRGenModule::emitGlobal(clang::GlobalDecl gd) {
     }
   } else {
     const auto *vd = cast<VarDecl>(global);
+    if (isSelectedVariableTemplatePattern(vd))
+      return;
     assert(vd->isFileVarDecl() && "Cannot emit local var decl as global.");
     // A selected pre-C++17-style in-class static const member owns an exact
     // initializer fact but not a strong storage definition. Materialize that
@@ -4485,6 +4487,8 @@ bool CIRGenModule::hasEmitCapableSelectedDeclDefinition(GlobalDecl gd) const {
   }
 
   const auto *variable = cast<VarDecl>(decl);
+  if (isSelectedVariableTemplatePattern(variable))
+    return false;
   if (variable->isStaticLocal())
     return false;
   if (variable->getDefinition())
@@ -4551,6 +4555,16 @@ bool CIRGenModule::isSelectedStaticDataMemberDeclaration(
   return initializingDecl->evaluateValue() != nullptr;
 }
 
+bool CIRGenModule::isSelectedVariableTemplatePattern(
+    const VarDecl *variable) const {
+  // A partial specialization declaration is still a dependent template
+  // pattern. It does not own storage, even though VarDecl classifies it as a
+  // definition and exposes its dependent initializer. Concrete
+  // specializations instantiated from this pattern are ordinary
+  // VarTemplateSpecializationDecls and remain emit-capable.
+  return selectedDeclRootMode &&
+         isa_and_nonnull<VarTemplatePartialSpecializationDecl>(variable);
+}
 
 void CIRGenModule::addSelectedDeclDependency(GlobalDecl gd) {
   if (!selectedDeclRootMode || !hasEmitCapableSelectedDeclDefinition(gd))
@@ -4913,6 +4927,14 @@ void CIRGenModule::diagnoseUnemittedSelectedDeclRoots() {
         "failed to emit exact selected declaration symbol '%0': one "
         "identity-authenticated CIR definition was required");
     diags.Report(diagID) << root.getKey();
+    if (auto pairedUSR = selectedDeclRootUSRBySymbol.find(root.getKey());
+        pairedUSR != selectedDeclRootUSRBySymbol.end()) {
+      unsigned usrDiagID = diags.getCustomDiagID(
+          DiagnosticsEngine::Error,
+          "failed to emit exact selected declaration USR '%0': one "
+          "identity-authenticated CIR definition was required");
+      diags.Report(usrDiagID) << pairedUSR->getValue();
+    }
     if (getenv("AENEAS_SELECTED_NEAR_MISS")) {
       llvm::StringRef prefix = root.getKey().take_front(72);
       theModule.walk([&](cir::FuncOp function) {
@@ -5123,6 +5145,8 @@ void CIRGenModule::emitSelectedMethods(
   llvm::SmallVector<GlobalDecl, 16> parseOnlyMethods;
   llvm::DenseSet<GlobalDecl> visitedParseOnlyMethods;
   llvm::DenseSet<const FunctionDecl *> scannedFunctionBodies;
+  llvm::SmallVector<GlobalDecl, 16> directCallees;
+  llvm::DenseSet<GlobalDecl> visitedDirectCallees;
 
   auto enqueueContext = [&](const DeclContext *declContext) {
     if (visitedContexts.insert(declContext).second)
@@ -5207,9 +5231,11 @@ void CIRGenModule::emitSelectedMethods(
     struct BodyDeclCollector : RecursiveASTVisitor<BodyDeclCollector> {
       llvm::SmallVector<const FunctionDecl *, 8> &lambdas;
       llvm::SmallVector<Decl *, 8> &declarations;
+      llvm::SmallVector<const FunctionDecl *, 8> &callees;
       BodyDeclCollector(llvm::SmallVector<const FunctionDecl *, 8> &lambdas,
-                        llvm::SmallVector<Decl *, 8> &declarations)
-          : lambdas(lambdas), declarations(declarations) {}
+                        llvm::SmallVector<Decl *, 8> &declarations,
+                        llvm::SmallVector<const FunctionDecl *, 8> &callees)
+          : lambdas(lambdas), declarations(declarations), callees(callees) {}
       bool VisitLambdaExpr(LambdaExpr *lambda) {
         lambdas.push_back(lambda->getCallOperator());
         return true;
@@ -5218,10 +5244,16 @@ void CIRGenModule::emitSelectedMethods(
         declarations.push_back(decl);
         return true;
       }
+      bool VisitCallExpr(CallExpr *call) {
+        if (const FunctionDecl *callee = call->getDirectCallee())
+          callees.push_back(callee);
+        return true;
+      }
     };
     llvm::SmallVector<const FunctionDecl *, 8> lambdas;
     llvm::SmallVector<Decl *, 8> declarations;
-    BodyDeclCollector collector(lambdas, declarations);
+    llvm::SmallVector<const FunctionDecl *, 8> callees;
+    BodyDeclCollector collector(lambdas, declarations, callees);
     collector.TraverseStmt(const_cast<Stmt *>(definition->getBody()));
     for (const FunctionDecl *lambda : lambdas) {
       enqueueFunction(lambda);
@@ -5236,6 +5268,19 @@ void CIRGenModule::emitSelectedMethods(
         enqueueClassTemplate(classTemplate);
       if (auto *nested = dyn_cast<DeclContext>(decl))
         enqueueContext(nested);
+    }
+    for (const FunctionDecl *callee : callees) {
+      // Ordinary callees are materialized by their call lowering. This
+      // producer-side supplement is specifically for an exact concrete
+      // function-template specialization whose pattern body was discarded.
+      // Structor calls additionally require an ABI variant chosen by CIRGen.
+      if (!callee->getPrimaryTemplate() ||
+          isa<CXXConstructorDecl, CXXDestructorDecl>(callee))
+        continue;
+      GlobalDecl calleeGD(callee);
+      GlobalDecl canonical = calleeGD.getCanonicalDecl();
+      if (visitedDirectCallees.insert(canonical).second)
+        directCallees.push_back(calleeGD);
     }
   };
 
@@ -5458,6 +5503,23 @@ void CIRGenModule::emitSelectedMethods(
     if (!madeProgress)
       break;
   }
+
+  // A selected template body can retain an exact concrete direct callee even
+  // when -skip-function-bodies discarded the callee's template pattern body.
+  // Materialize that typed FunctionDecl through the ordinary declaration path
+  // now. Call lowering may already have created its declaration while the
+  // caller was active; createCIRFunction deliberately inserts such a
+  // declaration before the caller, and later definition emission upgrades the
+  // operation in place. Move the exact operation to this completed frontier so
+  // the selected caller and its call precede the discovered callee without
+  // creating a second FuncOp.
+  for (GlobalDecl callee : directCallees) {
+    cir::FuncOp function = getAddrOfFunction(callee);
+    mlir::Block *moduleBody = theModule.getBody();
+    if (function && function->getBlock() == moduleBody &&
+        function.getOperation() != &moduleBody->back())
+      function->moveAfter(&moduleBody->back());
+  }
 }
 
 void CIRGenModule::emitSelectedVariables(const DeclContext *context) {
@@ -5482,6 +5544,8 @@ void CIRGenModule::emitSelectedVariables(const DeclContext *context) {
       contexts.push_back(declContext);
   };
   auto enqueueVariable = [&](const VarDecl *variable) {
+    if (isSelectedVariableTemplatePattern(variable))
+      return;
     if (!variable->isFileVarDecl() && !variable->isStaticDataMember())
       return;
     if (variable->isThisDeclarationADefinition() ==

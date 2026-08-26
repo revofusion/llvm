@@ -542,7 +542,7 @@ public:
         e->getType().isDestructedType() == QualType::DK_nontrivial_c_struct;
     isExternallyDestructed |= destructNonTrivialCStruct;
 
-    cgf.emitIfOnBoolExpr(
+    cir::IfOp conditional = cgf.emitIfOnBoolExpr(
         e->getCond(),
         /*thenBuilder=*/
         [&](mlir::OpBuilder &b, mlir::Location loc) {
@@ -579,6 +579,7 @@ public:
           eval.endEvaluation();
         },
         loc);
+    cgf.cgm.setConditionalExprMetadata(conditional.getOperation(), e);
 
     if (destructNonTrivialCStruct)
       cgf.cgm.errorNYI(
