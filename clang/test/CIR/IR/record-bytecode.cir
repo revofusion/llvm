@@ -1,0 +1,18 @@
+// RUN: cir-opt %s --emit-bytecode | cir-opt --verify-roundtrip | FileCheck %s
+// RUN: cir-opt %s --emit-bytecode | cir-opt --emit-bytecode | cir-opt | FileCheck %s
+
+// Nested-only definitions must survive the mutable-type textual bytecode
+// encoding. Repeated members form a DAG, and Graph also has a genuine cycle.
+!leaf = !cir.struct<"Leaf" {!cir.int<s, 32>}>
+!pair = !cir.struct<"Pair" {!leaf, !leaf}>
+!choice = !cir.union<"Choice" {!leaf, !cir.int<u, 8>}>
+!graph = !cir.struct<class "Graph" {!pair, !pair, !choice, !choice, !cir.ptr<!cir.struct<class "Graph">>}>
+!forward = !cir.struct<"Forward" incomplete>
+
+// CHECK-DAG: !rec_Leaf = !cir.struct<"Leaf" {!s32i}>
+// CHECK-DAG: !rec_Pair = !cir.struct<"Pair" {!rec_Leaf, !rec_Leaf}>
+// CHECK-DAG: !rec_Choice = !cir.union<"Choice" {!rec_Leaf, !u8i}>
+// CHECK-DAG: !rec_Graph = !cir.struct<class "Graph" {!rec_Pair, !rec_Pair, !rec_Choice, !rec_Choice, !cir.ptr<!cir.struct<class "Graph">>}>
+// CHECK-DAG: !rec_Forward = !cir.struct<"Forward" incomplete>
+module attributes {test.record = !graph, test.forward = !cir.ptr<!forward>} {
+}

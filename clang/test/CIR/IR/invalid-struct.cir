@@ -88,3 +88,17 @@ module  {
     cir.return
   }
 }
+
+// -----
+
+// A bare reference may reuse a completed or actively recursive record, but
+// must not manufacture a definition for an unknown record.
+// expected-error @below {{invalid self-reference within record}}
+!unknown = !cir.struct<"Unknown">
+module {}
+
+// -----
+
+// expected-error @below {{invalid self-reference within record}}
+!unknown = !cir.union<"Unknown">
+module {}

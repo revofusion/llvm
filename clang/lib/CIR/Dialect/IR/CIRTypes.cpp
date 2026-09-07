@@ -25,6 +25,7 @@
 #include "clang/CIR/MissingFeatures.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/APSInt.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -149,6 +150,7 @@ parseRecordBody(mlir::AsmParser &parser, bool &incomplete,
 /// where body is "incomplete" or "{members[, padding = {type}]}".
 /// RecordTy must be a mutable MLIR type (StructType or UnionType).
 static thread_local unsigned recordPrintDepth = 0;
+static thread_local llvm::SmallDenseSet<mlir::Type, 16> printedRecordDefinitions;
 
 template <typename RecordTy>
 static void printRecordBody(mlir::AsmPrinter &printer, RecordTy self,
@@ -167,16 +169,23 @@ static void printRecordBody(mlir::AsmPrinter &printer, RecordTy self,
     printer << '>';
     return;
   }
-  if (recordPrintDepth != 0 && name &&
-      !printer.isAliasDiscoveryPrinter()) {
-    printer << " incomplete>";
-    return;
-  }
   struct RecordPrintDepthGuard {
     explicit RecordPrintDepthGuard(unsigned &depth) : depth(depth) { ++depth; }
-    ~RecordPrintDepthGuard() { --depth; }
+    ~RecordPrintDepthGuard() {
+      if (--depth == 0)
+        printedRecordDefinitions.clear();
+    }
     unsigned &depth;
   } depthGuard(recordPrintDepth);
+  // Mutable types use textual bytecode encoding without numbering their
+  // nested types. Preserve the first definition of each named record in this
+  // root, then reference it on subsequent visits so shared DAGs stay linear.
+  // Actual cycles are handled by the cyclic-print guard above.
+  if (name && !isIncomplete && !printer.isAliasDiscoveryPrinter() &&
+      !printedRecordDefinitions.insert(self).second) {
+    printer << '>';
+    return;
+  }
 
   if (hasClassPrefix || name)
     printer << ' ';
@@ -218,10 +227,10 @@ Type StructType::parse(mlir::AsmParser &parser) {
   mlir::StringAttr name;
   parser.parseOptionalAttribute(name);
 
-  // Self-reference: ensure the referenced type was already parsed.
+  // Reference an already-completed definition or an active recursive one.
   if (name && parser.parseOptionalGreater().succeeded()) {
     StructType type = StructType::getChecked(eLoc, context, name, is_class);
-    if (succeeded(parser.tryStartCyclicParse(type))) {
+    if (type.isIncomplete() && succeeded(parser.tryStartCyclicParse(type))) {
       parser.emitError(loc, "invalid self-reference within record");
       return {};
     }
@@ -354,10 +363,10 @@ Type UnionType::parse(mlir::AsmParser &parser) {
   mlir::StringAttr name;
   parser.parseOptionalAttribute(name);
 
-  // Self-reference.
+  // Reference an already-completed definition or an active recursive one.
   if (name && parser.parseOptionalGreater().succeeded()) {
     UnionType type = UnionType::getChecked(eLoc, context, name);
-    if (succeeded(parser.tryStartCyclicParse(type))) {
+    if (type.isIncomplete() && succeeded(parser.tryStartCyclicParse(type))) {
       parser.emitError(loc, "invalid self-reference within record");
       return {};
     }
